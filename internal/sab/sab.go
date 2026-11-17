@@ -166,15 +166,6 @@ func ConfigCandidates() []string {
 		if pd := os.Getenv("ProgramData"); pd != "" {
 			c = append(c, filepath.Join(pd, "sabnzbd", "sabnzbd.ini"))
 		}
-		// Encorr may run as another user (or a service): look in every profile.
-		sys := os.Getenv("SystemDrive")
-		if sys == "" {
-			sys = "C:"
-		}
-		if m, _ := filepath.Glob(filepath.Join(sys+`\`, "Users", "*", "AppData", "Local", "sabnzbd", "sabnzbd.ini")); m != nil {
-			c = append(c, m...)
-		}
-		c = append(c, `C:\Program Files\SABnzbd\sabnzbd.ini`)
 	} else {
 		if home, err := os.UserHomeDir(); err == nil {
 			c = append(c, filepath.Join(home, ".sabnzbd", "sabnzbd.ini"), filepath.Join(home, ".config", "sabnzbd", "sabnzbd.ini"))

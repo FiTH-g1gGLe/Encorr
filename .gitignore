@@ -2,3 +2,4 @@
 *.exe
 /encorr
 /encorr-fake
+cmd/encorr/*.syso

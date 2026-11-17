@@ -38,6 +38,14 @@ jobs:
         with:
           go-version: "1.24"
           cache: false
+      - name: Windows details (name, publisher, version, icon)
+        # A program with proper version details and an icon looks like normal
+        # software to antivirus; a bare unlabelled exe gets flagged more often.
+        run: |
+          go install github.com/tc-hib/go-winres@v0.3.3
+          go-winres make --in build/winres/winres.json --out cmd/encorr/rsrc --arch amd64 \
+            --file-version "${VERSION}.0" --product-version "${VERSION}.0"
+          ls -la cmd/encorr/
       - name: Build Windows (TMDB key comes from the repo secret, never committed)
         env:
           GOOS: windows
@@ -47,7 +55,7 @@ jobs:
           TMDB_KEY: ${{ secrets.TMDB_READ_TOKEN || secrets.TMDB_API_KEY }}
         run: |
           if [ -z "$TMDB_KEY" ]; then echo "No TMDB secret set: users will be asked for a key"; else echo "TMDB key bundled"; fi
-          LDF="-s -w -X github.com/FiTH-g1gGLe/encorr/internal/app.Version=${VERSION} -X github.com/FiTH-g1gGLe/encorr/internal/tmdb.BuiltInKey=${TMDB_KEY}"
+          LDF="-X github.com/FiTH-g1gGLe/encorr/internal/app.Version=${VERSION} -X github.com/FiTH-g1gGLe/encorr/internal/tmdb.BuiltInKey=${TMDB_KEY}"
           mkdir -p out dist
           go build -trimpath -ldflags "$LDF" -o out/encorr.exe ./cmd/encorr
           cp README.md TESTING.md LICENSE out/
