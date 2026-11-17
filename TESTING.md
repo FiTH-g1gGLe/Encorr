@@ -1,10 +1,10 @@
-# Testing Encorr 0.1.0 on your server
+# Testing Encorr 0.1.1 on your server
 
 This takes about 20 minutes. Encorr runs **alongside** Ombi (Ombi uses port 5000, Encorr uses 5150), so nothing you have now is touched.
 
 ## Before you start
 
-- **A TMDB key** (free): sign up at themoviedb.org → your profile → Settings → API → request a key. Either the "API Key" or the "API Read Access Token" works.
+- No TMDB key needed: Encorr has one built in.
 - **Optional, a Discord webhook**: in your Discord server, open a channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.
 
 ## 1. Start it
@@ -21,7 +21,6 @@ This takes about 20 minutes. Encorr runs **alongside** Ombi (Ombi uses port 5000
 | Welcome | Sign in with Plex | A Plex window opens; approve it and you're back in the wizard |
 | Server | Press **Use this** on your server | "Connected to …" |
 | Libraries | Leave them all on, press Continue | |
-| TMDB | Paste your key | "TMDB key works" |
 | Radarr | It should find Radarr by itself | Address and key filled in, "Connected to Radarr", your quality profiles and folders in the dropdowns |
 | Sonarr | Same as Radarr | "Connected to Sonarr" |
 | Discord | Paste the webhook, press **Send test message** | A test message appears in the channel |

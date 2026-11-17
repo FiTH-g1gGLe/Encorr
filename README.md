@@ -9,7 +9,7 @@ Encorr is a media request app for Plex. Your friends and family ask for a film o
 - Sets itself up: sign in with Plex, and it finds Radarr and Sonarr on the same machine for you.
 - Dark frosted-glass look, with a violet or coral accent.
 
-> Version 0.1.0 is the first test build. See [TESTING.md](TESTING.md) for how to try it on your server.
+> Version 0.1.1 is an early test build. See [TESTING.md](TESTING.md) for how to try it on your server.
 
 ## Quick start (Windows)
 
