@@ -73,14 +73,23 @@ func (a *App) settings() store.Settings {
 // TMDB returns a client for the saved key (rebuilt when the key changes).
 func (a *App) TMDB() *tmdb.Client {
 	s := a.settings()
-	sig := string(s.TMDBKey) + "|" + s.Language + "|" + s.Region
+	key := tmdbKey(s)
+	sig := key + "|" + s.Language + "|" + s.Region
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.tmdbC == nil || a.tmdbSig != sig {
-		a.tmdbC = tmdb.New(string(s.TMDBKey), s.Language, s.Region)
+		a.tmdbC = tmdb.New(key, s.Language, s.Region)
 		a.tmdbSig = sig
 	}
 	return a.tmdbC
+}
+
+// tmdbKey is the user's own key if they set one, otherwise Encorr's built-in key.
+func tmdbKey(s store.Settings) string {
+	if s.TMDBKey != "" {
+		return string(s.TMDBKey)
+	}
+	return tmdb.BuiltInKey
 }
 
 func arrClient(name string, s store.ArrSettings) *arr.Client {

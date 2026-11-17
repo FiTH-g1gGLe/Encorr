@@ -60,12 +60,15 @@ func (a *App) Health(ctx context.Context) []Check {
 	go func() { // TMDB
 		defer wg.Done()
 		c := Check{Name: "TMDB (film info and posters)"}
-		if s.TMDBKey == "" {
+		if tmdbKey(s) == "" {
 			c.Status, c.Message, c.Fix = "error", "No TMDB key saved.", "Get a free key at themoviedb.org → Settings → API, then add it in Settings → General."
 		} else if err := a.TMDB().Validate(ctx); err != nil {
 			c.Status, c.Message, c.Fix = "error", err.Error(), "Check the key in Settings → General."
 		} else {
-			c.Status, c.Message = "ok", "Key works."
+			c.Status, c.Message = "ok", "Working."
+			if s.TMDBKey == "" {
+				c.Message = "Working (using Encorr's built-in key)."
+			}
 		}
 		checks[1] = c
 	}()

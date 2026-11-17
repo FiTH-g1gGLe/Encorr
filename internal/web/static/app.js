@@ -693,8 +693,10 @@ function bindDiscord(root) {
 }
 
 function tmdbForm(saved) {
-  return `<label class="field"><span>TMDB API key</span><input type="password" id="tmdbKey" placeholder="${saved && saved.hasKey ? "Saved (" + esc(saved.keyHint) + "). Paste a new one to replace it." : "Paste your TMDB API key"}" autocomplete="off">
-    <small>Free: sign up at <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a>, then Settings → API → create a key (either the “API Key” or the “Read Access Token” works).</small></label>`;
+  const builtIn = saved && saved.builtIn;
+  return `<label class="field"><span>${builtIn ? "Your own TMDB key (optional)" : "TMDB API key"}</span><input type="password" id="tmdbKey" placeholder="${saved && saved.hasKey ? "Saved (" + esc(saved.keyHint) + "). Paste a new one to replace it." : builtIn ? "Leave blank to use Encorr's built-in key" : "Paste your TMDB API key"}" autocomplete="off">
+    <small>${builtIn ? "Encorr has its own key built in, so you don't need one. Only add yours if you'd rather use your own." : `Free: sign up at <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a>, then Settings → API → create a key (either the “API Key” or the “Read Access Token” works).`}</small></label>
+    ${builtIn && saved.hasKey ? `<button class="btn sm" id="tmdbReset" type="button">Use the built-in key instead</button>` : ""}`;
 }
 
 async function serverPicker(root, onPicked) {
@@ -732,6 +734,7 @@ const saveLibraries = (root) => api("/settings/plex/libraries", { method: "PUT",
 
 // ---------- setup wizard ----------
 const STEPS = ["signin", "server", "libraries", "tmdb", "radarr", "sonarr", "discord", "done"];
+const STEPS_BACK = {};
 
 async function renderWizard(stepName) {
   setBackdrop(null);
@@ -752,7 +755,7 @@ async function renderWizard(stepName) {
         <div>${back && idx > 1 ? `<button class="btn" id="wBack">Back</button>` : ""}</div>
         <div class="row">${skip ? `<button class="btn" id="wSkip">Skip for now</button>` : ""}${next ? `<button class="btn primary" id="wNext">${esc(next)}</button>` : ""}</div>
       </div></div></div>`;
-    const b = qs("#wBack"); if (b) b.addEventListener("click", () => go(STEPS[idx - 1]));
+    const b = qs("#wBack"); if (b) b.addEventListener("click", () => go(STEPS_BACK[step] || STEPS[idx - 1]));
     const s = qs("#wSkip"); if (s) s.addEventListener("click", () => go(STEPS[idx + 1]));
     return qs("#wbody");
   };
@@ -780,7 +783,7 @@ async function renderWizard(stepName) {
   }
   if (step === "libraries") {
     const body = shell("Which libraries?", "Encorr watches these to know what's already in Plex. Most people leave them all on.", librariesForm(settings.plex.libraries));
-    onNext(async () => { await saveLibraries(body); go("tmdb"); });
+    onNext(async () => { await saveLibraries(body); go(settings.tmdb.builtIn ? "radarr" : "tmdb"); });
     return;
   }
   if (step === "tmdb") {
@@ -798,6 +801,7 @@ async function renderWizard(stepName) {
   }
   if (step === "radarr" || step === "sonarr") {
     const name = step === "radarr" ? "Radarr" : "Sonarr";
+    if (step === "radarr" && settings.tmdb.builtIn) STEPS_BACK.radarr = "libraries";
     const body = shell(`Connect ${name}`, `${step === "radarr" ? "Films" : "TV shows"} get downloaded through ${name}. If it's on this computer, Encorr can find it for you.`, arrForm(step, settings[step]), { skip: true });
     const save = bindArrForm(body, step, settings[step]);
     if (!settings[step].url) qs('[data-a="detect"]', body).click();
@@ -857,6 +861,10 @@ async function pageSettings(main, section) {
       qsa("[data-acc]").forEach((x) => x.classList.toggle("on", x === el));
       document.documentElement.dataset.accent = accent;
     }));
+    const rb = qs("#tmdbReset");
+    if (rb) rb.addEventListener("click", async () => {
+      try { await api("/settings/tmdb", { method: "PUT", body: { key: "" } }); toast("Using the built-in TMDB key", "ok"); route(); } catch (e) { toast(e.message, "error"); }
+    });
     onSave(async () => {
       await api("/settings/general", { method: "PUT", body: { accent, appUrl: qs("#appUrl").value, region: qs("#region").value, quotas: { friendMovieLimit: Number(qs("#qm").value), friendTvLimit: Number(qs("#qt").value), days: Number(qs("#qd").value) } } });
       const k = qs("#tmdbKey").value.trim();

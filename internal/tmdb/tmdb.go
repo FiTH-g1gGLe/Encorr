@@ -17,6 +17,12 @@ import (
 	"time"
 )
 
+// BuiltInKey is Encorr's own TMDB API key, so nobody has to get one.
+// It can also be set at build time:
+//
+//	go build -ldflags "-X github.com/FiTH-g1gGLe/encorr/internal/tmdb.BuiltInKey=KEY"
+var BuiltInKey = ""
+
 var (
 	BaseURL    = "https://api.themoviedb.org/3"
 	ImageBase  = "https://image.tmdb.org/t/p/"

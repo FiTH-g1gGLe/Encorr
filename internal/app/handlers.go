@@ -620,7 +620,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 		"setupComplete": s.SetupComplete, "appUrl": s.AppURL, "region": s.Region, "language": s.Language,
 		"accent": s.Accent, "quotas": s.Quotas,
 		"plex":    map[string]any{"serverName": s.Plex.ServerName, "machineId": s.Plex.MachineID, "url": s.Plex.URL, "libraries": s.Plex.Libraries},
-		"tmdb":    map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked()},
+		"tmdb":    map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked(), "builtIn": tmdb.BuiltInKey != ""},
 		"radarr":  maskArr(s.Radarr),
 		"sonarr":  maskArr(s.Sonarr),
 		"discord": map[string]any{"enabled": s.Discord.Enabled, "hasWebhook": s.Discord.WebhookURL != "", "webhookHint": s.Discord.WebhookURL.Masked()},
@@ -682,6 +682,11 @@ func (a *App) hSaveTMDB(w http.ResponseWriter, r *http.Request, u *store.User) {
 		return
 	}
 	key := strings.TrimSpace(body.Key)
+	if key == "" { // go back to the built-in key
+		_ = a.Store.Update(func(d *store.Data) error { d.Settings.TMDBKey = ""; return nil })
+		writeJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
 	s := a.settings()
 	if err := tmdb.New(key, s.Language, s.Region).Validate(r.Context()); err != nil {
 		fail(w, userErr("That key didn't work: "+err.Error()))
@@ -984,7 +989,7 @@ func (a *App) hCompleteSetup(w http.ResponseWriter, r *http.Request, u *store.Us
 	case s.Plex.URL == "":
 		fail(w, userErr("Choose your Plex server first."))
 		return
-	case s.TMDBKey == "":
+	case tmdbKey(s) == "":
 		fail(w, userErr("Add a TMDB key first."))
 		return
 	}

@@ -435,7 +435,18 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("secrets stored in plain text")
 	}
 
-	// 20. Web UI is served.
+	// 20. Built-in TMDB key: clearing your own key falls back to it.
+	tmdb.BuiltInKey = "good-key"
+	defer func() { tmdb.BuiltInKey = "" }()
+	owner.ok("PUT", "/settings/tmdb", map[string]any{"key": ""}, nil)
+	var cfg struct{ TMDB struct{ HasKey, BuiltIn bool } }
+	owner.ok("GET", "/settings", nil, &cfg)
+	if cfg.TMDB.HasKey || !cfg.TMDB.BuiltIn {
+		t.Fatalf("tmdb settings: %+v", cfg.TMDB)
+	}
+	owner.ok("GET", "/discover/movies", nil, nil)
+
+	// 21. Web UI is served.
 	resp, err := http.Get(srv.URL + "/requests")
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("web UI: %v %v", err, resp)
