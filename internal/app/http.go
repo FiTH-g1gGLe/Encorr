@@ -60,6 +60,7 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("GET /api/v1/settings/detect/{app}", a.setup(a.hDetect))
 	api("POST /api/v1/settings/{app}/test", a.setup(a.hTestArr))
 	api("PUT /api/v1/settings/arr/{app}", a.setup(a.hSaveArr))
+	api("PUT /api/v1/settings/sabnzbd", a.setup(a.hSaveSAB))
 	api("PUT /api/v1/settings/discord", a.setup(a.hSaveDiscord))
 	api("POST /api/v1/settings/discord/test", a.setup(a.hTestDiscord))
 	api("POST /api/v1/settings/complete", a.setup(a.hCompleteSetup))

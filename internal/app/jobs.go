@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
+	"github.com/FiTH-g1gGLe/encorr/internal/sab"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
 )
 
@@ -35,13 +37,16 @@ func (a *App) setupJobs() {
 	add := func(j *job) { j.trigger = make(chan struct{}, 1); a.jobs[j.Name] = j }
 	add(&job{Name: "plex-recent", Label: "Plex recently added scan", Every: 5 * time.Minute, fn: a.jobPlexRecent})
 	add(&job{Name: "plex-full", Label: "Plex full library scan", Hour: 3, fn: a.jobPlexFull})
-	add(&job{Name: "downloads", Label: "Download progress", Every: time.Minute, fn: a.jobDownloads})
+	add(&job{Name: "downloads", Label: "Download progress", Every: 15 * time.Second, fn: a.jobDownloads})
 	add(&job{Name: "watchlists", Label: "Plex watchlist sync", Every: 10 * time.Minute, fn: a.jobWatchlists})
 	add(&job{Name: "cleanup", Label: "Tidy old sessions", Hour: 4, fn: a.jobCleanup})
 }
 
 func (j *job) schedule() string {
 	if j.Every > 0 {
+		if j.Every < time.Minute {
+			return fmt.Sprintf("every %d sec", int(j.Every.Seconds()))
+		}
 		if j.Every < time.Hour {
 			return fmt.Sprintf("every %d min", int(j.Every.Minutes()))
 		}
@@ -175,9 +180,17 @@ func (a *App) enabledLibraries() []store.PlexLibrary {
 
 // resolveTMDB finds the TMDB id for a Plex item, falling back to IMDb.
 func (a *App) resolveTMDB(ctx context.Context, it plex.Item, typ string) int {
-	tmdbID, imdb, _ := it.IDs()
-	if tmdbID > 0 || imdb == "" {
+	tmdbID, imdb, tvdb := it.IDs()
+	if tmdbID > 0 {
 		return tmdbID
+	}
+	if imdb == "" {
+		if typ == store.TypeTV && tvdb > 0 {
+			if id, err := a.TMDB().FindByTVDB(ctx, tvdb); err == nil {
+				return id
+			}
+		}
+		return 0
 	}
 	mv, tv, err := a.TMDB().FindByIMDB(ctx, imdb)
 	if err != nil {
@@ -242,6 +255,7 @@ func (a *App) jobPlexRecent(ctx context.Context) (string, error) {
 			}
 		}
 	}
+	found += a.checkApproved(ctx)
 	return fmt.Sprintf("%d new or updated titles", found), nil
 }
 
@@ -341,38 +355,211 @@ func (a *App) jobPlexFull(ctx context.Context) (string, error) {
 	return fmt.Sprintf("%d films, %d shows in Plex", movies, shows), nil
 }
 
-// jobDownloads polls the Radarr/Sonarr queues for progress bars.
+// jobDownloads polls the Radarr/Sonarr queues (and SABnzbd, when set up)
+// for progress bars, and spots downloads that have just finished.
 func (a *App) jobDownloads(ctx context.Context) (string, error) {
+	a.autoDetectSAB()
 	out := map[string]map[int][]arr.QueueItem{"radarr": {}, "sonarr": {}}
 	var errs []string
 	n := 0
-	if c := a.Radarr(); c != nil {
+	ok := map[string]bool{}
+	for svc, c := range map[string]*arr.Client{"radarr": a.Radarr(), "sonarr": a.Sonarr()} {
+		if c == nil {
+			continue
+		}
 		q, err := c.Queue(ctx)
 		if err != nil {
 			errs = append(errs, err.Error())
+			continue
 		}
+		ok[svc] = true
 		for _, it := range q {
-			out["radarr"][it.MovieID] = append(out["radarr"][it.MovieID], it)
+			id := it.MovieID
+			if svc == "sonarr" {
+				id = it.SeriesID
+			}
+			out[svc][id] = append(out[svc][id], it)
 			n++
 		}
 	}
-	if c := a.Sonarr(); c != nil {
-		q, err := c.Queue(ctx)
+	var snap *sab.Snapshot
+	if c := a.SAB(); c != nil {
+		s, err := c.Snapshot(ctx)
 		if err != nil {
 			errs = append(errs, err.Error())
 		}
-		for _, it := range q {
-			out["sonarr"][it.SeriesID] = append(out["sonarr"][it.SeriesID], it)
-			n++
-		}
+		snap = s
 	}
 	a.mu.Lock()
-	a.downloads = out
+	var finished [][2]any
+	for svc := range ok {
+		for id := range a.downloads[svc] {
+			if _, still := out[svc][id]; !still {
+				a.landed[svc][id] = time.Now()
+				finished = append(finished, [2]any{svc, id})
+			}
+		}
+		for id, t := range a.landed[svc] {
+			if _, again := out[svc][id]; again || time.Since(t) > 6*time.Hour {
+				delete(a.landed[svc], id)
+			}
+		}
+		a.downloads[svc] = out[svc]
+	}
+	a.sabSnap = snap
 	a.mu.Unlock()
+	// Something left the queue: it's been imported, so look for it in Plex
+	// shortly (Plex needs a moment to scan it) rather than waiting for the
+	// next scheduled scan.
+	for _, f := range finished {
+		svc, id := f[0].(string), f[1].(int)
+		typ := store.TypeMovie
+		if svc == "sonarr" {
+			typ = store.TypeTV
+		}
+		a.logf("%s finished downloading item %d; checking Plex for it", svc, id)
+		go a.checkPlexSoon(typ, id)
+	}
 	if len(errs) > 0 {
 		return "", errors.New(strings.Join(errs, "; "))
 	}
 	return fmt.Sprintf("%d downloading", n), nil
+}
+
+// autoDetectSAB fills in SABnzbd by itself the first time it finds it on
+// this machine, so live progress works without an extra setup step.
+func (a *App) autoDetectSAB() {
+	s := a.settings()
+	a.mu.Lock()
+	tried := a.sabTried
+	a.sabTried = true
+	a.mu.Unlock()
+	if s.SABnzbd.URL != "" || tried {
+		return
+	}
+	d := sab.Detect()
+	if !d.Found {
+		return
+	}
+	c := &sab.Client{URL: d.URL, APIKey: d.APIKey}
+	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+	defer cancel()
+	if _, err := c.Test(ctx); err != nil {
+		a.logf("found SABnzbd settings at %s but couldn't connect: %v", d.ConfigPath, err)
+		return
+	}
+	_ = a.Store.Update(func(dd *store.Data) error {
+		dd.Settings.SABnzbd = store.SabSettings{Enabled: true, URL: d.URL, APIKey: store.Secret(d.APIKey), Detected: true}
+		return nil
+	})
+	a.logf("found SABnzbd at %s: progress bars now come straight from it", d.URL)
+}
+
+// checkPlexSoon looks for a just-imported title in Plex a few times.
+func (a *App) checkPlexSoon(typ string, externalID int) {
+	for _, wait := range []time.Duration{40 * time.Second, 2 * time.Minute, 5 * time.Minute} {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		var m *store.Media
+		a.Store.Read(func(d *store.Data) {
+			for _, x := range d.Media {
+				if x.Type == typ && x.ExternalID == externalID {
+					c := *x
+					m = &c
+				}
+			}
+		})
+		if m == nil {
+			return
+		}
+		if a.findInPlex(a.ctx, *m) && a.mediaDone(m.ID) {
+			return
+		}
+	}
+}
+
+// mediaDone reports whether no request for this media is still on its way.
+func (a *App) mediaDone(mediaID int) bool {
+	done := true
+	a.Store.Read(func(d *store.Data) {
+		for _, r := range d.RequestsForMedia(mediaID) {
+			if r.Status == store.ReqApproved {
+				done = false
+			}
+		}
+	})
+	return done
+}
+
+// findInPlex searches Plex by title for one requested title and, when the
+// ids match, updates it (completing requests). It doesn't rely on Plex's
+// "recently added" list, which can miss things.
+func (a *App) findInPlex(ctx context.Context, m store.Media) bool {
+	srv := a.PlexServer()
+	if srv == nil || m.Title == "" {
+		return false
+	}
+	libType, plexType := "movie", 1
+	if m.Type == store.TypeTV {
+		libType, plexType = "show", 2
+	}
+	for _, lib := range a.enabledLibraries() {
+		if lib.Type != libType {
+			continue
+		}
+		items, err := srv.FindByTitle(ctx, lib.Key, plexType, m.Title)
+		if err != nil {
+			a.logf("Plex title search for %q failed: %v", m.Title, err)
+			continue
+		}
+		for _, it := range items {
+			if a.resolveTMDB(ctx, it, m.Type) != m.TMDBID {
+				continue
+			}
+			if m.Type == store.TypeMovie {
+				a.markAvailable(store.TypeMovie, m.TMDBID, it.RatingKey, nil)
+			} else if err := a.refreshShow(ctx, srv, it.RatingKey); err != nil {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// checkApproved looks up every request that's still on its way directly in
+// Plex. Cheap (one search per title) and catches anything the
+// recently-added scan missed.
+func (a *App) checkApproved(ctx context.Context) int {
+	var list []store.Media
+	a.Store.Read(func(d *store.Data) {
+		seen := map[int]bool{}
+		for _, r := range d.Requests {
+			if r.Status != store.ReqApproved || seen[r.MediaID] {
+				continue
+			}
+			seen[r.MediaID] = true
+			if m := d.MediaByID(r.MediaID); m != nil {
+				list = append(list, *m)
+			}
+		}
+	})
+	if len(list) > 60 {
+		list = list[:60]
+	}
+	found := 0
+	for _, m := range list {
+		if ctx.Err() != nil {
+			break
+		}
+		if a.findInPlex(ctx, m) {
+			found++
+		}
+	}
+	return found
 }
 
 // Progress summarises downloads for one Radarr/Sonarr item.
@@ -381,7 +568,54 @@ type Progress struct {
 	TimeLeft string    `json:"timeLeft,omitempty"`
 	ETA      time.Time `json:"eta,omitempty"`
 	Status   string    `json:"status"`
-	Items    int       `json:"items"`
+	// Stage is the plain-English step: Queued, Paused, Downloading,
+	// Unpacking, Importing, Stuck, Waiting for Plex.
+	Stage string `json:"stage"`
+	Speed string `json:"speed,omitempty"` // overall SABnzbd speed, e.g. "182 MB/s"
+	Live  bool   `json:"live"`            // numbers came straight from SABnzbd
+	Items int    `json:"items"`
+	Note  string `json:"note,omitempty"` // Radarr/Sonarr's warning, if any
+}
+
+func fmtSpeed(kb float64) string {
+	switch {
+	case kb <= 0:
+		return ""
+	case kb >= 1024:
+		return fmt.Sprintf("%.0f MB/s", kb/1024)
+	default:
+		return fmt.Sprintf("%.0f KB/s", kb)
+	}
+}
+
+// tidyTime turns "00:04:10" / "1.02:03:04" / "0:00:05" into "4m 10s" style.
+func tidyTime(t string) string {
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return ""
+	}
+	days := 0
+	if d, rest, ok := strings.Cut(t, "."); ok && !strings.Contains(d, ":") {
+		days, _ = strconv.Atoi(d)
+		t = rest
+	}
+	parts := strings.Split(t, ":")
+	if len(parts) != 3 {
+		return t
+	}
+	h, _ := strconv.Atoi(parts[0])
+	m, _ := strconv.Atoi(parts[1])
+	sec, _ := strconv.Atoi(parts[2])
+	h += days * 24
+	switch {
+	case h > 0:
+		return fmt.Sprintf("%dh %dm", h, m)
+	case m > 0:
+		return fmt.Sprintf("%dm %ds", m, sec)
+	case sec > 0:
+		return fmt.Sprintf("%ds", sec)
+	}
+	return ""
 }
 
 func (a *App) progressFor(typ string, externalID int) *Progress {
@@ -394,22 +628,102 @@ func (a *App) progressFor(typ string, externalID int) *Progress {
 	}
 	a.mu.Lock()
 	items := a.downloads[svc][externalID]
+	_, hasLanded := a.landed[svc][externalID]
+	snap := a.sabSnap
 	a.mu.Unlock()
 	if len(items) == 0 {
+		if hasLanded {
+			return &Progress{Percent: 100, Stage: "Waiting for Plex", Status: "imported"}
+		}
 		return nil
 	}
+	p := &Progress{Items: len(items)}
 	var size, left float64
-	p := &Progress{Items: len(items), Status: items[0].Status}
+	stages := map[string]int{}
 	for _, it := range items {
-		size += it.Size
-		left += it.SizeLeft
+		isize, ileft, tl := it.Size, it.SizeLeft, it.TimeLeft
+		stage := ""
+		if snap != nil && it.DownloadID != "" {
+			if sl, ok := snap.Slots[strings.ToLower(it.DownloadID)]; ok {
+				p.Live = true
+				if sl.MB > 0 {
+					isize, ileft = sl.MB*1e6, sl.MBLeft*1e6
+				}
+				tl = sl.TimeLeft
+				switch {
+				case sl.PostProc:
+					stage, ileft, tl = "Unpacking", 0, ""
+				case sl.Status == "Paused" || (snap.Paused && sl.Status == "Queued"):
+					stage = "Paused"
+				case sl.Status == "Queued":
+					stage = "Queued"
+				case sl.Status == "Completed":
+					stage, ileft = "Importing", 0
+				default:
+					stage = "Downloading"
+				}
+			}
+		}
+		if stage == "" {
+			state := strings.ToLower(it.TrackedDownloadState)
+			st := strings.ToLower(it.Status)
+			switch {
+			case state == "importpending" || state == "importing" || state == "imported":
+				stage, ileft = "Importing", 0
+			case state == "failedpending" || state == "failed" || st == "failed":
+				stage = "Failed"
+			case st == "warning":
+				stage = "Stuck"
+			case st == "paused":
+				stage = "Paused"
+			case st == "queued" || st == "delay":
+				stage = "Queued"
+			case st == "completed":
+				stage, ileft = "Importing", 0
+			default:
+				stage = "Downloading"
+			}
+			if strings.ToLower(it.TrackedDownloadState) == "importblocked" {
+				stage = "Stuck"
+			}
+		}
+		if stage == "Stuck" || stage == "Failed" {
+			if p.Note == "" {
+				p.Note = "Check the Activity page in " + map[string]string{"radarr": "Radarr", "sonarr": "Sonarr"}[svc]
+			}
+		}
+		stages[stage]++
+		size += isize
+		left += ileft
+		if tl = tidyTime(tl); tl != "" && (p.TimeLeft == "" || len(tl) > len(p.TimeLeft)) {
+			p.TimeLeft = tl
+		}
 		if it.EstimatedCompletionTime.After(p.ETA) {
 			p.ETA = it.EstimatedCompletionTime
-			p.TimeLeft = it.TimeLeft
+		}
+		p.Status = it.Status
+	}
+	// The overall stage is the least-finished one.
+	for _, s := range []string{"Stuck", "Failed", "Downloading", "Paused", "Queued", "Unpacking", "Importing"} {
+		if stages[s] > 0 {
+			p.Stage = s
+			break
 		}
 	}
 	if size > 0 {
 		p.Percent = int((size - left) / size * 100)
+	}
+	if p.Percent > 100 {
+		p.Percent = 100
+	}
+	if p.Percent < 0 {
+		p.Percent = 0
+	}
+	if p.Stage == "Downloading" && p.Live && snap != nil {
+		p.Speed = fmtSpeed(snap.KBPerSec)
+	}
+	if p.Stage != "Downloading" {
+		p.TimeLeft = ""
 	}
 	return p
 }

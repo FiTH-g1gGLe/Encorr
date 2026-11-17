@@ -128,6 +128,20 @@ func (a *App) Health(ctx context.Context) []Check {
 	}
 	checks[4] = d
 
+	z := Check{Name: "SABnzbd (live progress)"}
+	if c := a.SAB(); c != nil {
+		zctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		if v, err := c.Test(zctx); err != nil {
+			z.Status, z.Message, z.Fix = "warn", err.Error(), "Check the address and API key in Settings → SABnzbd. Progress falls back to Radarr/Sonarr meanwhile."
+		} else {
+			z.Status, z.Message = "ok", "Connected (SABnzbd "+v+"): progress bars are live."
+		}
+		cancel()
+	} else {
+		z.Status, z.Message, z.Fix = "off", "Not connected: progress bars update about once a minute.", "Connect SABnzbd in Settings → SABnzbd for live progress."
+	}
+	checks = append(checks, z)
+
 	// Config folder writable.
 	cf := Check{Name: "Data folder"}
 	test := filepath.Join(a.Store.Dir(), ".write-test")

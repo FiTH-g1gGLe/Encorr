@@ -365,11 +365,21 @@ func (c *Client) TV(ctx context.Context, id int) (*Details, error) { return c.de
 // FindByIMDB maps an IMDb id to a TMDB id (used for watchlist items that only
 // carry an IMDb id).
 func (c *Client) FindByIMDB(ctx context.Context, imdb string) (movieID, tvID int, err error) {
+	return c.find(ctx, imdb, "imdb_id")
+}
+
+// FindByTVDB turns a TVDB id (old Plex TV agent) into a TMDB show id.
+func (c *Client) FindByTVDB(ctx context.Context, tvdb int) (int, error) {
+	_, tv, err := c.find(ctx, strconv.Itoa(tvdb), "tvdb_id")
+	return tv, err
+}
+
+func (c *Client) find(ctx context.Context, id, source string) (movieID, tvID int, err error) {
 	var r struct {
 		Movie []Result `json:"movie_results"`
 		TV    []Result `json:"tv_results"`
 	}
-	if err = c.get(ctx, "/find/"+url.PathEscape(imdb), url.Values{"external_source": {"imdb_id"}}, 24*time.Hour, &r); err != nil {
+	if err = c.get(ctx, "/find/"+url.PathEscape(id), url.Values{"external_source": {source}}, 24*time.Hour, &r); err != nil {
 		return
 	}
 	if len(r.Movie) > 0 {

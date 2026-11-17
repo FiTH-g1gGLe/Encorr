@@ -334,6 +334,24 @@ function pageSearch(main, q) {
 }
 
 // ---------- title page ----------
+// Download progress, in plain English. compact = the small version on the requests list.
+const STAGE_TEXT = { Downloading: "Downloading", Queued: "Queued in SABnzbd", Paused: "Paused", Unpacking: "Unpacking", Importing: "Moving into your library", "Waiting for Plex": "Downloaded: waiting for Plex to pick it up", Stuck: "Stuck", Failed: "Download failed" };
+function progHTML(p, compact) {
+  if (!p) return "";
+  const stage = p.stage || "Downloading";
+  const label = STAGE_TEXT[stage] || stage;
+  const bits = [];
+  if (stage === "Downloading" || stage === "Paused" || stage === "Queued") bits.push(`${p.percent}%`);
+  if (p.timeLeft) bits.push(`${esc(p.timeLeft)} left`);
+  if (p.speed && !compact) bits.push(esc(p.speed));
+  const warn = stage === "Stuck" || stage === "Failed";
+  const busyStage = ["Unpacking", "Importing", "Waiting for Plex"].includes(stage);
+  const bar = `<div class="progress ${busyStage ? "indet" : ""} ${warn ? "warn" : ""}"><div style="width:${busyStage ? 100 : Math.max(2, p.percent)}%"></div></div>`;
+  const note = p.note ? `<div class="small dim" style="margin-top:6px">${esc(p.note)}</div>` : "";
+  if (compact) return `<div class="mini-prog"><div class="row between small"><span class="${warn ? "err" : "muted"}">${esc(label)}</span><span class="dim">${bits.join(" · ")}</span></div>${bar}</div>`;
+  return `<div class="glass dlbox" id="dlbox"><div class="row between small"><strong>${esc(label)}${p.items > 1 ? ` <span class="dim">(${p.items} files)</span>` : ""}</strong><span class="muted">${bits.join(" · ")}</span></div><div style="margin-top:8px">${bar}</div>${note}</div>`;
+}
+
 async function pageTitle(main, type, id) {
   main.innerHTML = `<div class="title-top"><div class="poster skeleton"></div><div><div class="skeleton" style="height:40px;width:60%"></div><div class="skeleton" style="height:16px;width:40%;margin-top:14px"></div><div class="skeleton" style="height:90px;margin-top:20px"></div></div></div>`;
   let data;
@@ -363,7 +381,7 @@ async function pageTitle(main, type, id) {
 
   const mine = s.myRequest;
   const cancelBtn = mine && mine.status === "pending" ? `<button class="btn sm danger" id="cancelReq">Cancel my request</button>` : "";
-  const prog = s.progress ? `<div class="glass dlbox"><div class="row between small"><strong>Downloading${s.progress.items > 1 ? ` (${s.progress.items} files)` : ""}</strong><span class="muted">${s.progress.percent}%${s.progress.timeLeft ? ` · ${esc(s.progress.timeLeft)} left` : ""}</span></div><div class="progress" style="margin-top:8px"><div style="width:${Math.max(2, s.progress.percent)}%"></div></div></div>` : "";
+  const prog = s.progress ? progHTML(s.progress) : `<div id="dlbox" hidden></div>`;
 
   main.innerHTML = `
   <div class="title-top">
@@ -400,7 +418,22 @@ async function pageTitle(main, type, id) {
     if (!confirmBox("Cancel your request?")) return;
     try { await api(`/requests/${mine.id}`, { method: "DELETE" }); toast("Request cancelled"); route(); } catch (e) { toast(e.message, "error"); }
   });
-  if (s.progress || s.status === "processing") state.timers.push(setInterval(() => { if (location.hash.includes(`/title/${type}/${id}`)) pageTitle(main, type, id); }, 60000));
+  // While it's on its way, update just the progress box every few seconds;
+  // redraw the page once it lands in Plex.
+  if (s.progress || s.status === "processing") {
+    const here = location.hash;
+    const t = setInterval(async () => {
+      if (location.hash !== here) return clearInterval(t);
+      try {
+        const fresh = await api(`/title/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
+        const fs = fresh.status || {};
+        if (fs.status !== s.status) return pageTitle(main, type, id);
+        const box = qs("#dlbox");
+        if (box) box.outerHTML = fs.progress ? progHTML(fs.progress) : `<div id="dlbox" hidden></div>`;
+      } catch (_) {}
+    }, 5000);
+    state.timers.push(t);
+  }
 }
 
 function confirmBox(msg) { return window.confirm(msg); }
@@ -451,7 +484,9 @@ function requestModal(type, d, s) {
 // ---------- requests ----------
 async function pageRequests(main, filter) {
   const admin = isAdmin();
-  const tabs = admin ? [["pending", "Waiting for approval"], ["active", "In progress"], ["all", "All"]] : [["mine", "My requests"], ["all", "Everyone"]];
+  const tabs = admin
+    ? [["pending", "Waiting for approval"], ["active", "In progress"], ["completed", "Completed"], ["all", "All"]]
+    : [["active", "In progress"], ["completed", "Completed"], ["mine", "All mine"], ["all", "Everyone"]];
   filter = filter || tabs[0][0];
   main.innerHTML = `
     <div class="page-head"><div><h1>Requests</h1><div class="muted">${admin ? "Approve, decline and keep an eye on downloads." : "What you've asked for, and where it's up to."}</div></div>
@@ -464,24 +499,31 @@ async function pageRequests(main, filter) {
     try {
       const r = await api("/requests?filter=" + filter);
       if (!r.results.length) {
-        box.innerHTML = `<div class="empty"><div class="big">🎟️</div>${filter === "pending" ? "Nothing waiting for approval." : "No requests here yet."}<div style="margin-top:14px"><a class="btn primary" href="#/discover">Find something to request</a></div></div>`;
+        const msg = { pending: "Nothing waiting for approval.", active: "Nothing on its way right now.", completed: "Nothing completed yet. Finished requests land here." }[filter] || "No requests here yet.";
+        box.innerHTML = `<div class="empty"><div class="big">🎟️</div>${msg}<div style="margin-top:14px"><a class="btn primary" href="#/discover">Find something to request</a></div></div>`;
         return;
       }
       box.innerHTML = r.results.map(reqRow).join("");
       bindReqActions(box, load);
+      // Quick refresh while something is downloading, slow otherwise.
+      const fast = r.results.some((x) => x.progress);
+      if (fast !== state.reqFast) { state.reqFast = fast; restart(); }
     } catch (e) {
       box.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
     }
   };
+  let timer;
+  const restart = () => { clearInterval(timer); timer = setInterval(load, state.reqFast ? 5000 : 30000); state.timers.push(timer); };
+  state.reqFast = false;
+  restart();
   await load();
-  state.timers.push(setInterval(load, 30000));
 }
 
 function reqRow(r) {
   const admin = isAdmin();
   const p = img(r.poster, "w185");
   const statusMap = { pending: "pending", approved: "approved", declined: "declined", failed: "failed", completed: "completed" };
-  const prog = r.progress ? `<div style="width:180px"><div class="row between small"><span class="muted">${r.progress.percent}%</span><span class="dim">${esc(r.progress.timeLeft || "")}</span></div><div class="progress" style="margin-top:4px"><div style="width:${Math.max(2, r.progress.percent)}%"></div></div></div>` : "";
+  const prog = progHTML(r.progress, true);
   let actions = "";
   if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}">${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}">Decline</button>`;
   else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}">Retry</button>`;
@@ -830,7 +872,7 @@ async function renderWizard(stepName) {
 }
 
 // ---------- settings pages ----------
-const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["discord", "Discord"], ["health", "Health"], ["jobs", "Jobs & backup"]];
+const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
   main.innerHTML = `<div class="page-head"><div><h1>Settings</h1></div></div>
@@ -889,6 +931,37 @@ async function pageSettings(main, section) {
     panel.innerHTML = `<h2>${name}</h2>${arrForm(section, s[section])}${saveBar()}`;
     const save = bindArrForm(panel, section, s[section]);
     onSave(save, `${name} saved`);
+  }
+  if (section === "sabnzbd") {
+    const z = s.sabnzbd || {};
+    panel.innerHTML = `<h2>SABnzbd <span class="dim small" style="font-weight:500">optional</span></h2>
+      <p class="lead">Radarr and Sonarr only update their download list about once a minute. Connect SABnzbd and progress bars, speed and time left come straight from it, live.</p>
+      ${z.detected ? `<div class="notice ok">Encorr found SABnzbd on this machine and connected it for you.</div>` : ""}
+      <div class="row between"><div><strong>Live progress from SABnzbd</strong></div>
+        <label class="switch"><input type="checkbox" id="zOn" ${z.enabled ? "checked" : ""}><span class="slider"></span></label></div>
+      <label class="field"><span>Address</span><input type="url" id="zUrl" value="${esc(z.url || "")}" placeholder="http://localhost:8080/sabnzbd"></label>
+      <label class="field"><span>API key</span><input type="text" id="zKey" autocomplete="off" placeholder="${z.hasKey ? "Saved (" + esc(z.keyHint) + "). Leave blank to keep it." : "SABnzbd → Config → General → API Key"}"></label>
+      <div class="row"><button class="btn" id="zDetect">Find it automatically</button><button class="btn" id="zTest">Test</button></div>
+      <div id="zMsg" style="margin-top:12px"></div>${saveBar()}`;
+    const msg = (html) => (qs("#zMsg").innerHTML = html);
+    qs("#zDetect").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Looking…");
+      try {
+        const d = await api("/settings/detect/sabnzbd");
+        if (d.found) { qs("#zUrl").value = d.url; qs("#zKey").value = d.apiKey; qs("#zOn").checked = true; }
+        msg(d.found && !d.note ? `<div class="notice ok">Found it at ${esc(d.url)}. Press Save.</div>` : `<div class="notice warn">${esc(d.note || "Not found.")}</div>`);
+      } catch (err) { msg(`<div class="notice error">${esc(err.message)}</div>`); }
+      busy(e.currentTarget, false);
+    });
+    qs("#zTest").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Testing…");
+      try {
+        const r = await api("/settings/sabnzbd/test", { method: "POST", body: { url: qs("#zUrl").value, apiKey: qs("#zKey").value } });
+        msg(r.ok ? `<div class="notice ok">Connected to SABnzbd ${esc(r.version)}.</div>` : `<div class="notice error">${esc(r.error)}</div>`);
+      } catch (err) { msg(`<div class="notice error">${esc(err.message)}</div>`); }
+      busy(e.currentTarget, false);
+    });
+    onSave(() => api("/settings/sabnzbd", { method: "PUT", body: { enabled: qs("#zOn").checked, url: qs("#zUrl").value, apiKey: qs("#zKey").value } }), "SABnzbd saved");
   }
   if (section === "discord") {
     panel.innerHTML = `<h2>Discord</h2>${discordForm(s.discord)}<p class="hint">Each person can add their Discord user ID on their profile to get @mentioned when their encore is ready.</p>${saveBar()}`;

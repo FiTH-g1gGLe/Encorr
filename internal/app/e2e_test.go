@@ -277,6 +277,19 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("title status: %+v", title.Status)
 	}
 
+	// 9b. With SABnzbd connected, progress is live (fake SAB says 90%).
+	if code, m := owner.call("PUT", "/settings/sabnzbd", map[string]any{"enabled": true, "url": fk.URL + "/sabnzbd", "apiKey": "wrong"}, nil); code != 400 {
+		t.Fatalf("bad SAB key should be refused: %d %v", code, m)
+	}
+	owner.ok("PUT", "/settings/sabnzbd", map[string]any{"enabled": true, "url": fk.URL + "/sabnzbd", "apiKey": fake.SABKey}, nil)
+	if _, err := a.jobDownloads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	friend.ok("GET", "/title/movie/101", nil, &title)
+	if p := title.Status.Progress; p == nil || p.Percent != 90 || !p.Live || p.Stage != "Downloading" || p.Speed != "186 MB/s" || p.TimeLeft != "9s" {
+		t.Fatalf("live progress: %+v", title.Status.Progress)
+	}
+
 	// 10. Download finishes, Plex adds it, request completes, friend is told.
 	before := len(fk.Discord)
 	fk.AddToPlex("movie", 101, nil)
@@ -439,12 +452,58 @@ func TestEndToEnd(t *testing.T) {
 	tmdb.BuiltInKey = "good-key"
 	defer func() { tmdb.BuiltInKey = "" }()
 	owner.ok("PUT", "/settings/tmdb", map[string]any{"key": ""}, nil)
-	var cfg struct{ TMDB struct{ HasKey, BuiltIn bool } }
+	var cfg struct {
+		TMDB struct{ HasKey, BuiltIn bool }
+	}
 	owner.ok("GET", "/settings", nil, &cfg)
 	if cfg.TMDB.HasKey || !cfg.TMDB.BuiltIn {
 		t.Fatalf("tmdb settings: %+v", cfg.TMDB)
 	}
 	owner.ok("GET", "/discover/movies", nil, nil)
+
+	// 22. Plex's recently-added list misses a film (slow scan): Encorr still
+	// finds it by searching Plex for the title, and it shows under Completed.
+	var r4 store.Request
+	owner.ok("POST", "/requests", map[string]any{"type": "movie", "tmdbId": 103}, &r4)
+	waitFor(t, "film 103 sent to Radarr", func() bool {
+		var ok bool
+		st.Read(func(d *store.Data) { m := d.MediaByTMDB("movie", 103); ok = m != nil && m.ExternalID > 0 })
+		return ok
+	})
+	if _, err := a.jobDownloads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fk.AddToPlexQuietly(103)
+	if _, err := a.jobDownloads(ctx); err != nil { // it left the queue
+		t.Fatal(err)
+	}
+	var t103 struct{ Status statusInfo }
+	owner.ok("GET", "/title/movie/103", nil, &t103)
+	if p := t103.Status.Progress; p == nil || p.Stage != "Waiting for Plex" {
+		t.Fatalf("after download: %+v", t103.Status.Progress)
+	}
+	if _, err := a.jobPlexRecent(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var comp struct{ Results []store.Request }
+	owner.ok("GET", "/requests?filter=completed", nil, &comp)
+	found = false
+	for _, r := range comp.Results {
+		if r.Status != store.ReqCompleted {
+			t.Fatalf("completed tab has %s request", r.Status)
+		}
+		found = found || r.ID == r4.ID
+	}
+	if !found {
+		t.Fatalf("film 103 should be completed: %+v", comp.Results)
+	}
+	var act struct{ Results []store.Request }
+	owner.ok("GET", "/requests?filter=active", nil, &act)
+	for _, r := range act.Results {
+		if r.Status == store.ReqCompleted || r.Status == store.ReqPending {
+			t.Fatalf("in-progress tab has %s request", r.Status)
+		}
+	}
 
 	// 21. Web UI is served.
 	resp, err := http.Get(srv.URL + "/requests")

@@ -11,6 +11,7 @@ import (
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
 	"github.com/FiTH-g1gGLe/encorr/internal/notify"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
+	"github.com/FiTH-g1gGLe/encorr/internal/sab"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
 	"github.com/FiTH-g1gGLe/encorr/internal/tmdb"
 )
@@ -399,7 +400,15 @@ func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 			if filter == "pending" && rq.Status != store.ReqPending {
 				continue
 			}
-			if filter == "active" && rq.Status != store.ReqApproved && rq.Status != store.ReqPending {
+			if filter == "active" {
+				// Admins see pending ones on their own tab.
+				keep := rq.Status == store.ReqApproved || rq.Status == store.ReqFailed ||
+					(rq.Status == store.ReqPending && u.Role != store.RoleAdmin)
+				if !keep {
+					continue
+				}
+			}
+			if filter == "completed" && rq.Status != store.ReqCompleted {
 				continue
 			}
 			ro := requestOut{Request: *rq}
@@ -624,6 +633,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 		"radarr":  maskArr(s.Radarr),
 		"sonarr":  maskArr(s.Sonarr),
 		"discord": map[string]any{"enabled": s.Discord.Enabled, "hasWebhook": s.Discord.WebhookURL != "", "webhookHint": s.Discord.WebhookURL.Masked()},
+		"sabnzbd": map[string]any{"enabled": s.SABnzbd.Enabled, "url": s.SABnzbd.URL, "hasKey": s.SABnzbd.APIKey != "", "keyHint": s.SABnzbd.APIKey.Masked(), "detected": s.SABnzbd.Detected},
 	})
 }
 
@@ -826,6 +836,18 @@ func appName(r *http.Request) (string, bool) {
 }
 
 func (a *App) hDetect(w http.ResponseWriter, r *http.Request, u *store.User) {
+	if r.PathValue("app") == "sabnzbd" {
+		det := sab.Detect()
+		if det.Found {
+			ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+			defer cancel()
+			if _, err := (&sab.Client{URL: det.URL, APIKey: det.APIKey}).Test(ctx); err != nil {
+				det.Note = "Found SABnzbd's settings, but it didn't answer: " + err.Error()
+			}
+		}
+		writeJSON(w, 200, det)
+		return
+	}
 	name, ok := appName(r)
 	if !ok {
 		writeErr(w, 404, "Unknown app.")
@@ -845,6 +867,10 @@ func (a *App) hDetect(w http.ResponseWriter, r *http.Request, u *store.User) {
 }
 
 func (a *App) hTestArr(w http.ResponseWriter, r *http.Request, u *store.User) {
+	if r.PathValue("app") == "sabnzbd" {
+		a.hTestSAB(w, r)
+		return
+	}
 	name, ok := appName(r)
 	if !ok {
 		writeErr(w, 404, "Unknown app.")
@@ -929,6 +955,70 @@ func (a *App) hSaveArr(w http.ResponseWriter, r *http.Request, u *store.User) {
 		fail(w, err)
 		return
 	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (a *App) sabBody(r *http.Request) (url, key string, enabled bool, err error) {
+	var body struct {
+		Enabled bool   `json:"enabled"`
+		URL     string `json:"url"`
+		APIKey  string `json:"apiKey"`
+	}
+	if err = readJSON(r, &body); err != nil {
+		return
+	}
+	url, key = normaliseURL(body.URL), strings.TrimSpace(body.APIKey)
+	if key == "" {
+		key = string(a.settings().SABnzbd.APIKey)
+	}
+	return url, key, body.Enabled, nil
+}
+
+func (a *App) hTestSAB(w http.ResponseWriter, r *http.Request) {
+	url, key, _, err := a.sabBody(r)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if url == "" || key == "" {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "Enter the address and API key (SABnzbd → Config → General → API Key)."})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	v, err := (&sab.Client{URL: url, APIKey: key}).Test(ctx)
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "version": v})
+}
+
+func (a *App) hSaveSAB(w http.ResponseWriter, r *http.Request, u *store.User) {
+	url, key, enabled, err := a.sabBody(r)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if enabled {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		if _, err := (&sab.Client{URL: url, APIKey: key}).Test(ctx); err != nil {
+			fail(w, userErr(err.Error()))
+			return
+		}
+	}
+	err = a.Store.Update(func(d *store.Data) error {
+		d.Settings.SABnzbd = store.SabSettings{Enabled: enabled, URL: url, APIKey: store.Secret(key)}
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	a.mu.Lock()
+	a.sabTried = true // the user has decided: don't auto-detect over it
+	a.mu.Unlock()
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

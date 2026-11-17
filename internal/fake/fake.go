@@ -143,6 +143,14 @@ func (s *Stack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.radarr(w, r, strings.TrimPrefix(p, "/radarr/api/v3"))
 	case strings.HasPrefix(p, "/sonarr/api/v3/"):
 		s.sonarr(w, r, strings.TrimPrefix(p, "/sonarr/api/v3"))
+	case strings.HasPrefix(p, "/_test/plex/movie/") && r.Method == http.MethodPost:
+		// Preview helper: "finish" a film download and put it in Plex.
+		id, _ := strconv.Atoi(strings.TrimPrefix(p, "/_test/plex/movie/"))
+		s.PlexMovies[id] = time.Now()
+		s.Queue["radarr"] = nil
+		writeJSON(w, map[string]any{"ok": true})
+	case p == "/sabnzbd/api":
+		s.sab(w, r)
 	case strings.HasPrefix(p, "/discord/"):
 		s.Discord = append(s.Discord, readBody(r))
 		w.WriteHeader(204)
@@ -197,7 +205,7 @@ func (s *Stack) discover(w http.ResponseWriter, r *http.Request, p string) {
 	if strings.HasPrefix(p, "/library/sections/watchlist/all") {
 		var items []any
 		if r.Header.Get("X-Plex-Token") == s.Friend.Token {
-			items = append(items, map[string]any{"ratingKey": "w1", "type": "movie", "title": "Static Bloom", "Guid": []any{map[string]any{"id": "tmdb://104"}}})
+			items = append(items, map[string]any{"ratingKey": "w1", "type": "movie", "title": "Static Bloom", "guid": "plex://item/fake", "Guid": []any{map[string]any{"id": "tmdb://104"}}})
 		}
 		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"Metadata": items}})
 		return
@@ -231,8 +239,11 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 			if at.Before(since) {
 				continue
 			}
+			if t := q.Get("title"); t != "" && !strings.Contains(strings.ToLower(s.movie(id).Title), strings.ToLower(t)) {
+				continue
+			}
 			items = append(items, map[string]any{"ratingKey": fmt.Sprintf("m%d", id), "type": "movie", "title": s.movie(id).Title, "addedAt": at.Unix(),
-				"Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}}})
+				"guid": "plex://item/fake", "Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}}})
 		}
 		mc("Metadata", items)
 	case p == "/library/sections/2/all":
@@ -247,8 +258,11 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 			}
 		} else {
 			for id := range s.PlexShows {
+				if t := q.Get("title"); t != "" && !strings.Contains(strings.ToLower(s.show(id).Title), strings.ToLower(t)) {
+					continue
+				}
 				items = append(items, map[string]any{"ratingKey": fmt.Sprintf("s%d", id), "type": "show", "title": s.show(id).Title,
-					"Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}}})
+					"guid": "plex://item/fake", "Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}}})
 			}
 		}
 		mc("Metadata", items)
@@ -265,7 +279,7 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 			return
 		}
 		mc("Metadata", []any{map[string]any{"ratingKey": fmt.Sprintf("s%d", id), "type": "show", "title": s.show(id).Title,
-			"Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}}}})
+			"guid": "plex://item/fake", "Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}}}})
 	default:
 		http.NotFound(w, r)
 	}
@@ -463,7 +477,7 @@ func (s *Stack) radarr(w http.ResponseWriter, r *http.Request, p string) {
 		b["hasFile"] = false
 		s.RadarrMovies[id] = b
 		// Simulate a download starting.
-		s.Queue["radarr"] = append(s.Queue["radarr"], map[string]any{"movieId": id, "title": b["title"], "size": 8e9, "sizeleft": 2e9, "timeleft": "00:04:10", "status": "downloading",
+		s.Queue["radarr"] = append(s.Queue["radarr"], map[string]any{"movieId": id, "title": b["title"], "size": 8e9, "sizeleft": 2e9, "timeleft": "00:04:10", "status": "downloading", "downloadId": fmt.Sprintf("SABnzbd_nzo_m%d", id), "trackedDownloadState": "downloading",
 			"estimatedCompletionTime": time.Now().Add(4 * time.Minute).Format(time.RFC3339)})
 		writeJSON(w, b)
 	case strings.HasPrefix(p, "/movie/"):
@@ -517,7 +531,7 @@ func (s *Stack) sonarr(w http.ResponseWriter, r *http.Request, p string) {
 		id := s.id()
 		b["id"] = float64(id)
 		s.SonarrSeries[id] = b
-		s.Queue["sonarr"] = append(s.Queue["sonarr"], map[string]any{"seriesId": id, "title": b["title"], "size": 2e9, "sizeleft": 1.5e9, "timeleft": "00:12:00", "status": "downloading",
+		s.Queue["sonarr"] = append(s.Queue["sonarr"], map[string]any{"seriesId": id, "title": b["title"], "size": 2e9, "sizeleft": 1.5e9, "timeleft": "00:12:00", "status": "downloading", "downloadId": fmt.Sprintf("SABnzbd_nzo_s%d", id), "trackedDownloadState": "downloading",
 			"estimatedCompletionTime": time.Now().Add(12 * time.Minute).Format(time.RFC3339)})
 		writeJSON(w, b)
 	case strings.HasPrefix(p, "/series/"):
@@ -587,6 +601,46 @@ func escapeXML(s string) string {
 // ---------- helpers for tests ----------
 
 // AddToPlex simulates a download finishing and Plex picking it up.
+// SABKey is the fake SABnzbd's API key.
+const SABKey = "sab-key"
+
+// sab serves SABnzbd's API: it reports every Radarr/Sonarr queue item as
+// 90% done, so tests can tell live numbers from Radarr's (75%).
+func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("mode") == "version" {
+		writeJSON(w, map[string]any{"version": "4.3.3"})
+		return
+	}
+	if q.Get("apikey") != SABKey {
+		writeJSON(w, map[string]any{"status": false, "error": "API Key Incorrect"})
+		return
+	}
+	switch q.Get("mode") {
+	case "queue":
+		var slots []any
+		for _, app := range []string{"radarr", "sonarr"} {
+			for _, it := range s.Queue[app] {
+				slots = append(slots, map[string]any{"nzo_id": it["downloadId"], "status": "Downloading", "percentage": "90", "mb": "1000", "mbleft": "100", "timeleft": "0:00:09"})
+			}
+		}
+		writeJSON(w, map[string]any{"queue": map[string]any{"kbpersec": "190000", "paused": false, "slots": slots}})
+	case "history":
+		writeJSON(w, map[string]any{"history": map[string]any{"slots": []any{}}})
+	default:
+		writeJSON(w, map[string]any{"status": false, "error": "not implemented"})
+	}
+}
+
+// AddToPlexQuietly adds a film with an old "added" date, so Plex's
+// recently-added list won't show it (like a slow Plex scan).
+func (s *Stack) AddToPlexQuietly(tmdbID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PlexMovies[tmdbID] = time.Now().Add(-48 * time.Hour)
+	s.Queue["radarr"] = nil
+}
+
 func (s *Stack) AddToPlex(typ string, tmdbID int, seasons map[int]int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

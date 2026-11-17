@@ -1,4 +1,4 @@
-# Testing Encorr 0.1.1 on your server
+# Testing Encorr on your server
 
 This takes about 20 minutes. Encorr runs **alongside** Ombi (Ombi uses port 5000, Encorr uses 5150), so nothing you have now is touched.
 
@@ -34,7 +34,8 @@ Tick these off as you go:
 
 - [ ] **Badges**: after a minute, films you already have show **In Plex** on their posters.
 - [ ] **Request a film**: pick something small you don't have, press Request. It should appear in Radarr straight away, tagged `encorr-<your name>`, and start searching.
-- [ ] **Download progress**: while it downloads, its page shows a progress bar (updates every minute).
+- [ ] **Live download progress**: Encorr finds SABnzbd by itself (check Settings → SABnzbd). While a film downloads, its page and the Requests list show the step (Queued, Downloading, Unpacking, Moving into your library, Waiting for Plex), plus percentage, speed and time left, refreshing every 5 seconds.
+- [ ] **Completed**: within a minute or two of Radarr importing it, the request moves from **In progress** to **Completed** (“In Plex”).
 - [ ] **It arrives**: within about 5 minutes of Plex adding it, the request turns **In Plex** and Discord says "Your encore is ready".
 - [ ] **Request TV seasons**: pick a show, untick some seasons. In Sonarr only the chosen seasons should be monitored.
 - [ ] **Already in Plex**: open a film you have. There's no Request button, just "In Plex".

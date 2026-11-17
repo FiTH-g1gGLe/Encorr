@@ -224,6 +224,12 @@ h3 { font-size: 16px; margin: 0 0 8px; }
 .progress { height: 8px; border-radius: 8px; background: rgba(255,255,255,.08); overflow: hidden; }
 .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: 0 0 12px var(--accent-glow); transition: width .6s; }
 .dlbox { padding: 14px 16px; max-width: 520px; margin: 6px 0 16px; }
+.mini-prog { width: 220px; display: grid; gap: 5px; }
+.progress.warn > div { background: #ff6b6b; box-shadow: none; }
+.progress.indet > div { background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: indet 1.4s linear infinite; box-shadow: none; }
+@keyframes indet { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+@media (prefers-reduced-motion: reduce) { .progress.indet > div { animation: none; background: var(--accent); opacity: .6; } }
+@media (max-width: 760px) { .mini-prog { width: 100%; } }
 .seasons { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .season { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; }
 @media (max-width: 760px) { .title-top { grid-template-columns: 1fr; } .title-top .poster { max-width: 200px; } .title-top h1 { font-size: 30px; } }

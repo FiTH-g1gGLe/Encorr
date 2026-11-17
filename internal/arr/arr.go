@@ -212,6 +212,9 @@ type QueueItem struct {
 	EpisodeID               int       `json:"episodeId"`
 	SeasonNumber            int       `json:"seasonNumber"`
 	Title                   string    `json:"title"`
+	DownloadID              string    `json:"downloadId"`
+	DownloadClient          string    `json:"downloadClient"`
+	Protocol                string    `json:"protocol"`
 	Size                    float64   `json:"size"`
 	SizeLeft                float64   `json:"sizeleft"`
 	TimeLeft                string    `json:"timeleft"`

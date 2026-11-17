@@ -63,6 +63,7 @@ type Settings struct {
 	Radarr        ArrSettings    `json:"radarr"`
 	Sonarr        ArrSettings    `json:"sonarr"`
 	Discord       DiscordSetting `json:"discord"`
+	SABnzbd       SabSettings    `json:"sabnzbd"`
 	Quotas        QuotaSettings  `json:"quotas"`
 }
 
@@ -93,6 +94,16 @@ type ArrSettings struct {
 	SeasonFolders       bool   `json:"seasonFolders,omitempty"`       // Sonarr
 	TagRequests         bool   `json:"tagRequests"`
 	SearchOnAdd         bool   `json:"searchOnAdd"`
+}
+
+// SabSettings is optional: with it, progress bars come straight from
+// SABnzbd (live) instead of Radarr/Sonarr's once-a-minute copy.
+type SabSettings struct {
+	Enabled bool   `json:"enabled"`
+	URL     string `json:"url"` // e.g. http://localhost:8080/sabnzbd
+	APIKey  Secret `json:"apiKey"`
+	// Detected is true when Encorr found and filled this in by itself.
+	Detected bool `json:"detected,omitempty"`
 }
 
 type DiscordSetting struct {

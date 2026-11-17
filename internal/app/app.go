@@ -13,6 +13,7 @@ import (
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
 	"github.com/FiTH-g1gGLe/encorr/internal/notify"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
+	"github.com/FiTH-g1gGLe/encorr/internal/sab"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
 	"github.com/FiTH-g1gGLe/encorr/internal/tmdb"
 )
@@ -31,10 +32,13 @@ type App struct {
 	tmdbC     *tmdb.Client
 	tmdbSig   string
 	downloads map[string]map[int][]arr.QueueItem // "radarr"/"sonarr" -> external id -> items
+	sabSnap   *sab.Snapshot                      // live SABnzbd numbers (nil without SABnzbd)
+	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
 
-	jobs    map[string]*job
-	limiter *rateLimiter
-	wg      sync.WaitGroup
+	sabTried bool
+	jobs     map[string]*job
+	limiter  *rateLimiter
+	wg       sync.WaitGroup
 }
 
 func New(st *store.Store, logger *log.Logger) *App {
@@ -45,6 +49,7 @@ func New(st *store.Store, logger *log.Logger) *App {
 		ctx:       ctx,
 		cancel:    cancel,
 		downloads: map[string]map[int][]arr.QueueItem{},
+		landed:    map[string]map[int]time.Time{"radarr": {}, "sonarr": {}},
 		limiter:   newRateLimiter(20, time.Minute),
 	}
 	a.setupJobs()
@@ -104,6 +109,15 @@ func (a *App) Radarr() *arr.Client { return arrClient("Radarr", a.settings().Rad
 func (a *App) Sonarr() *arr.Client { return arrClient("Sonarr", a.settings().Sonarr) }
 
 // PlexServer returns the configured server, or nil if not set up yet.
+// SAB returns the SABnzbd client, or nil when it isn't set up.
+func (a *App) SAB() *sab.Client {
+	s := a.settings().SABnzbd
+	if !s.Enabled || s.URL == "" || s.APIKey == "" {
+		return nil
+	}
+	return &sab.Client{URL: s.URL, APIKey: string(s.APIKey)}
+}
+
 func (a *App) PlexServer() *plex.Server {
 	s := a.settings()
 	if s.Plex.URL == "" || s.Plex.Token == "" {

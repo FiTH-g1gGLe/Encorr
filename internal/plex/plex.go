@@ -290,7 +290,11 @@ type Item struct {
 	ParentIndex          int    `json:"parentIndex"`
 	GrandparentRatingKey string `json:"grandparentRatingKey"`
 	AddedAt              int64  `json:"addedAt"`
-	Guids                []Guid `json:"Guid"`
+	// Real Plex sends both "guid" (a string, e.g. plex://movie/... or a legacy
+	// agent id) and "Guid" (the list of tmdb/imdb/tvdb ids). Both need their
+	// own field or decoding fails.
+	GuidString string `json:"guid"`
+	Guids      []Guid `json:"Guid"`
 }
 
 type container struct {
@@ -302,8 +306,31 @@ type container struct {
 	} `json:"MediaContainer"`
 }
 
-// IDs pulls TMDB/IMDb/TVDB ids out of an item's Guid list.
+// IDs pulls TMDB/IMDb/TVDB ids out of an item's Guid list, falling back to
+// the old-style agent id (com.plexapp.agents.themoviedb://603?lang=en).
 func (it Item) IDs() (tmdb int, imdb string, tvdb int) {
+	defer func() {
+		if tmdb != 0 || imdb != "" || tvdb != 0 {
+			return
+		}
+		g := it.GuidString
+		k := strings.Index(g, "://")
+		if k < 0 {
+			return
+		}
+		rest := g[k+3:]
+		if j := strings.IndexAny(rest, "?/"); j >= 0 {
+			rest = rest[:j]
+		}
+		switch {
+		case strings.Contains(g, "agents.themoviedb"):
+			tmdb, _ = strconv.Atoi(rest)
+		case strings.Contains(g, "agents.imdb"):
+			imdb = rest
+		case strings.Contains(g, "agents.thetvdb"), strings.Contains(g, "agents.hama"):
+			tvdb, _ = strconv.Atoi(strings.TrimPrefix(rest, "tvdb-"))
+		}
+	}()
 	for _, g := range it.Guids {
 		switch {
 		case strings.HasPrefix(g.ID, "tmdb://"):
@@ -394,6 +421,16 @@ func (s *Server) RecentlyAdded(ctx context.Context, libKey string, plexType int,
 		p += "&includeGuids=1"
 	}
 	if err := s.get(ctx, p, 0, 500, &c); err != nil {
+		return nil, err
+	}
+	return c.MediaContainer.Metadata, nil
+}
+
+// FindByTitle searches one library by title (Plex matches part of the title).
+func (s *Server) FindByTitle(ctx context.Context, libKey string, plexType int, title string) ([]Item, error) {
+	var c container
+	p := fmt.Sprintf("/library/sections/%s/all?type=%d&includeGuids=1&title=%s", libKey, plexType, url.QueryEscape(title))
+	if err := s.get(ctx, p, 0, 50, &c); err != nil {
 		return nil, err
 	}
 	return c.MediaContainer.Metadata, nil
