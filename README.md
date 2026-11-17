@@ -1,6 +1,4 @@
-<p align="center"><img src="docs/encorr-icon.svg" width="120" alt="Encorr logo"></p>
-
-<h1 align="center">Encorr</h1>
+<p align="center"><img src="docs/encorr-logo.svg" width="380" alt="Encorr"></p>
 
 <p align="center"><b>Request the encore.</b><br>A friendly media request app for Plex. Friends ask for a film or show, and it turns up in Plex by itself.</p>
 

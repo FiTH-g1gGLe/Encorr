@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Encorr"><path d="M14.0 32H50.0" stroke="#9b7bff" stroke-width="6.5" stroke-linecap="round"/><path d="M50.0 32.0A18 18 0 1 0 43.1 46.2" fill="none" stroke="#9b7bff" stroke-width="6.5" stroke-linecap="round"/><path d="M49.0 41.6L45.7 52.0L38.1 42.2Z" fill="#9b7bff" stroke="#9b7bff" stroke-width="2.5" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="22 13 174 174" width="174" height="174"><defs>
+  <linearGradient id="ia" x1="0.1" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#c7b6ff"/><stop offset="0.55" stop-color="#9b7bff"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient>
+  <linearGradient id="ib" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9b7bff"/><stop offset="1" stop-color="#c7b6ff"/></linearGradient>
+  <linearGradient id="is" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2a1660" stop-opacity="0.55"/><stop offset="1" stop-color="#2a1660" stop-opacity="0"/></linearGradient>
+</defs>
+  <path d="M178 36 L160 62 H96 C78 62 66 74 66 92 V108 C66 126 78 138 96 138 H160 L142 164 H92 C60 164 40 142 40 110 V90 C40 58 60 36 92 36 Z" fill="url(#ia)"/>
+  <path d="M162 87 L145 113 H90 C77 113 71 104 75 96 C78 90 84 87 92 87 Z" fill="url(#ib)"/>
+</svg>

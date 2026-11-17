@@ -108,8 +108,20 @@ const pill = (s, text) => { const [cls, label] = STATUS[s] || ["off", s]; return
 
 // ---------- brand ----------
 // The e-Loop: the "e" of encorr is also a replay loop. Drawn in the accent colour.
-const MARK = (size, cls = "") => `<svg class="mark ${cls}" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><path d="M14.0 32H50.0" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/><path d="M50.0 32.0A18 18 0 1 0 43.1 46.2" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/><path d="M49.0 41.6L45.7 52.0L38.1 42.2Z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
-const LOCKUP = (size) => `<span class="lockup" style="font-size:${size}px" role="img" aria-label="Encorr">${MARK(Math.round(size), "lk")}<span>ncorr</span></span>`;
+// The Encorr ribbon E. MARK is one colour (follows the accent, or any CSS
+// colour); GMARK is the full gradient version used with the wordmark.
+const E_OUTER = "M178 36 L160 62 H96 C78 62 66 74 66 92 V108 C66 126 78 138 96 138 H160 L142 164 H92 C60 164 40 142 40 110 V90 C40 58 60 36 92 36 Z";
+const E_MID = "M162 87 L145 113 H90 C77 113 71 104 75 96 C78 90 84 87 92 87 Z";
+const MARK = (size, cls = "") => `<svg class="mark ${cls}" width="${size}" height="${size}" viewBox="22 13 174 174" aria-hidden="true"><path d="${E_OUTER}" fill="currentColor"/><path d="${E_MID}" fill="currentColor" opacity=".82"/></svg>`;
+let gmarkN = 0;
+const GMARK = (size, cls = "") => {
+  const id = "eg" + ++gmarkN;
+  return `<svg class="mark gmark ${cls}" width="${size}" height="${size}" viewBox="22 13 174 174" aria-hidden="true"><defs>
+    <linearGradient id="${id}a" x1="0.1" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="var(--accent-2)"/><stop offset=".55" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-pop)"/></linearGradient>
+    <linearGradient id="${id}b" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-2)"/></linearGradient></defs>
+    <path d="${E_OUTER}" fill="url(#${id}a)"/><path d="${E_MID}" fill="url(#${id}b)"/></svg>`;
+};
+const LOCKUP = (size) => `<span class="lockup" style="font-size:${size}px" role="img" aria-label="Encorr">${GMARK(Math.round(size * 1.05), "lk")}<span>encorr</span></span>`;
 
 // ---------- icons ----------
 const I = {
