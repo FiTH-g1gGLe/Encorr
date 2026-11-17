@@ -73,7 +73,31 @@ Encorr keeps its data in `C:\ProgramData\Encorr` (Linux: `~/.config/encorr`). Pa
 
 ### Letting friends in from outside your home 🌍
 
-Put Encorr behind a [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/) (free, no router changes) and point a hostname at `http://localhost:5150`. Then set the address in Settings → General → *Public address*, so invite messages use it.
+Out of the box Encorr only works **inside your home** (`http://localhost:5150` on the server). To let friends request from their own homes or phones, Encorr needs a web address on the internet, such as `https://encorr.yourdomain.com`, that leads back to your server.
+
+The easy, safe way is a free **[Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/)**. A small Cloudflare program on your server connects **out** to Cloudflare, and visitors come back in through that connection:
+
+```
+Friend's phone ──► https://encorr.yourdomain.com ──► Cloudflare ══ tunnel ══► your server ──► Encorr
+```
+
+- 🔒 **No router changes**: no ports opened, and your home IP stays hidden.
+- 🔐 **Free HTTPS padlock**, so passwords are encrypted on the way.
+- 💷 **Free**: you only need a domain name (about £8–10 a year).
+- 🔁 **Survives restarts**: it runs as a Windows service, like Encorr's background mode.
+
+**The short version** (about 20–30 minutes):
+
+1. Turn on **Settings → General → Run in the background**, so Encorr is always up.
+2. Add your domain to a free [Cloudflare](https://dash.cloudflare.com) account and switch its nameservers to Cloudflare's.
+3. In Cloudflare go to **Networking → Tunnels → Create Tunnel**, pick Windows, and run the install command it gives you on the server. ⚠️ Keep that command's long code private: it's the key to your tunnel.
+4. Add a **published application route**: subdomain `encorr`, your domain, type **HTTP**, URL **`localhost:5150`**.
+5. In Encorr set **Settings → General → Public address** to `https://encorr.yourdomain.com`, so invite messages carry the right link.
+6. Turn Wi-Fi off on your phone and open the address to check it works.
+
+Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay private. Encorr protects the sign-in page with hashed passwords, a lock-out after 10 wrong guesses, and secure cookies.
+
+📖 **[Full step-by-step guide, with safety tips, troubleshooting and alternatives →](docs/REMOTE-ACCESS.md)**
 
 ### Options
 
