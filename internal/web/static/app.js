@@ -413,12 +413,16 @@ const JOURNEY = ["Requested", "Approved", "Downloading", "In Plex"];
 const STAGE_TEXT = { Downloading: "Downloading", Queued: "Queued for download", Paused: "Download paused", Unpacking: "Unpacking", Importing: "Moving it into your library", "Waiting for Plex": "Downloaded. Waiting for Plex to add it", Stuck: "Download is stuck", Failed: "Download failed" };
 
 // status: pending | approved | processing | declined | failed | completed | available
-function journeyState(status, p) {
+function journeyState(status, p, part) {
   switch (status) {
     case "pending": return { at: 1, text: "Waiting for the owner to approve it" };
     case "declined": return { at: 1, bad: true, text: "The owner declined this request" };
     case "failed": return { at: 2, bad: true, text: "Couldn't start the download. The owner can retry it" };
     case "completed": case "available": return { at: 4, text: "Ready to watch in Plex" };
+  }
+  if (!p && part && part.want > 0 && part.have > 0) {
+    const left = part.want - part.have;
+    return { at: 2, text: `${part.have} of ${part.want} episodes in Plex`, bits: [`looking for the other ${left}`], fill: Math.round((part.have / part.want) * 100) };
   }
   if (!p) return { at: 2, text: "Looking for a copy to download", fill: 0 };
   const stage = p.stage || "Downloading";
@@ -431,8 +435,8 @@ function journeyState(status, p) {
   return { at: 2, text, bits, fill: p.percent, bad: stage === "Stuck" || stage === "Failed", note: p.note };
 }
 
-function journeyHTML(status, p, compact) {
-  const j = journeyState(status, p);
+function journeyHTML(status, p, compact, part) {
+  const j = journeyState(status, p, part);
   const steps = JOURNEY.map((label, i) => {
     const cls = i < j.at ? "done" : i === j.at ? (j.bad ? "now bad" : "now") : "";
     // The line after a step fills as that step finishes; while downloading it
@@ -617,7 +621,7 @@ async function pageRequests(main, filter) {
 function reqRow(r) {
   const admin = isAdmin();
   const p = img(r.poster, "w185");
-  const prog = journeyHTML(r.status, r.progress, true);
+  const prog = journeyHTML(r.status, r.progress, true, { have: r.have || 0, want: r.want || 0 });
   let actions = "";
   if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}">${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}">Decline</button>`;
   else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}">Retry</button>`;

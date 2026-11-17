@@ -64,6 +64,7 @@ type Stack struct {
 	Queue        map[string][]map[string]any
 	Discord      []map[string]any
 	Calls        []string
+	Scans        []string // folders Plex was asked to scan
 	nextID       int
 }
 
@@ -229,9 +230,12 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"machineIdentifier": "machine-1"}})
 	case p == "/library/sections":
 		mc("Directory", []any{
-			map[string]any{"key": "1", "title": "Films", "type": "movie"},
-			map[string]any{"key": "2", "title": "TV Shows", "type": "show"},
+			map[string]any{"key": "1", "title": "Films", "type": "movie", "Location": []any{map[string]any{"path": `P:\Media\Films`}}},
+			map[string]any{"key": "2", "title": "TV Shows", "type": "show", "Location": []any{map[string]any{"path": `P:\Media\TV`}}},
 		})
+	case strings.HasSuffix(p, "/refresh") && strings.HasPrefix(p, "/library/sections/"):
+		s.Scans = append(s.Scans, q.Get("path"))
+		w.WriteHeader(200)
 	case p == "/library/sections/1/all":
 		var items []any
 		since := sinceParam(r)
@@ -475,6 +479,7 @@ func (s *Stack) radarr(w http.ResponseWriter, r *http.Request, p string) {
 		id := s.id()
 		b["id"] = float64(id)
 		b["hasFile"] = false
+		b["path"] = fmt.Sprintf(`%v\%v (%v)`, b["rootFolderPath"], b["title"], b["year"])
 		s.RadarrMovies[id] = b
 		// Simulate a download starting.
 		s.Queue["radarr"] = append(s.Queue["radarr"], map[string]any{"movieId": id, "title": b["title"], "size": 8e9, "sizeleft": 2e9, "timeleft": "00:04:10", "status": "downloading", "downloadId": fmt.Sprintf("SABnzbd_nzo_m%d", id), "trackedDownloadState": "downloading",

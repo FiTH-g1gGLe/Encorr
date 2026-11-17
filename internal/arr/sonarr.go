@@ -24,6 +24,7 @@ type Series struct {
 	Monitored        bool         `json:"monitored"`
 	QualityProfileID int          `json:"qualityProfileId"`
 	Seasons          []SeasonInfo `json:"seasons"`
+	Path             string       `json:"path,omitempty"`
 	Tags             []int        `json:"tags"`
 	Images           []any        `json:"images,omitempty"`
 }

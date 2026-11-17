@@ -478,6 +478,16 @@ func TestEndToEnd(t *testing.T) {
 	if _, err := a.jobDownloads(ctx); err != nil { // it left the queue
 		t.Fatal(err)
 	}
+	waitFor(t, "Plex asked to scan the film's folder", func() bool {
+		fk.Lock()
+		defer fk.Unlock()
+		for _, sc := range fk.Scans {
+			if strings.Contains(sc, `Films\Paper Kingdoms`) {
+				return true
+			}
+		}
+		return false
+	})
 	var t103 struct{ Status statusInfo }
 	owner.ok("GET", "/title/movie/103", nil, &t103)
 	if p := t103.Status.Progress; p == nil || p.Stage != "Waiting for Plex" {

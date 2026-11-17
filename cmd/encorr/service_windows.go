@@ -31,7 +31,9 @@ func runService(run func(ctx context.Context) error) error {
 	return svc.Run(svcName, &handler{run: run})
 }
 
-type handler struct{ run func(ctx context.Context) error }
+type handler struct {
+	run func(ctx context.Context) error
+}
 
 func (h *handler) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	status <- svc.Status{State: svc.StartPending}

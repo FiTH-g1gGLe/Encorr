@@ -455,9 +455,48 @@ func (a *App) autoDetectSAB() {
 	a.logf("found SABnzbd at %s: progress bars now come straight from it", d.URL)
 }
 
-// checkPlexSoon looks for a just-imported title in Plex a few times.
+// nudgePlex asks Plex to scan the folder Radarr/Sonarr just imported into,
+// so it appears in seconds even if Plex's own "scan automatically" setting
+// or Radarr/Sonarr's Plex connection isn't set up.
+func (a *App) nudgePlex(ctx context.Context, typ string, externalID int) {
+	srv := a.PlexServer()
+	c, kind := a.Radarr(), "movie"
+	if typ == store.TypeTV {
+		c, kind = a.Sonarr(), "series"
+	}
+	if srv == nil || c == nil {
+		return
+	}
+	path, err := c.ItemPath(ctx, kind, externalID)
+	if err != nil || path == "" {
+		return
+	}
+	libs, err := srv.Libraries(ctx)
+	if err != nil {
+		return
+	}
+	norm := func(p string) string {
+		return strings.ToLower(strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/")) + "/"
+	}
+	for _, lib := range libs {
+		for _, loc := range lib.Location {
+			if strings.HasPrefix(norm(path), norm(loc.Path)) {
+				if err := srv.ScanPath(ctx, lib.Key, path); err == nil {
+					a.logf("asked Plex to scan %s", path)
+				}
+				return
+			}
+		}
+	}
+}
+
+// checkPlexSoon looks for a just-imported title in Plex a few times,
+// starting straight away.
 func (a *App) checkPlexSoon(typ string, externalID int) {
-	for _, wait := range []time.Duration{40 * time.Second, 2 * time.Minute, 5 * time.Minute} {
+	nctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	a.nudgePlex(nctx, typ, externalID)
+	cancel()
+	for _, wait := range []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute} {
 		select {
 		case <-a.ctx.Done():
 			return

@@ -634,6 +634,9 @@ type requestOut struct {
 	UserImg  string    `json:"userThumb,omitempty"`
 	Progress *Progress `json:"progress,omitempty"`
 	Modifier string    `json:"modifiedByName,omitempty"`
+	// For TV still on its way: episodes of the requested seasons in Plex.
+	Have int `json:"have,omitempty"`
+	Want int `json:"want,omitempty"`
 }
 
 func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
@@ -671,6 +674,16 @@ func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 			if rq.Status == store.ReqApproved {
 				if m := d.MediaByID(rq.MediaID); m != nil {
 					ro.Progress = a.progressFor(rq.Type, m.ExternalID)
+					if rq.Type == store.TypeTV {
+						for _, s := range rq.Seasons {
+							want, have := m.SeasonEps[s], m.SeasonHave[s]
+							if have > want {
+								have = want
+							}
+							ro.Want += want
+							ro.Have += have
+						}
+					}
 				}
 			}
 			out = append(out, ro)

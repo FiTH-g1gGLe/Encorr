@@ -205,6 +205,16 @@ func (c *Client) Command(ctx context.Context, body map[string]any) error {
 	return c.do(ctx, http.MethodPost, "/command", nil, body, nil)
 }
 
+// ItemPath returns the folder of a Radarr movie or Sonarr series by its
+// Radarr/Sonarr id (so Plex can be told to scan just that folder).
+func (c *Client) ItemPath(ctx context.Context, kind string, id int) (string, error) {
+	var it struct {
+		Path string `json:"path"`
+	}
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/%s/%d", kind, id), nil, nil, &it)
+	return it.Path, err
+}
+
 // QueueItem is one entry in the download queue.
 type QueueItem struct {
 	MovieID                 int       `json:"movieId"`

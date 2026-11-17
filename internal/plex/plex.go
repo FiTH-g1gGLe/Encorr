@@ -293,6 +293,9 @@ type Item struct {
 	// Real Plex sends both "guid" (a string, e.g. plex://movie/... or a legacy
 	// agent id) and "Guid" (the list of tmdb/imdb/tvdb ids). Both need their
 	// own field or decoding fails.
+	Location []struct {
+		Path string `json:"path"`
+	} `json:"Location,omitempty"`
 	GuidString string `json:"guid"`
 	Guids      []Guid `json:"Guid"`
 }
@@ -393,6 +396,17 @@ func (s *Server) Libraries(ctx context.Context) ([]Item, error) {
 		}
 	}
 	return out, nil
+}
+
+// ScanPath asks Plex to look at one folder now (a quick partial scan),
+// instead of waiting for its own schedule.
+func (s *Server) ScanPath(ctx context.Context, libKey, path string) error {
+	var c container
+	err := s.get(ctx, fmt.Sprintf("/library/sections/%s/refresh?path=%s", url.PathEscape(libKey), url.QueryEscape(path)), 0, 0, &c)
+	if err != nil && strings.Contains(err.Error(), "EOF") {
+		return nil // Plex answers this one with an empty body
+	}
+	return err
 }
 
 // AllItems pages through every movie (type 1) or show (type 2) in a library.
