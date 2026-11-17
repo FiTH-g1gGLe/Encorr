@@ -473,12 +473,31 @@ func (s *Server) Seasons(ctx context.Context, ratingKey string) ([]Item, error) 
 // ---------- Watchlist ----------
 
 // Watchlist returns the items on this account's Plex watchlist with their ids.
+//
+// Plex's watchlist service refuses big pages ("Invalid value provided for
+// x-plex-container-size", HTTP 400), so it is read a small page at a time,
+// dropping to an even smaller page if Plex still says no.
 func (c *Client) Watchlist(ctx context.Context) ([]Item, error) {
-	var mc container
-	if err := c.do(ctx, httpClient, http.MethodGet, DiscoverURL+"/library/sections/watchlist/all?includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=300", &mc); err != nil {
-		return nil, err
+	const most = 2000 // a sane ceiling, in case Plex never reports a total
+	size := 20
+	var items []Item
+	for start := 0; start < most; {
+		var mc container
+		u := fmt.Sprintf("%s/library/sections/watchlist/all?includeGuids=1&X-Plex-Container-Start=%d&X-Plex-Container-Size=%d", DiscoverURL, start, size)
+		if err := c.do(ctx, httpClient, http.MethodGet, u, &mc); err != nil {
+			if size > 10 && strings.Contains(err.Error(), "answered 400") {
+				size = 10
+				continue
+			}
+			return nil, err
+		}
+		page := mc.MediaContainer.Metadata
+		items = append(items, page...)
+		start += len(page)
+		if len(page) == 0 || len(page) < size || (mc.MediaContainer.TotalSize > 0 && start >= mc.MediaContainer.TotalSize) {
+			break
+		}
 	}
-	items := mc.MediaContainer.Metadata
 	for i := range items {
 		if len(items[i].Guids) > 0 {
 			continue

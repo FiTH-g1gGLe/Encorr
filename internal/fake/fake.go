@@ -50,6 +50,8 @@ type Stack struct {
 	Movies    []Movie
 	Shows     []Show
 
+	OwnerWatchlist int // how many items are on the owner's Plex watchlist
+
 	// Plex library: what's "downloaded".
 	PlexMovies map[int]time.Time   // tmdb id -> added
 	PlexShows  map[int]map[int]int // tmdb id -> season -> episodes
@@ -208,7 +210,28 @@ func (s *Stack) discover(w http.ResponseWriter, r *http.Request, p string) {
 		if r.Header.Get("X-Plex-Token") == s.Friend.Token {
 			items = append(items, map[string]any{"ratingKey": "w1", "type": "movie", "title": "Static Bloom", "guid": "plex://item/fake", "Guid": []any{map[string]any{"id": "tmdb://104"}}})
 		}
-		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"Metadata": items}})
+		if r.Header.Get("X-Plex-Token") == s.Owner.Token {
+			for i := 0; i < s.OwnerWatchlist; i++ {
+				items = append(items, map[string]any{"ratingKey": fmt.Sprintf("o%d", i), "type": "movie", "title": fmt.Sprintf("Watch %d", i), "guid": "plex://item/o", "Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", 9000+i)}}})
+			}
+		}
+		// Like the real service: big pages are refused.
+		start, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Start"))
+		size, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Size"))
+		if size > 20 {
+			w.WriteHeader(400)
+			writeJSON(w, map[string]any{"Error": map[string]any{"message": "Invalid value provided for x-plex-container-size!"}})
+			return
+		}
+		total := len(items)
+		if start > total {
+			start = total
+		}
+		end := start + size
+		if size == 0 || end > total {
+			end = total
+		}
+		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"totalSize": total, "size": end - start, "Metadata": items[start:end]}})
 		return
 	}
 	http.NotFound(w, r)
