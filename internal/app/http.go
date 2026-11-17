@@ -54,6 +54,8 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("GET /api/v1/jobs", a.admin(a.hJobs))
 	api("POST /api/v1/jobs/{name}/run", a.admin(a.hRunJob))
 	api("POST /api/v1/backup", a.admin(a.hBackup))
+	api("GET /api/v1/system/background", a.admin(a.hBackground))
+	api("POST /api/v1/system/background", a.admin(a.hBackgroundSet))
 
 	// Settings: open during first-run setup until an admin exists, admin-only after.
 	api("GET /api/v1/settings", a.setup(a.hSettings))

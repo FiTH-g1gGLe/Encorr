@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -47,11 +48,33 @@ func defaultConfigDir() string {
 	}
 }
 
+type options struct {
+	port      int
+	host      string
+	configDir string
+	noBrowser bool
+	service   bool // running as the Windows background service
+}
+
 func main() {
+	// Background-service commands come first: "encorr install" / "uninstall".
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "install", "uninstall":
+			if err := serviceCommand(os.Args[1]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				pause()
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	port := flag.Int("port", 5150, "port for the web interface")
 	host := flag.String("host", "", "address to listen on (default: all)")
 	configDir := flag.String("config", defaultConfigDir(), "folder for Encorr's data")
 	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
+	asService := flag.Bool("service", false, "run as the Windows background service (set by 'encorr install')")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -64,34 +87,74 @@ func main() {
 		plex.PlexTVURL, plex.DiscoverURL, plex.AppAuthURL = base+"/plextv", base+"/discover", base+"/plexauth"
 		tmdb.BaseURL = base + "/tmdb"
 	}
+	opts := options{port: *port, host: *host, configDir: *configDir, noBrowser: *noBrowser, service: *asService}
 
-	if err := os.MkdirAll(filepath.Join(*configDir, "logs"), 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "Encorr can't create its data folder:", err)
+	if *asService || isWindowsService() {
+		opts.service, opts.noBrowser = true, true
+		if err := runService(func(ctx context.Context) error { return run(ctx, opts) }); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Already running in the background? Then double-clicking the exe just
+	// opens Encorr in the browser.
+	local := fmt.Sprintf("http://localhost:%d", opts.port)
+	if serviceRunning() {
+		// A newer download? Update the background copy to it.
+		if running := runningVersion(local); running != "" && running != app.Version && app.Version != "0.1.1" {
+			fmt.Printf("Updating background Encorr from %s to %s (Windows will ask to allow changes)…\n", running, app.Version)
+			if err := serviceCommand("install"); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				pause()
+			}
+			return
+		}
+		fmt.Println("Encorr is already running in the background. Opening", local)
+		openBrowser(local)
+		time.Sleep(1500 * time.Millisecond)
+		return
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		pause()
 		os.Exit(1)
 	}
-	logFile, err := os.OpenFile(filepath.Join(*configDir, "logs", "encorr.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+}
+
+// run starts Encorr and blocks until ctx is cancelled.
+func run(ctx context.Context, opts options) error {
+	if err := os.MkdirAll(filepath.Join(opts.configDir, "logs"), 0o755); err != nil {
+		return fmt.Errorf("Encorr can't create its data folder: %w", err)
+	}
+	logFile, err := os.OpenFile(filepath.Join(opts.configDir, "logs", "encorr.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	var out io.Writer = os.Stdout
+	if opts.service {
+		out = io.Discard // no console as a service
+	}
 	if err == nil {
-		out = io.MultiWriter(os.Stdout, logFile)
+		out = io.MultiWriter(out, logFile)
 		defer logFile.Close()
 	}
 	logger := log.New(out, "", log.LstdFlags)
 
-	st, err := store.Open(*configDir)
+	st, err := store.Open(opts.configDir)
 	if err != nil {
 		logger.Printf("Encorr couldn't open its data: %v", err)
-		pause()
-		os.Exit(1)
+		return err
 	}
 
 	a := app.New(st, logger)
-	addr := net.JoinHostPort(*host, fmt.Sprint(*port))
-	ln, err := net.Listen("tcp", addr)
+	a.Background = background{port: opts.port, service: opts.service}
+	addr := net.JoinHostPort(opts.host, fmt.Sprint(opts.port))
+	ln, err := listenRetry(addr, opts.service)
 	if err != nil {
-		logger.Printf("Port %d is already in use: is Encorr already running? (or start it with -port 5151)", *port)
-		pause()
-		os.Exit(1)
+		logger.Printf("Port %d is already in use: is Encorr already running? (or start it with -port 5151)", opts.port)
+		return fmt.Errorf("port %d is already in use", opts.port)
 	}
 	srv := &http.Server{
 		Handler:           a.Handler(web.Static()),
@@ -100,12 +163,16 @@ func main() {
 	}
 	a.Start()
 
-	local := fmt.Sprintf("http://localhost:%d", *port)
-	logger.Printf("Encorr %s is running. Open %s (data folder: %s)", app.Version, local, *configDir)
-	logger.Printf("Keep this window open while you use Encorr. Close it (or press Ctrl+C) to stop.")
+	local := fmt.Sprintf("http://localhost:%d", opts.port)
+	if opts.service {
+		logger.Printf("Encorr %s is running in the background. Open %s (data folder: %s)", app.Version, local, opts.configDir)
+	} else {
+		logger.Printf("Encorr %s is running. Open %s (data folder: %s)", app.Version, local, opts.configDir)
+		logger.Printf("Keep this window open while you use Encorr, or turn on \"Run in the background\" in Settings → General.")
+	}
 	// Open the browser every time it's started by hand, so double-clicking
 	// the exe always takes you to Encorr. (-no-browser for background use.)
-	if !*noBrowser {
+	if !opts.noBrowser {
 		go func() { time.Sleep(700 * time.Millisecond); openBrowser(local) }()
 	}
 
@@ -115,14 +182,46 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+	select {
+	case <-ctx.Done():
+	case <-a.Quit(): // handing over to the background service
+	}
 	logger.Printf("Stopping Encorr…")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	_ = srv.Shutdown(sctx)
 	a.Stop()
+	return nil
+}
+
+// runningVersion asks the running Encorr which version it is.
+func runningVersion(base string) string {
+	c := &http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get(base + "/api/v1/status")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var st struct {
+		Version string `json:"version"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&st) != nil {
+		return ""
+	}
+	return st.Version
+}
+
+// listenRetry waits a little for the port when starting as a service, in
+// case the window version is still closing down.
+func listenRetry(addr string, wait bool) (net.Listener, error) {
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil || !wait || time.Now().After(deadline) {
+			return ln, err
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // pause keeps the console window open on Windows so errors can be read.

@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # go.sum is filled in on the build machine (dependencies are downloaded there).
+  GOFLAGS: -mod=mod
+
 jobs:
   test:
     name: Tests

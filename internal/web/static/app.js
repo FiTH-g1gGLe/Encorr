@@ -802,6 +802,43 @@ function pageProfile(main) {
   });
 }
 
+// Running in the background (Windows service that starts with the computer).
+async function loadBackgroundCard(box) {
+  let b;
+  try { b = await api("/system/background"); } catch (_) { return; }
+  if (!b.supported) return;
+  const on = b.installed;
+  box.innerHTML = `<h2 style="margin-top:0">Run in the background</h2>
+    <div class="row between"><div class="grow"><strong>${on ? "On: Encorr starts with Windows" : "Off: Encorr only runs while its window is open"}</strong>
+      <div class="small muted">${on ? "No window needed. It starts when the computer does, even before anyone logs in, and restarts itself if it ever stops." : "Turn this on so Encorr is always available to your friends. Windows will ask you to allow it."}</div></div>
+      <button class="btn ${on ? "" : "primary"}" id="bgBtn">${on ? "Turn off" : "Turn on"}</button></div>
+    <div id="bgMsg"></div>`;
+  qs("#bgBtn", box).addEventListener("click", async (e) => {
+    if (on && !confirmBox("Stop running Encorr in the background? It will close, and you'll need to open encorr.exe to use it again.")) return;
+    busy(e.currentTarget, true, on ? "Turning off…" : "Waiting for Windows…");
+    try {
+      await api("/system/background", { method: "POST", body: { on: !on } });
+      qs("#bgMsg", box).innerHTML = on
+        ? `<div class="notice ok">Done. Encorr is closing; open encorr.exe whenever you want it again.</div>`
+        : `<div class="notice ok">Windows is asking "Do you want to allow this app to make changes?" on the server: press <strong>Yes</strong>. Encorr will move to the background and this page will reconnect in a few seconds.</div>`;
+      if (!on) waitForBackground(box);
+    } catch (err) { toast(err.message, "error"); busy(e.currentTarget, false); }
+  });
+}
+
+// After switching on, wait for the background copy to answer, then reload.
+function waitForBackground(box) {
+  let tries = 0;
+  const t = setInterval(async () => {
+    tries++;
+    try {
+      const b = await api("/system/background");
+      if (b.isService) { clearInterval(t); toast("Encorr is running in the background", "ok"); loadBackgroundCard(box); }
+    } catch (_) { /* restarting */ }
+    if (tries > 90) clearInterval(t);
+  }, 2000);
+}
+
 // ---------- shared settings forms ----------
 function arrForm(app, saved) {
   const isR = app === "radarr";
@@ -1075,7 +1112,7 @@ async function pageSettings(main, section) {
   });
 
   if (section === "general") {
-    panel.innerHTML = `<h2>Look</h2>
+    panel.innerHTML = `<div id="bgCard"></div><h2>Look</h2>
       <div class="swatches">${[["violet", "#9b7bff", "Soft violet"], ["coral", "#ff7a66", "Coral"]].map(([k, c, l]) => `<div class="swatch ${s.accent === k ? "on" : ""}" data-acc="${k}"><div class="chip" style="background:${c}"></div>${l}</div>`).join("")}</div>
       <h2>Requests</h2>
       <p class="lead">Limits for Friends. Trusted users and admins have no limit. Use 0 for no limit.</p>
@@ -1086,6 +1123,7 @@ async function pageSettings(main, section) {
       <label class="field"><span>Public address (optional)</span><input type="url" id="appUrl" value="${esc(s.appUrl)}" placeholder="https://encorr.example.com"><small>Used for links in Discord messages, e.g. your Cloudflare Tunnel address.</small></label>
       <label class="field"><span>Region</span><select id="region">${[["GB", "United Kingdom"], ["IE", "Ireland"], ["US", "United States"], ["CA", "Canada"], ["AU", "Australia"], ["NZ", "New Zealand"]].map(([k, l]) => `<option value="${k}" ${s.region === k ? "selected" : ""}>${l}</option>`).join("")}</select><small>Sets release dates, age ratings and “coming soon”.</small></label>
       <h2>TMDB</h2>${tmdbForm(s.tmdb)}${saveBar()}`;
+    loadBackgroundCard(qs("#bgCard"));
     let accent = s.accent;
     qsa("[data-acc]").forEach((el) => el.addEventListener("click", () => {
       accent = el.dataset.acc;

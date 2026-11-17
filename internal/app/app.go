@@ -36,8 +36,12 @@ type App struct {
 	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
 
 	sabTried bool
-	jobs     map[string]*job
-	limiter  *rateLimiter
+	// Background is set by main: runs Encorr as a Windows service.
+	Background Background
+	quit       chan struct{}
+	quitOnce   sync.Once
+	jobs       map[string]*job
+	limiter    *rateLimiter
 	// Wrong passwords: 10 tries per 15 minutes per address.
 	loginLimiter *rateLimiter
 	wg           sync.WaitGroup
@@ -54,6 +58,7 @@ func New(st *store.Store, logger *log.Logger) *App {
 		landed:       map[string]map[int]time.Time{"radarr": {}, "sonarr": {}},
 		limiter:      newRateLimiter(20, time.Minute),
 		loginLimiter: newRateLimiter(10, 15*time.Minute),
+		quit:         make(chan struct{}),
 	}
 	a.setupJobs()
 	return a
