@@ -1,0 +1,12 @@
+{
+  "name": "Encorr",
+  "short_name": "Encorr",
+  "description": "Request the encore.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070b1a",
+  "theme_color": "#0b1230",
+  "icons": [
+    { "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
