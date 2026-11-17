@@ -26,14 +26,18 @@ type publicUser struct {
 	Role          string `json:"role"`
 	DiscordID     string `json:"discordId,omitempty"`
 	WatchlistSync bool   `json:"watchlistSync"`
-	SignedIn      bool   `json:"signedIn"` // has signed in at least once
+	SignedIn      bool   `json:"signedIn"`    // has signed in at least once
+	Plex          bool   `json:"plex"`        // can sign in with Plex
+	HasPassword   bool   `json:"hasPassword"` // can sign in with username + password
+	MustChange    bool   `json:"mustChangePassword,omitempty"`
 	Created       string `json:"created"`
 	Requests      int    `json:"requests,omitempty"`
 }
 
 func toPublic(u *store.User) publicUser {
 	return publicUser{ID: u.ID, Username: u.Username, Email: u.Email, Thumb: u.Thumb, Role: u.Role,
-		DiscordID: u.DiscordID, WatchlistSync: u.WatchlistSync, SignedIn: u.PlexToken != "",
+		DiscordID: u.DiscordID, WatchlistSync: u.WatchlistSync, SignedIn: u.PlexToken != "" || !u.LastSeen.IsZero(),
+		Plex: u.PlexID != 0, HasPassword: u.PasswordHash != "", MustChange: u.MustChangePassword,
 		Created: u.Created.Format(time.RFC3339)}
 }
 
@@ -43,7 +47,7 @@ func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
 	a.Store.Read(func(d *store.Data) { hasAdmin = d.HasAdmin() })
 	out := map[string]any{
 		"version": Version, "setupComplete": s.SetupComplete, "hasAdmin": hasAdmin,
-		"accent": s.Accent, "serverName": s.Plex.ServerName,
+		"accent": s.Accent, "serverName": s.Plex.ServerName, "appUrl": s.AppURL,
 		"radarr": s.Radarr.Enabled, "sonarr": s.Sonarr.Enabled,
 	}
 	if u := a.currentUser(r); u != nil {
@@ -148,6 +152,252 @@ func (a *App) hPlexCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	a.logf("sign-in: %s (%s)", acct.Username, role)
 	writeJSON(w, 200, map[string]any{"done": true, "role": role})
+}
+
+// hLogin signs in with an Encorr username and password.
+func (a *App) hLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, err)
+		return
+	}
+	var hash string
+	var id int
+	var ready bool
+	a.Store.Read(func(d *store.Data) {
+		ready = d.Settings.SetupComplete
+		if u := d.UserByName(body.Username); u != nil && u.PasswordHash != "" {
+			hash, id = u.PasswordHash, u.ID
+		}
+	})
+	if !ready {
+		writeErr(w, http.StatusForbidden, "Encorr isn't finished setting up yet.")
+		return
+	}
+	if a.loginLimiter.Blocked(clientIP(r)) {
+		writeErr(w, http.StatusTooManyRequests, "Too many wrong passwords. Wait 15 minutes and try again.")
+		return
+	}
+	if hash == "" {
+		a.loginLimiter.Allow(clientIP(r))
+		checkPassword(dummyHash, body.Password) // same delay either way
+		writeErr(w, http.StatusUnauthorized, "That username and password don't match. Check them, or ask the owner to reset your password.")
+		return
+	}
+	if !checkPassword(hash, body.Password) {
+		a.loginLimiter.Allow(clientIP(r))
+		a.logf("sign-in failed for %q from %s", body.Username, clientIP(r))
+		writeErr(w, http.StatusUnauthorized, "That username and password don't match. Check them, or ask the owner to reset your password.")
+		return
+	}
+	if err := a.startSession(w, r, id); err != nil {
+		fail(w, err)
+		return
+	}
+	var pub publicUser
+	a.Store.Read(func(d *store.Data) {
+		if u := d.UserByID(id); u != nil {
+			pub = toPublic(u)
+		}
+	})
+	a.logf("sign-in: %s (password)", pub.Username)
+	writeJSON(w, 200, map[string]any{"done": true, "user": pub})
+}
+
+// hChangeMyPassword lets anyone set or change their own password.
+func (a *App) hChangeMyPassword(w http.ResponseWriter, r *http.Request, u *store.User) {
+	var body struct {
+		Current string `json:"current"`
+		New     string `json:"new"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := validPassword(body.New); err != nil {
+		fail(w, err)
+		return
+	}
+	// Changing an existing password needs the old one, except straight after
+	// the owner set or reset it (MustChangePassword).
+	if u.PasswordHash != "" && !u.MustChangePassword && !checkPassword(u.PasswordHash, body.Current) {
+		fail(w, userErr("Your current password isn't right."))
+		return
+	}
+	hash, err := hashPassword(body.New)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var pub publicUser
+	err = a.Store.Update(func(d *store.Data) error {
+		t := d.UserByID(u.ID)
+		if t == nil {
+			return userErr("User not found.")
+		}
+		t.PasswordHash, t.MustChangePassword = hash, false
+		pub = toPublic(t)
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, pub)
+}
+
+// hCreateUser makes an Encorr account (username + password) for someone.
+func (a *App) hCreateUser(w http.ResponseWriter, r *http.Request, admin *store.User) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, err)
+		return
+	}
+	name := strings.TrimSpace(body.Username)
+	if err := validUsername(name); err != nil {
+		fail(w, err)
+		return
+	}
+	if body.Password == "" {
+		body.Password = newPassword()
+	}
+	if err := validPassword(body.Password); err != nil {
+		fail(w, err)
+		return
+	}
+	if body.Role == "" {
+		body.Role = store.RoleFriend
+	}
+	if body.Role != store.RoleAdmin && body.Role != store.RoleTrusted && body.Role != store.RoleFriend {
+		fail(w, userErr("Role must be admin, trusted or friend."))
+		return
+	}
+	hash, err := hashPassword(body.Password)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var pub publicUser
+	err = a.Store.Update(func(d *store.Data) error {
+		if d.UserByName(name) != nil {
+			return userErr("Someone already has the username " + name + ". Pick another.")
+		}
+		u := &store.User{ID: d.NewID("user"), Username: name, Role: body.Role, PasswordHash: hash,
+			MustChangePassword: true, Created: time.Now()}
+		d.Users = append(d.Users, u)
+		pub = toPublic(u)
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	a.logf("%s added an account for %s (%s)", admin.Username, name, body.Role)
+	writeJSON(w, 200, map[string]any{"user": pub, "password": body.Password})
+}
+
+// hResetPassword lets an admin set a new password for anyone.
+func (a *App) hResetPassword(w http.ResponseWriter, r *http.Request, admin *store.User) {
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, err)
+		return
+	}
+	if body.Password == "" {
+		body.Password = newPassword()
+	}
+	if err := validPassword(body.Password); err != nil {
+		fail(w, err)
+		return
+	}
+	hash, err := hashPassword(body.Password)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	id := pathInt(r, "id")
+	var name string
+	err = a.Store.Update(func(d *store.Data) error {
+		t := d.UserByID(id)
+		if t == nil {
+			return userErr("User not found.")
+		}
+		t.PasswordHash = hash
+		t.MustChangePassword = t.ID != admin.ID
+		name = t.Username
+		// Sign them out everywhere: the old password no longer works.
+		if t.ID != admin.ID {
+			keep := d.Sessions[:0]
+			for _, s := range d.Sessions {
+				if s.UserID != t.ID {
+					keep = append(keep, s)
+				}
+			}
+			d.Sessions = keep
+		}
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	a.logf("%s set a new password for %s", admin.Username, name)
+	writeJSON(w, 200, map[string]any{"ok": true, "username": name, "password": body.Password})
+}
+
+// hDeleteUser removes an account (their past requests stay in the list).
+func (a *App) hDeleteUser(w http.ResponseWriter, r *http.Request, admin *store.User) {
+	id := pathInt(r, "id")
+	if id == admin.ID {
+		fail(w, userErr("You can't remove your own account."))
+		return
+	}
+	err := a.Store.Update(func(d *store.Data) error {
+		t := d.UserByID(id)
+		if t == nil {
+			return userErr("User not found.")
+		}
+		if t.Role == store.RoleAdmin {
+			n := 0
+			for _, x := range d.Users {
+				if x.Role == store.RoleAdmin {
+					n++
+				}
+			}
+			if n <= 1 {
+				return userErr("Encorr needs at least one admin.")
+			}
+		}
+		users := d.Users[:0]
+		for _, x := range d.Users {
+			if x.ID != id {
+				users = append(users, x)
+			}
+		}
+		d.Users = users
+		keep := d.Sessions[:0]
+		for _, s := range d.Sessions {
+			if s.UserID != id {
+				keep = append(keep, s)
+			}
+		}
+		d.Sessions = keep
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func (a *App) hLogout(w http.ResponseWriter, r *http.Request) {

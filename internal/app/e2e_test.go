@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -505,9 +506,85 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
+	// 23. Encorr accounts: the owner makes one, the friend signs in with a
+	// username and password, must pick their own password, then requests.
+	var made struct {
+		User     publicUser
+		Password string
+	}
+	if code, _ := owner.call("POST", "/users", map[string]any{"username": "bad name"}, nil); code != 400 {
+		t.Fatalf("username with a space should be refused: %d", code)
+	}
+	owner.ok("POST", "/users", map[string]any{"username": "Dave", "role": "friend"}, &made)
+	if made.Password == "" || !made.User.HasPassword || !made.User.MustChange || made.User.Plex {
+		t.Fatalf("new account: %+v", made)
+	}
+	if code, _ := owner.call("POST", "/users", map[string]any{"username": "dave"}, nil); code != 400 {
+		t.Fatalf("duplicate username (any case) should be refused: %d", code)
+	}
+	var stored string
+	st.Read(func(d *store.Data) { stored = d.UserByName("dave").PasswordHash })
+	if strings.Contains(stored, made.Password) || !strings.HasPrefix(stored, "pbkdf2-sha256$") {
+		t.Fatalf("password must be stored hashed, got %q", stored)
+	}
+	dave := newClient(t, srv.URL)
+	if code, m := dave.call("POST", "/auth/login", map[string]any{"username": "dave", "password": "wrong-password"}, nil); code != 401 || !strings.Contains(m["error"].(string), "don't match") {
+		t.Fatalf("wrong password: %d %v", code, m)
+	}
+	if code, _ := dave.call("POST", "/auth/login", map[string]any{"username": "nobody", "password": "whatever1"}, nil); code != 401 {
+		t.Fatalf("unknown user: %d", code)
+	}
+	var login struct{ User publicUser }
+	dave.ok("POST", "/auth/login", map[string]any{"username": "DAVE", "password": made.Password}, &login)
+	if !login.User.MustChange || login.User.Role != "friend" {
+		t.Fatalf("login: %+v", login.User)
+	}
+	if code, _ := dave.call("POST", "/me/password", map[string]any{"new": "short"}, nil); code != 400 {
+		t.Fatalf("short password should be refused: %d", code)
+	}
+	dave.ok("POST", "/me/password", map[string]any{"new": "daves-own-password"}, nil)
+	if code, _ := dave.call("POST", "/me/password", map[string]any{"current": "nope", "new": "another-password"}, nil); code != 400 {
+		t.Fatalf("changing needs the current password now: %d", code)
+	}
+	var dr store.Request
+	dave.ok("POST", "/requests", map[string]any{"type": "tv", "tmdbId": 201, "seasons": []int{1}}, &dr)
+	if dr.Status != store.ReqPending {
+		t.Fatalf("friend's request should wait for approval, got %s", dr.Status)
+	}
+	// Owner resets it: Dave is signed out and must use the new one.
+	var reset struct{ Password string }
+	owner.ok("PUT", fmt.Sprintf("/users/%d/password", made.User.ID), map[string]any{}, &reset)
+	if code, _ := dave.call("GET", "/me", nil, nil); code != 401 {
+		t.Fatalf("reset should sign Dave out: %d", code)
+	}
+	if code, _ := dave.call("POST", "/auth/login", map[string]any{"username": "dave", "password": "daves-own-password"}, nil); code != 401 {
+		t.Fatalf("old password should stop working: %d", code)
+	}
+	dave.ok("POST", "/auth/login", map[string]any{"username": "dave", "password": reset.Password}, nil)
+	// Removing the account signs them out.
+	owner.ok("DELETE", fmt.Sprintf("/users/%d", made.User.ID), nil, nil)
+	if code, _ := dave.call("GET", "/me", nil, nil); code != 401 {
+		t.Fatalf("removed account should be signed out: %d", code)
+	}
+	if code, _ := owner.call("DELETE", fmt.Sprintf("/users/%d", ownerID(st)), nil, nil); code != 400 {
+		t.Fatalf("owner can't remove themselves: %d", code)
+	}
+
 	// 21. Web UI is served.
 	resp, err := http.Get(srv.URL + "/requests")
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("web UI: %v %v", err, resp)
 	}
+}
+
+func ownerID(st *store.Store) int {
+	id := 0
+	st.Read(func(d *store.Data) {
+		for _, u := range d.Users {
+			if u.Role == store.RoleAdmin {
+				id = u.ID
+			}
+		}
+	})
+	return id
 }

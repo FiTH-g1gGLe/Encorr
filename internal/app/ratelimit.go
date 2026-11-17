@@ -38,3 +38,17 @@ func (r *rateLimiter) Allow(key string) bool {
 	}
 	return true
 }
+
+// Blocked reports whether key has used up its tries, without counting one.
+func (r *rateLimiter) Blocked(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cut := time.Now().Add(-r.window)
+	n := 0
+	for _, t := range r.hits[key] {
+		if t.After(cut) {
+			n++
+		}
+	}
+	return n >= r.n
+}

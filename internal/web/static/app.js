@@ -133,6 +133,7 @@ async function boot() {
   if (!s.hasAdmin || (!s.setupComplete && isAdmin())) return renderWizard();
   if (!state.user) return renderLogin();
   if (!s.setupComplete) return renderNotReady();
+  if (state.user.mustChangePassword) return renderChoosePassword();
   renderShell();
   route();
 }
@@ -237,10 +238,59 @@ function renderLogin() {
   <div class="center"><div class="glass wizard login">
     <h1 class="brandhead">${LOCKUP(64)}</h1>
     <div class="tag">Request the encore.</div>
-    <p class="muted">${s.serverName ? `Sign in with the Plex account that ${esc(s.serverName)} is shared with.` : "Sign in with your Plex account."}</p>
-    <button class="btn plex" id="signin" style="margin-top:10px">${I.plex} Sign in with Plex</button>
+    <form id="pwForm" class="signin-form" autocomplete="on">
+      <label class="field"><span>Username</span><input type="text" id="lu" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Password</span><input type="password" id="lp" name="password" autocomplete="current-password" required></label>
+      <div id="lerr"></div>
+      <button class="btn primary wide" type="submit" id="lgo">Sign in</button>
+    </form>
+    <div class="or"><span>or</span></div>
+    <button class="btn plex wide" id="signin">${I.plex} Sign in with Plex</button>
+    <p class="small dim" style="margin-top:18px">No account yet? Ask ${s.serverName ? `the owner of ${esc(s.serverName)}` : "the owner"} to make you one.</p>
   </div></div>`;
   qs("#signin").addEventListener("click", (e) => plexSignIn(e.currentTarget, boot));
+  qs("#pwForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = qs("#lgo");
+    busy(btn, true, "Signing in…");
+    qs("#lerr").innerHTML = "";
+    try {
+      await api("/auth/login", { method: "POST", body: { username: qs("#lu").value.trim(), password: qs("#lp").value }, allow401: true }).then((r) => { if (r && r.error) throw new Error(r.error); });
+      await boot();
+    } catch (err) {
+      qs("#lerr").innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+      busy(btn, false);
+    }
+  });
+  qs("#lu").focus();
+}
+
+// After the owner makes or resets an account, the person picks their own password.
+function renderChoosePassword() {
+  setBackdrop(null);
+  $app.innerHTML = `<div class="center"><div class="glass wizard login">
+    <div class="brandhead">${LOCKUP(48)}</div>
+    <h1>Welcome, ${esc(state.user.username)}</h1>
+    <p class="muted">Choose your own password. Only you will know it.</p>
+    <form id="cpForm" class="signin-form">
+      <input type="text" name="username" autocomplete="username" value="${esc(state.user.username)}" hidden>
+      <label class="field"><span>New password</span><input type="password" id="np1" autocomplete="new-password" minlength="8" required><small>At least 8 characters.</small></label>
+      <label class="field"><span>Type it again</span><input type="password" id="np2" autocomplete="new-password" minlength="8" required></label>
+      <div id="cperr"></div>
+      <button class="btn primary wide" type="submit" id="cpgo">Save and continue</button>
+    </form>
+    <button class="btn sm" id="out" style="margin-top:14px">Sign out</button>
+  </div></div>`;
+  qs("#np1").focus();
+  qs("#out").addEventListener("click", signOut);
+  qs("#cpForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const a = qs("#np1").value, b = qs("#np2").value;
+    if (a !== b) { qs("#cperr").innerHTML = `<div class="notice error">The two passwords don't match.</div>`; return; }
+    busy(qs("#cpgo"), true, "Saving…");
+    try { await api("/me/password", { method: "POST", body: { new: a } }); toast("Password saved", "ok"); await boot(); }
+    catch (err) { qs("#cperr").innerHTML = `<div class="notice error">${esc(err.message)}</div>`; busy(qs("#cpgo"), false); }
+  });
 }
 
 function renderNotReady() {
@@ -607,32 +657,105 @@ function bindReqActions(box, reload) {
 }
 
 // ---------- users ----------
+const ROLE_NAMES = { admin: "Owner", trusted: "Trusted", friend: "Friend" };
+const ROLE_HELP = { admin: "Can do everything, including settings", trusted: "Requests start downloading straight away", friend: "Requests wait for your approval" };
+
 async function pageUsers(main) {
   main.innerHTML = `
-    <div class="page-head"><div><h1>Users</h1><div class="muted">Everyone who can request. Friends need approval; Trusted users are approved automatically.</div></div>
-      <button class="btn" id="import">${I.users} Import Plex friends</button></div>
-    <div class="glass" style="overflow-x:auto"><table class="users"><thead><tr><th></th><th>Name</th><th>Role</th><th>Requests</th><th>Joined</th></tr></thead><tbody id="ulist"><tr><td colspan="5"><span class="spinner"></span></td></tr></tbody></table></div>
-    <p class="hint">Admin: everything, including settings. Trusted: requests start downloading straight away. Friend: requests wait for approval and follow the limits in Settings → General.</p>`;
+    <div class="page-head"><div><h1>People</h1><div class="muted">Everyone who can request. Make accounts for friends here.</div></div>
+      <div class="row"><button class="btn" id="import">${I.plex} Import Plex friends</button><button class="btn primary" id="add">${I.plus} Add a person</button></div></div>
+    <div class="people" id="ulist"><span class="spinner"></span></div>
+    <div class="glass roles">${Object.keys(ROLE_NAMES).map((r) => `<div><strong>${ROLE_NAMES[r]}</strong><span>${ROLE_HELP[r]}</span></div>`).join("")}</div>`;
   const load = async () => {
     const r = await api("/users");
-    const tbody = qs("#ulist");
-    if (!tbody) return;
-    tbody.innerHTML = r.results.map((u) => `<tr>
-      <td>${u.thumb ? `<img src="${esc(u.thumb)}" alt="">` : ""}</td>
-      <td><strong>${esc(u.username)}</strong>${u.id === state.user.id ? ' <span class="dim small">(you)</span>' : ""}<div class="small dim">${esc(u.email || "")}${u.signedIn ? "" : " · hasn't signed in yet"}</div></td>
-      <td><select data-uid="${u.id}">${["admin", "trusted", "friend"].map((r) => `<option value="${r}" ${r === u.role ? "selected" : ""}>${r[0].toUpperCase() + r.slice(1)}</option>`).join("")}</select></td>
-      <td>${u.requests || 0}</td><td class="dim small">${esc(ago(u.created))}</td></tr>`).join("");
-    qsa("select[data-uid]").forEach((s) => s.addEventListener("change", async () => {
-      try { await api(`/users/${s.dataset.uid}`, { method: "PATCH", body: { role: s.value } }); toast("Role updated", "ok"); } catch (e) { toast(e.message, "error"); load(); }
+    const box = qs("#ulist");
+    if (!box) return;
+    box.innerHTML = r.results.map((u) => {
+      const how = [u.hasPassword ? "a username and password" : "", u.plex ? "Plex" : ""].filter(Boolean).join(" or ");
+      const me = u.id === state.user.id;
+      return `<div class="glass person">
+        ${u.thumb ? `<img class="pic" src="${esc(u.thumb)}" alt="">` : `<span class="pic initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
+        <div class="who"><strong>${esc(u.username)}</strong>${me ? ' <span class="dim small">(you)</span>' : ""}
+          <div class="small dim">Signs in with ${esc(how || "nothing yet")}${u.signedIn ? "" : ", hasn't signed in yet"}${u.mustChangePassword && !me ? ", needs to pick a password" : ""}</div>
+          <div class="small dim">${u.requests || 0} request${u.requests === 1 ? "" : "s"}, joined ${esc(ago(u.created))}</div></div>
+        <label class="rolepick"><span class="sr">Role for ${esc(u.username)}</span><select data-uid="${u.id}" ${me ? "disabled title='You can't change your own role'" : ""}>${Object.keys(ROLE_NAMES).map((k) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${ROLE_NAMES[k]}</option>`).join("")}</select></label>
+        <div class="row acts">
+          <button class="btn sm" data-pw="${u.id}" data-name="${esc(u.username)}">${u.hasPassword ? "New password" : "Give a password"}</button>
+          ${me ? "" : `<button class="btn sm danger" data-rm="${u.id}" data-name="${esc(u.username)}">Remove</button>`}
+        </div></div>`;
+    }).join("");
+    qsa("select[data-uid]").forEach((sel) => sel.addEventListener("change", async () => {
+      try { await api(`/users/${sel.dataset.uid}`, { method: "PATCH", body: { role: sel.value } }); toast("Role updated", "ok"); } catch (e) { toast(e.message, "error"); load(); }
+    }));
+    qsa("[data-pw]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirmBox(`Make a new password for ${b.dataset.name}? Their old one stops working and they'll be signed out.`)) return;
+      try { const r = await api(`/users/${b.dataset.pw}/password`, { method: "PUT", body: {} }); shareDetails(r.username, r.password, "New password ready"); load(); }
+      catch (e) { toast(e.message, "error"); }
+    }));
+    qsa("[data-rm]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirmBox(`Remove ${b.dataset.name}? They won't be able to sign in. Their past requests stay in the list.`)) return;
+      try { await api(`/users/${b.dataset.rm}`, { method: "DELETE" }); toast(`${b.dataset.name} removed`); load(); }
+      catch (e) { toast(e.message, "error"); }
     }));
   };
+  qs("#add").addEventListener("click", () => addPersonModal(load));
   qs("#import").addEventListener("click", async (e) => {
     busy(e.currentTarget, true, "Importing…");
     try { const r = await api("/users/import", { method: "POST", body: {} }); toast(r.added ? `Added ${r.added} people from Plex` : "Everyone's already here", "ok"); await load(); }
     catch (err) { toast(err.message, "error"); }
     busy(e.currentTarget, false);
   });
-  load().catch((e) => { const tb = qs("#ulist"); if (tb) tb.innerHTML = `<tr><td colspan="5" class="notice error">${esc(e.message)}</td></tr>`; });
+  load().catch((e) => { const b = qs("#ulist"); if (b) b.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; });
+}
+
+function addPersonModal(onDone) {
+  const m = modal(`<h2>Add a person</h2>
+    <p class="muted" style="margin-top:-6px">They'll sign in with this username and a password. Encorr makes the password for you; they choose their own the first time they sign in.</p>
+    <form id="apForm">
+      <label class="field"><span>Username</span><input type="text" id="apU" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. dave" required><small>Letters, numbers, dots, dashes or underscores. No spaces.</small></label>
+      <div class="field"><span class="flabel">What can they do?</span>
+        ${["friend", "trusted", "admin"].map((r) => `<label class="choice"><input type="radio" name="apR" value="${r}" ${r === "friend" ? "checked" : ""}><span><strong>${ROLE_NAMES[r]}</strong><small>${ROLE_HELP[r]}</small></span></label>`).join("")}
+      </div>
+      <div id="apErr"></div>
+      <div class="foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" id="apGo" type="submit">Create account</button></div>
+    </form>`);
+  qs("#apU", m.el).focus();
+  qs("#apForm", m.el).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    busy(qs("#apGo", m.el), true, "Creating…");
+    try {
+      const r = await api("/users", { method: "POST", body: { username: qs("#apU", m.el).value.trim(), role: qs("input[name=apR]:checked", m.el).value } });
+      m.close();
+      shareDetails(r.user.username, r.password, "Account created");
+      onDone();
+    } catch (err) {
+      qs("#apErr", m.el).innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+      busy(qs("#apGo", m.el), false);
+    }
+  });
+}
+
+// Shows sign-in details once, ready to copy and send to the person.
+function shareDetails(username, password, title) {
+  const addr = (state.status && state.status.appUrl) || location.origin;
+  const text = `Here's your Encorr account for requesting films and shows:\n${addr}\nUsername: ${username}\nPassword: ${password}\nYou'll pick your own password when you first sign in.`;
+  const m = modal(`<h2>${esc(title)}</h2>
+    <p class="muted" style="margin-top:-6px">Send these to ${esc(username)}. This is the only time the password is shown.</p>
+    <div class="creds glass">
+      <div><span>Address</span><strong>${esc(addr)}</strong></div>
+      <div><span>Username</span><strong>${esc(username)}</strong></div>
+      <div><span>Password</span><strong class="pw">${esc(password)}</strong></div>
+    </div>
+    ${/localhost|127\.0\.0\.1/.test(addr) ? `<div class="notice warn">That address only works on this computer. Set your public address in Settings → General so friends can reach Encorr.</div>` : ""}
+    <div class="foot"><button class="btn" data-close>Done</button><button class="btn primary" id="cpy">Copy message</button></div>`);
+  qs("#cpy", m.el).addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(text); toast("Copied. Paste it into a message to them", "ok"); }
+    catch (_) {
+      const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); toast("Copied", "ok"); } catch (__) { toast("Couldn't copy. Select the details and copy them by hand", "error"); }
+      ta.remove();
+    }
+  });
 }
 
 // ---------- profile ----------
@@ -645,9 +768,17 @@ function pageProfile(main) {
         ${u.thumb ? `<img src="${esc(u.thumb)}" alt="" style="width:64px;height:64px;border-radius:50%">` : ""}
         <div><h2 style="margin:0">${esc(u.username)}</h2><div class="muted small">${esc(u.email || "")}</div><div style="margin-top:6px">${pill(u.role === "admin" ? "approved" : u.role === "trusted" ? "available" : "partial", u.role[0].toUpperCase() + u.role.slice(1))}</div></div>
       </div>
-      <h2>Plex watchlist</h2>
-      <div class="row between"><div class="grow"><strong>Request from my watchlist</strong><div class="small muted">Add a film or show to your Plex watchlist and Encorr requests it for you (checked every 10 minutes).</div></div>
-        <label class="switch"><input type="checkbox" id="wl" ${u.watchlistSync ? "checked" : ""}><span class="slider"></span></label></div>
+      <h2>Password</h2>
+      <p class="small muted" style="margin-top:-6px">${u.hasPassword ? "Change the password you sign in with." : "Set a password so you can also sign in with your username, without Plex."}</p>
+      <form id="pwf" class="row" style="align-items:flex-end">
+        <input type="text" name="username" autocomplete="username" value="${esc(u.username)}" hidden>
+        ${u.hasPassword ? `<label class="field grow" style="margin:0"><span>Current password</span><input type="password" id="pcur" autocomplete="current-password"></label>` : ""}
+        <label class="field grow" style="margin:0"><span>New password</span><input type="password" id="pnew" autocomplete="new-password" minlength="8" placeholder="At least 8 characters"></label>
+        <button class="btn" type="submit" id="pgo">${u.hasPassword ? "Change password" : "Set password"}</button>
+      </form>
+      ${u.plex ? `<h2>Plex watchlist</h2>` : ""}
+      ${u.plex ? `<div class="row between"><div class="grow"><strong>Request from my watchlist</strong><div class="small muted">Add a film or show to your Plex watchlist and Encorr requests it for you (checked every 10 minutes).</div></div>
+        <label class="switch"><input type="checkbox" id="wl" ${u.watchlistSync ? "checked" : ""}><span class="slider"></span></label></div>` : ""}
       <h2>Discord</h2>
       <label class="field"><span>Your Discord user ID</span><input type="text" id="did" value="${esc(u.discordId || "")}" placeholder="e.g. 374591050192257027" inputmode="numeric">
         <small>Get @mentioned when your encore is ready. In Discord: Settings → Advanced → Developer Mode on, then right-click your name → Copy User ID.</small></label>
@@ -655,11 +786,20 @@ function pageProfile(main) {
     </div>`;
   qs("#save").addEventListener("click", async (e) => {
     busy(e.currentTarget, true, "Saving…");
-    try { state.user = await api("/me", { method: "PATCH", body: { discordId: qs("#did").value, watchlistSync: qs("#wl").checked } }); toast("Saved", "ok"); }
+    try { state.user = await api("/me", { method: "PATCH", body: { discordId: qs("#did").value, watchlistSync: qs("#wl") ? qs("#wl").checked : false } }); toast("Saved", "ok"); }
     catch (err) { toast(err.message, "error"); }
     busy(e.currentTarget, false);
   });
   qs("#out").addEventListener("click", signOut);
+  qs("#pwf").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    busy(qs("#pgo"), true, "Saving…");
+    try {
+      state.user = await api("/me/password", { method: "POST", body: { current: qs("#pcur") ? qs("#pcur").value : "", new: qs("#pnew").value } });
+      toast("Password saved", "ok");
+      pageProfile(main);
+    } catch (err) { toast(err.message, "error"); busy(qs("#pgo"), false); }
+  });
 }
 
 // ---------- shared settings forms ----------

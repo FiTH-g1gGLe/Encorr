@@ -26,11 +26,13 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("GET /api/v1/status", a.hStatus)
 	api("POST /api/v1/auth/plex/pin", a.limited(a.hPlexPin))
 	api("POST /api/v1/auth/plex/check", a.limited(a.hPlexCheck))
+	api("POST /api/v1/auth/login", a.limited(a.hLogin))
 	api("POST /api/v1/auth/logout", a.hLogout)
 
 	// Signed-in users
 	api("GET /api/v1/me", a.user(a.hMe))
 	api("PATCH /api/v1/me", a.user(a.hUpdateMe))
+	api("POST /api/v1/me/password", a.user(a.hChangeMyPassword))
 	api("GET /api/v1/discover/{kind}", a.user(a.hDiscover))
 	api("GET /api/v1/search", a.user(a.hSearch))
 	api("GET /api/v1/title/{type}/{id}", a.user(a.hTitle))
@@ -45,6 +47,9 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("GET /api/v1/users", a.admin(a.hUsers))
 	api("PATCH /api/v1/users/{id}", a.admin(a.hUpdateUser))
 	api("POST /api/v1/users/import", a.admin(a.hImportUsers))
+	api("POST /api/v1/users", a.admin(a.hCreateUser))
+	api("PUT /api/v1/users/{id}/password", a.admin(a.hResetPassword))
+	api("DELETE /api/v1/users/{id}", a.admin(a.hDeleteUser))
 	api("GET /api/v1/health", a.admin(a.hHealth))
 	api("GET /api/v1/jobs", a.admin(a.hJobs))
 	api("POST /api/v1/jobs/{name}/run", a.admin(a.hRunJob))

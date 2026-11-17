@@ -118,17 +118,21 @@ type QuotaSettings struct {
 }
 
 type User struct {
-	ID            int       `json:"id"`
-	PlexID        int       `json:"plexId"`
-	Username      string    `json:"username"`
-	Email         string    `json:"email"`
-	Thumb         string    `json:"thumb"`
-	Role          string    `json:"role"`
-	PlexToken     Secret    `json:"plexToken"`
-	DiscordID     string    `json:"discordId"`
-	WatchlistSync bool      `json:"watchlistSync"`
-	Created       time.Time `json:"created"`
-	LastSeen      time.Time `json:"lastSeen"`
+	ID        int    `json:"id"`
+	PlexID    int    `json:"plexId"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Thumb     string `json:"thumb"`
+	Role      string `json:"role"`
+	PlexToken Secret `json:"plexToken"`
+	// Encorr's own sign-in (username + password). Only a salted, slow hash
+	// is kept, never the password itself.
+	PasswordHash       string    `json:"passwordHash,omitempty"`
+	MustChangePassword bool      `json:"mustChangePassword,omitempty"`
+	DiscordID          string    `json:"discordId"`
+	WatchlistSync      bool      `json:"watchlistSync"`
+	Created            time.Time `json:"created"`
+	LastSeen           time.Time `json:"lastSeen"`
 }
 
 type Media struct {

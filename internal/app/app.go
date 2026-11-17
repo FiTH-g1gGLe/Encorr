@@ -38,19 +38,22 @@ type App struct {
 	sabTried bool
 	jobs     map[string]*job
 	limiter  *rateLimiter
-	wg       sync.WaitGroup
+	// Wrong passwords: 10 tries per 15 minutes per address.
+	loginLimiter *rateLimiter
+	wg           sync.WaitGroup
 }
 
 func New(st *store.Store, logger *log.Logger) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{
-		Store:     st,
-		Log:       logger,
-		ctx:       ctx,
-		cancel:    cancel,
-		downloads: map[string]map[int][]arr.QueueItem{},
-		landed:    map[string]map[int]time.Time{"radarr": {}, "sonarr": {}},
-		limiter:   newRateLimiter(20, time.Minute),
+		Store:        st,
+		Log:          logger,
+		ctx:          ctx,
+		cancel:       cancel,
+		downloads:    map[string]map[int][]arr.QueueItem{},
+		landed:       map[string]map[int]time.Time{"radarr": {}, "sonarr": {}},
+		limiter:      newRateLimiter(20, time.Minute),
+		loginLimiter: newRateLimiter(10, 15*time.Minute),
 	}
 	a.setupJobs()
 	return a

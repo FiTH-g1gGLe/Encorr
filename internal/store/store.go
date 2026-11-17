@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -176,7 +177,21 @@ func (d *Data) UserByID(id int) *User {
 	return nil
 }
 
+// UserByName finds a user by username, ignoring capitals.
+func (d *Data) UserByName(name string) *User {
+	name = strings.TrimSpace(name)
+	for _, u := range d.Users {
+		if strings.EqualFold(u.Username, name) {
+			return u
+		}
+	}
+	return nil
+}
+
 func (d *Data) UserByPlexID(id int) *User {
+	if id == 0 {
+		return nil // Encorr-only accounts have no Plex id
+	}
 	for _, u := range d.Users {
 		if u.PlexID == id {
 			return u
