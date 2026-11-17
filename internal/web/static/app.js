@@ -169,15 +169,16 @@ function renderShell() {
   $app.innerHTML = `
   <div class="shell">
     <nav class="nav" aria-label="Main">
-      <a href="#/discover" class="brand" title="Encorr" aria-label="Encorr">${MARK(46)}</a>
-      <a class="item" data-page="discover" href="#/discover">${I.discover}<span class="label">Discover</span></a>
+      <a href="#/discover" class="brand" aria-label="Encorr home">${LOCKUP(30)}</a>
+      <a class="item" data-page="discover" href="#/discover">${I.discover}<span class="label">Home</span></a>
       <a class="item" data-page="search" href="#/search">${I.search}<span class="label">Search</span></a>
-      <a class="item" data-page="requests" href="#/requests">${I.requests}<span class="label">Requests</span><span class="badge" id="pendingBadge" hidden></span></a>
-      ${admin ? `<a class="item" data-page="users" href="#/users">${I.users}<span class="label">Users</span></a>
+      <a class="item" data-page="requests" href="#/requests">${I.requests}<span class="label">${admin ? "Requests" : "My requests"}</span><span class="badge" id="pendingBadge" hidden title="Waiting for your approval"></span></a>
+      ${admin ? `<a class="item" data-page="users" href="#/users">${I.users}<span class="label">People</span></a>
       <a class="item" data-page="settings" href="#/settings">${I.settings}<span class="label">Settings</span></a>` : ""}
       <div class="spacer"></div>
-      <a href="#/profile" title="${esc(u.username)}" class="item" data-page="profile" style="padding:6px 0">
-        ${u.thumb ? `<img class="avatar" src="${esc(u.thumb)}" alt="">` : `<span class="avatar" style="display:flex;align-items:center;justify-content:center;font-weight:800">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
+      <a href="#/profile" class="item me" data-page="profile">
+        ${u.thumb ? `<img class="avatar" src="${esc(u.thumb)}" alt="">` : `<span class="avatar initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
+        <span class="label"><span class="who">${esc(u.username)}</span><span class="role">${{ admin: "Owner", trusted: "Trusted", friend: "Friend" }[u.role] || ""}</span></span>
       </a>
     </nav>
     <main id="main"></main>
@@ -260,19 +261,40 @@ function card(c) {
   const p = img(c.poster);
   return `<a class="card" href="#/title/${esc(c.type)}/${esc(c.id)}" title="${esc(c.title)}">
     <div class="poster">${p ? `<img loading="lazy" src="${esc(p)}" alt="">` : `<div class="noimg">${esc(c.title)}</div>`}
-      <span class="type">${c.type === "tv" ? "TV" : "FILM"}</span>${st}</div>
+      <span class="type">${c.type === "tv" ? "TV" : "Film"}</span>${st}</div>
     <div class="meta"><div class="t">${esc(c.title)}</div><div class="y">${esc(c.year || "")}</div></div></a>`;
 }
 
 const skeletonRow = () => `<div class="scroller">${Array.from({ length: 8 }, () => `<div><div class="skeleton" style="aspect-ratio:2/3"></div></div>`).join("")}</div>`;
 
 async function pageDiscover(main) {
+  const hr = new Date().getHours();
+  const hello = hr < 12 ? "Morning" : hr < 18 ? "Afternoon" : "Evening";
+  let seenHow = false;
+  try { seenHow = localStorage.getItem("encorr.how") === "1"; } catch (_) {}
   main.innerHTML = `
+    <section class="welcome">
+      <h1>${hello}, ${esc(state.user.username)}. What do you fancy watching?</h1>
+      <form class="searchbar big" id="homeSearch" role="search">${I.search}<input type="search" id="hq" placeholder="Search for a film or TV show" autocomplete="off" aria-label="Search for a film or TV show"><button class="btn primary" type="submit">Search</button></form>
+      ${seenHow ? "" : `<ol class="how glass" id="how">
+        <li><span class="n">1</span><div><strong>Find it</strong><span>Search, or browse what's popular below.</span></div></li>
+        <li><span class="n">2</span><div><strong>Request it</strong><span>Press Request. That's all you do.</span></div></li>
+        <li><span class="n">3</span><div><strong>Watch it in Plex</strong><span>It downloads by itself and we tell you when it's ready.</span></div></li>
+        <button class="x" id="howClose" aria-label="Hide these tips" title="Got it">${I.check} Got it</button>
+      </ol>`}
+    </section>
     <div id="hero" class="hero skeleton"></div>
     <h2>Trending this week</h2><div id="row-trending">${skeletonRow()}</div>
     <h2>Popular films</h2><div id="row-movies">${skeletonRow()}</div>
     <h2>Popular TV</h2><div id="row-tv">${skeletonRow()}</div>
     <h2>Coming soon to UK cinemas</h2><div id="row-upcoming">${skeletonRow()}</div>`;
+  qs("#homeSearch").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = qs("#hq").value.trim();
+    location.hash = "#/search" + (v ? "?q=" + encodeURIComponent(v) : "");
+  });
+  const hc = qs("#howClose");
+  if (hc) hc.addEventListener("click", () => { try { localStorage.setItem("encorr.how", "1"); } catch (_) {} qs("#how").remove(); });
   const load = async (kind) => {
     const el = qs("#row-" + kind);
     try {
@@ -293,11 +315,11 @@ async function pageDiscover(main) {
   h.classList.remove("skeleton");
   h.style.backgroundImage = `url("${img(hero.backdrop, "w1280")}")`;
   h.innerHTML = `<div class="inner">
-      <div class="eyebrow">Trending ${hero.type === "tv" ? "show" : "film"}</div>
+      <div class="eyebrow">Trending this week</div>
       <h1>${esc(hero.title)}</h1>
       <p>${esc(hero.overview)}</p>
       <div class="row">
-        <a class="btn primary" href="#/title/${esc(hero.type)}/${esc(hero.id)}">${hero.status === "available" ? I.check + " In Plex" : ["processing", "pending"].includes(hero.status) ? I.check + " Requested" : I.plus + " Request"}</a>
+        ${hero.status === "available" ? `<span class="have">${MARK(18)} In your Plex library</span>` : ["processing", "pending"].includes(hero.status) ? `<span class="have req">${I.check} Requested</span>` : `<a class="btn primary" href="#/title/${esc(hero.type)}/${esc(hero.id)}">${I.plus} Request</a>`}
         <a class="btn" href="#/title/${esc(hero.type)}/${esc(hero.id)}">More info</a>
       </div></div>`;
 }
@@ -334,22 +356,44 @@ function pageSearch(main, q) {
 }
 
 // ---------- title page ----------
-// Download progress, in plain English. compact = the small version on the requests list.
-const STAGE_TEXT = { Downloading: "Downloading", Queued: "Queued in SABnzbd", Paused: "Paused", Unpacking: "Unpacking", Importing: "Moving into your library", "Waiting for Plex": "Downloaded: waiting for Plex to pick it up", Stuck: "Stuck", Failed: "Download failed" };
-function progHTML(p, compact) {
-  if (!p) return "";
+// ---------- the journey ----------
+// Every request walks the same four steps. Showing them as one line answers
+// "where's my film?" at a glance, for anyone.
+const JOURNEY = ["Requested", "Approved", "Downloading", "In Plex"];
+const STAGE_TEXT = { Downloading: "Downloading", Queued: "Queued for download", Paused: "Download paused", Unpacking: "Unpacking", Importing: "Moving it into your library", "Waiting for Plex": "Downloaded. Waiting for Plex to add it", Stuck: "Download is stuck", Failed: "Download failed" };
+
+// status: pending | approved | processing | declined | failed | completed | available
+function journeyState(status, p) {
+  switch (status) {
+    case "pending": return { at: 1, text: "Waiting for the owner to approve it" };
+    case "declined": return { at: 1, bad: true, text: "The owner declined this request" };
+    case "failed": return { at: 2, bad: true, text: "Couldn't start the download. The owner can retry it" };
+    case "completed": case "available": return { at: 4, text: "Ready to watch in Plex" };
+  }
+  if (!p) return { at: 2, text: "Looking for a copy to download", fill: 0 };
   const stage = p.stage || "Downloading";
-  const label = STAGE_TEXT[stage] || stage;
+  const text = STAGE_TEXT[stage] || stage;
+  if (["Unpacking", "Importing", "Waiting for Plex"].includes(stage)) return { at: 3, text, busy: true };
   const bits = [];
-  if (stage === "Downloading" || stage === "Paused" || stage === "Queued") bits.push(`${p.percent}%`);
-  if (p.timeLeft) bits.push(`${esc(p.timeLeft)} left`);
-  if (p.speed && !compact) bits.push(esc(p.speed));
-  const warn = stage === "Stuck" || stage === "Failed";
-  const busyStage = ["Unpacking", "Importing", "Waiting for Plex"].includes(stage);
-  const bar = `<div class="progress ${busyStage ? "indet" : ""} ${warn ? "warn" : ""}"><div style="width:${busyStage ? 100 : Math.max(2, p.percent)}%"></div></div>`;
-  const note = p.note ? `<div class="small dim" style="margin-top:6px">${esc(p.note)}</div>` : "";
-  if (compact) return `<div class="mini-prog"><div class="row between small"><span class="${warn ? "err" : "muted"}">${esc(label)}</span><span class="dim">${bits.join(" · ")}</span></div>${bar}</div>`;
-  return `<div class="glass dlbox" id="dlbox"><div class="row between small"><strong>${esc(label)}${p.items > 1 ? ` <span class="dim">(${p.items} files)</span>` : ""}</strong><span class="muted">${bits.join(" · ")}</span></div><div style="margin-top:8px">${bar}</div>${note}</div>`;
+  if (stage !== "Stuck" && stage !== "Failed") bits.push(`${p.percent}%`);
+  if (p.timeLeft) bits.push(`${p.timeLeft} left`);
+  if (p.speed) bits.push(p.speed);
+  return { at: 2, text, bits, fill: p.percent, bad: stage === "Stuck" || stage === "Failed", note: p.note };
+}
+
+function journeyHTML(status, p, compact) {
+  const j = journeyState(status, p);
+  const steps = JOURNEY.map((label, i) => {
+    const cls = i < j.at ? "done" : i === j.at ? (j.bad ? "now bad" : "now") : "";
+    // The line after a step fills as that step finishes; while downloading it
+    // fills with the download itself.
+    const fill = i < j.at ? 100 : i === j.at && j.fill != null ? j.fill : 0;
+    const node = i < j.at ? (i === 3 ? MARK(compact ? 14 : 20) : I.check) : i === j.at && j.bad ? "!" : "";
+    return `<li class="${cls}" style="--f:${fill}%"><span class="node">${node}</span><span class="lab">${label}</span></li>`;
+  }).join("");
+  const done = j.at >= 4;
+  const detail = `<div class="jtext ${j.bad ? "bad" : done ? "good" : ""}"><strong>${esc(j.text)}</strong>${j.bits && j.bits.length ? `<span>${j.bits.map(esc).join(", ")}</span>` : ""}${j.busy ? `<span class="spinner sm" aria-hidden="true"></span>` : ""}</div>${j.note && !compact ? `<div class="small dim">${esc(j.note)}</div>` : ""}`;
+  return `<div class="journey ${compact ? "compact" : "glass"} ${done ? "complete" : ""}" ${compact ? "" : 'id="journey"'} role="group" aria-label="Request progress: ${esc(j.text)}"><ol>${steps}</ol>${detail}</div>`;
 }
 
 async function pageTitle(main, type, id) {
@@ -374,20 +418,21 @@ async function pageTitle(main, type, id) {
     : seasons.some((x) => !["available", "processing", "pending"].includes(seasonState(x.season_number)));
 
   let statusLine = "";
-  if (s.status === "available") statusLine = pill("available");
+  if (s.status === "available") statusLine = `<span class="have">${MARK(18)} In your Plex library</span>`;
   else if (s.status === "partial") statusLine = pill("partial");
-  else if (s.status === "processing") statusLine = pill("processing", "Requested: on its way");
-  else if (s.status === "pending") statusLine = pill("pending");
 
   const mine = s.myRequest;
   const cancelBtn = mine && mine.status === "pending" ? `<button class="btn sm danger" id="cancelReq">Cancel my request</button>` : "";
-  const prog = s.progress ? progHTML(s.progress) : `<div id="dlbox" hidden></div>`;
+  // Show the journey while it's on its way (or once it's arrived, for whoever asked).
+  const jStatus = (st) => (st.myRequest && st.myRequest.status) || (st.status === "processing" ? "approved" : st.status);
+  const showJourney = (st) => st.myRequest || st.status === "processing" || st.status === "pending";
+  const prog = showJourney(s) ? journeyHTML(jStatus(s), s.progress) : "";
 
   main.innerHTML = `
   <div class="title-top">
     <div class="poster">${d.poster ? `<img src="${esc(img(d.poster, "w500"))}" alt="">` : ""}</div>
     <div>
-      <div class="dim small" style="font-weight:700;letter-spacing:.1em">${type === "tv" ? "TV SHOW" : "FILM"}</div>
+      <div class="dim small" style="font-weight:600">${type === "tv" ? "TV show" : "Film"}</div>
       <h1>${esc(d.title)}</h1>
       <div class="facts">${facts}</div>
       ${d.tagline ? `<p class="tagline">${esc(d.tagline)}</p>` : ""}
@@ -428,8 +473,8 @@ async function pageTitle(main, type, id) {
         const fresh = await api(`/title/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
         const fs = fresh.status || {};
         if (fs.status !== s.status) return pageTitle(main, type, id);
-        const box = qs("#dlbox");
-        if (box) box.outerHTML = fs.progress ? progHTML(fs.progress) : `<div id="dlbox" hidden></div>`;
+        const box = qs("#journey");
+        if (box && showJourney(fs)) box.outerHTML = journeyHTML(jStatus(fs), fs.progress);
       } catch (_) {}
     }, 5000);
     state.timers.push(t);
@@ -522,8 +567,7 @@ async function pageRequests(main, filter) {
 function reqRow(r) {
   const admin = isAdmin();
   const p = img(r.poster, "w185");
-  const statusMap = { pending: "pending", approved: "approved", declined: "declined", failed: "failed", completed: "completed" };
-  const prog = progHTML(r.progress, true);
+  const prog = journeyHTML(r.status, r.progress, true);
   let actions = "";
   if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}">${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}">Decline</button>`;
   else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}">Retry</button>`;
@@ -538,7 +582,8 @@ function reqRow(r) {
       ${r.note ? `<div class="s">“${esc(r.note)}”</div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
     </div>
-    <div class="right">${pill(statusMap[r.status] || r.status)}${prog}<div class="row">${actions}</div></div>
+    <div class="right"><div class="row">${actions}</div></div>
+    <div class="track">${prog}</div>
   </div>`;
 }
 
