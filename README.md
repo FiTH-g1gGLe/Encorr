@@ -9,11 +9,13 @@ Encorr is a media request app for Plex. Your friends and family ask for a film o
 - Sets itself up: sign in with Plex, and it finds Radarr and Sonarr on the same machine for you.
 - Dark frosted-glass look, with a violet or coral accent.
 
-> Version 0.1.1 is an early test build. See [TESTING.md](TESTING.md) for how to try it on your server.
+<p align="center"><a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip"><b>⬇ Download Encorr for Windows</b></a></p>
+
+> This is an early test build. See [TESTING.md](TESTING.md) for how to try it on your server.
 
 ## Quick start (Windows)
 
-1. Download `encorr.exe` and put it somewhere permanent, e.g. `C:\Encorr\`.
+1. [Download Encorr-Windows.zip](https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip), unzip it and put `encorr.exe` somewhere permanent, e.g. `C:\Encorr\`.
 2. Double-click it. Windows may warn that it's from an unknown publisher: choose **More info → Run anyway** (the build isn't code-signed yet). If the firewall asks, allow **private networks**.
 3. Your browser opens at <http://localhost:5150>. Follow the setup wizard.
 
