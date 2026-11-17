@@ -47,7 +47,8 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-          TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+          # Either secret works: the long Read Access Token (as in Rennix) or the short API Key (as in AxiomTV).
+          TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN || secrets.TMDB_API_KEY }}
         run: |
           if [ -z "$TMDB_READ_TOKEN" ]; then echo "No TMDB_READ_TOKEN secret set: users will be asked for a key"; else echo "TMDB key bundled"; fi
           LDF="-s -w -X github.com/FiTH-g1gGLe/encorr/internal/app.Version=${{ steps.ver.outputs.version }} -X github.com/FiTH-g1gGLe/encorr/internal/tmdb.BuiltInKey=${TMDB_READ_TOKEN}"
