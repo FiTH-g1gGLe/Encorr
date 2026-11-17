@@ -68,6 +68,11 @@ function busy(btn, on, label) {
   }
 }
 
+// Tooltip: data-tip shows a small bubble on hover and keyboard focus.
+const tip = (text) => ` data-tip="${esc(text)}"`;
+const exact = (iso) => { try { return new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }); } catch (_) { return ""; } };
+const when = (iso) => `<time datetime="${esc(iso)}"${tip(exact(iso))}>${esc(ago(iso))}</time>`;
+
 function ago(iso) {
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
   if (!isFinite(s)) return "";
@@ -98,7 +103,8 @@ const STATUS = {
   declined: ["declined", "Declined"],
   failed: ["failed", "Failed"],
 };
-const pill = (s, text) => { const [cls, label] = STATUS[s] || ["off", s]; return `<span class="pill ${cls}"><span class="dot"></span>${esc(text || label)}</span>`; };
+const PILL_TIPS = { available: "Already in Plex: ready to watch", completed: "Arrived in Plex", partial: "Some of it is in Plex", processing: "Requested and on its way", approved: "Approved and on its way", pending: "Waiting for the owner to say yes", declined: "The owner said no", failed: "Something went wrong sending it to download" };
+const pill = (s, text) => { const [cls, label] = STATUS[s] || ["off", s]; return `<span class="pill ${cls}"${PILL_TIPS[s] ? tip(PILL_TIPS[s]) : ""}><span class="dot"></span>${esc(text || label)}</span>`; };
 
 // ---------- brand ----------
 // The e-Loop: the "e" of encorr is also a replay loop. Drawn in the accent colour.
@@ -138,6 +144,16 @@ async function boot() {
   route();
 }
 
+// Keyboard: "/" jumps to search from anywhere.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+  e.preventDefault();
+  const box = qs("#hq") || qs("#q");
+  if (box) box.focus(); else location.hash = "#/search";
+});
+
 window.addEventListener("hashchange", () => { if (state.user && state.status && state.status.setupComplete) route(); });
 
 function route() {
@@ -171,11 +187,11 @@ function renderShell() {
   <div class="shell">
     <nav class="nav" aria-label="Main">
       <a href="#/discover" class="brand" aria-label="Encorr home">${LOCKUP(30)}</a>
-      <a class="item" data-page="discover" href="#/discover">${I.discover}<span class="label">Home</span></a>
-      <a class="item" data-page="search" href="#/search">${I.search}<span class="label">Search</span></a>
-      <a class="item" data-page="requests" href="#/requests">${I.requests}<span class="label">${admin ? "Requests" : "My requests"}</span><span class="badge" id="pendingBadge" hidden title="Waiting for your approval"></span></a>
-      ${admin ? `<a class="item" data-page="users" href="#/users">${I.users}<span class="label">People</span></a>
-      <a class="item" data-page="settings" href="#/settings">${I.settings}<span class="label">Settings</span></a>` : ""}
+      <a class="item" data-page="discover" href="#/discover"${tip("What's popular, trending and coming soon")}>${I.discover}<span class="label">Home</span></a>
+      <a class="item" data-page="search" href="#/search"${tip("Find any film or show (shortcut: /)")}>${I.search}<span class="label">Search</span></a>
+      <a class="item" data-page="requests" href="#/requests"${tip("Everything asked for, and where it's up to")}>${I.requests}<span class="label">${admin ? "Requests" : "My requests"}</span><span class="badge" id="pendingBadge" hidden title="Waiting for your approval"></span></a>
+      ${admin ? `<a class="item" data-page="users" href="#/users"${tip("Make accounts and choose what people can do")}>${I.users}<span class="label">People</span></a>
+      <a class="item" data-page="settings" href="#/settings"${tip("Plex, Radarr, Sonarr, SABnzbd, Discord and more")}>${I.settings}<span class="label">Settings</span></a>` : ""}
       <div class="spacer"></div>
       <a href="#/profile" class="item me" data-page="profile">
         ${u.thumb ? `<img class="avatar" src="${esc(u.thumb)}" alt="">` : `<span class="avatar initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
@@ -211,14 +227,14 @@ async function plexSignIn(btn, after) {
       const res = await api("/auth/plex/check", { method: "POST", body: { id: pin.id }, allow401: true });
       if (res.done) {
         if (popup && !popup.closed) popup.close();
-        toast("Signed in with Plex", "ok");
+        toast("👋 Signed in with Plex", "ok");
         await after();
         return;
       }
       if (popup && popup.closed && Date.now() - started > 4000) {
         // One last check in case they approved just before closing.
         const last = await api("/auth/plex/check", { method: "POST", body: { id: pin.id }, allow401: true });
-        if (last.done) { toast("Signed in with Plex", "ok"); await after(); return; }
+        if (last.done) { toast("👋 Signed in with Plex", "ok"); await after(); return; }
         throw new Error("The Plex window was closed before signing in.");
       }
     }
@@ -288,7 +304,7 @@ function renderChoosePassword() {
     const a = qs("#np1").value, b = qs("#np2").value;
     if (a !== b) { qs("#cperr").innerHTML = `<div class="notice error">The two passwords don't match.</div>`; return; }
     busy(qs("#cpgo"), true, "Saving…");
-    try { await api("/me/password", { method: "POST", body: { new: a } }); toast("Password saved", "ok"); await boot(); }
+    try { await api("/me/password", { method: "POST", body: { new: a } }); toast("🔒 Password saved", "ok"); await boot(); }
     catch (err) { qs("#cperr").innerHTML = `<div class="notice error">${esc(err.message)}</div>`; busy(qs("#cpgo"), false); }
   });
 }
@@ -311,7 +327,7 @@ function card(c) {
   const p = img(c.poster);
   return `<a class="card" href="#/title/${esc(c.type)}/${esc(c.id)}" title="${esc(c.title)}">
     <div class="poster">${p ? `<img loading="lazy" src="${esc(p)}" alt="">` : `<div class="noimg">${esc(c.title)}</div>`}
-      <span class="type">${c.type === "tv" ? "TV" : "Film"}</span>${st}</div>
+      <span class="type">${c.type === "tv" ? "📺 TV" : "🎬 Film"}</span>${st}</div>
     <div class="meta"><div class="t">${esc(c.title)}</div><div class="y">${esc(c.year || "")}</div></div></a>`;
 }
 
@@ -324,20 +340,20 @@ async function pageDiscover(main) {
   try { seenHow = localStorage.getItem("encorr.how") === "1"; } catch (_) {}
   main.innerHTML = `
     <section class="welcome">
-      <h1>${hello}, ${esc(state.user.username)}. What do you fancy watching?</h1>
-      <form class="searchbar big" id="homeSearch" role="search">${I.search}<input type="search" id="hq" placeholder="Search for a film or TV show" autocomplete="off" aria-label="Search for a film or TV show"><button class="btn primary" type="submit">Search</button></form>
+      <h1>${hello}, ${esc(state.user.username)} 👋 What do you fancy watching?</h1>
+      <form class="searchbar big" id="homeSearch" role="search">${I.search}<input type="search" id="hq" placeholder="Search for a film or TV show  (press / )" autocomplete="off" aria-label="Search for a film or TV show"><button class="btn primary" type="submit">Search</button></form>
       ${seenHow ? "" : `<ol class="how glass" id="how">
-        <li><span class="n">1</span><div><strong>Find it</strong><span>Search, or browse what's popular below.</span></div></li>
-        <li><span class="n">2</span><div><strong>Request it</strong><span>Press Request. That's all you do.</span></div></li>
-        <li><span class="n">3</span><div><strong>Watch it in Plex</strong><span>It downloads by itself and we tell you when it's ready.</span></div></li>
+        <li><span class="n">1</span><div><strong>🔎 Find it</strong><span>Search, or browse what's popular below.</span></div></li>
+        <li><span class="n">2</span><div><strong>🙋 Request it</strong><span>Press Request. That's all you do.</span></div></li>
+        <li><span class="n">3</span><div><strong>🍿 Watch it in Plex</strong><span>It downloads by itself and we tell you when it's ready.</span></div></li>
         <button class="x" id="howClose" aria-label="Hide these tips" title="Got it">${I.check} Got it</button>
       </ol>`}
     </section>
     <div id="hero" class="hero skeleton"></div>
-    <h2>Trending this week</h2><div id="row-trending">${skeletonRow()}</div>
-    <h2>Popular films</h2><div id="row-movies">${skeletonRow()}</div>
-    <h2>Popular TV</h2><div id="row-tv">${skeletonRow()}</div>
-    <h2>Coming soon to UK cinemas</h2><div id="row-upcoming">${skeletonRow()}</div>`;
+    <h2>🔥 Trending this week</h2><div id="row-trending">${skeletonRow()}</div>
+    <h2>🎬 Popular films</h2><div id="row-movies">${skeletonRow()}</div>
+    <h2>📺 Popular TV</h2><div id="row-tv">${skeletonRow()}</div>
+    <h2>🎟️ Coming soon to UK cinemas</h2><div id="row-upcoming">${skeletonRow()}</div>`;
   qs("#homeSearch").addEventListener("submit", (e) => {
     e.preventDefault();
     const v = qs("#hq").value.trim();
@@ -365,7 +381,7 @@ async function pageDiscover(main) {
   h.classList.remove("skeleton");
   h.style.backgroundImage = `url("${img(hero.backdrop, "w1280")}")`;
   h.innerHTML = `<div class="inner">
-      <div class="eyebrow">Trending this week</div>
+      <div class="eyebrow">🔥 Trending this week</div>
       <h1>${esc(hero.title)}</h1>
       <p>${esc(hero.overview)}</p>
       <div class="row">
@@ -410,21 +426,22 @@ function pageSearch(main, q) {
 // Every request walks the same four steps. Showing them as one line answers
 // "where's my film?" at a glance, for anyone.
 const JOURNEY = ["Requested", "Approved", "Downloading", "In Plex"];
-const STAGE_TEXT = { Downloading: "Downloading", Queued: "Queued for download", Paused: "Download paused", Unpacking: "Unpacking", Importing: "Moving it into your library", "Waiting for Plex": "Downloaded. Waiting for Plex to add it", Stuck: "Download is stuck", Failed: "Download failed" };
+const STAGE_TEXT = { Downloading: "⬇️ Downloading", Queued: "🕒 Queued for download", Paused: "⏸️ Download paused", Unpacking: "📦 Unpacking", Importing: "🚚 Moving it into your library", "Waiting for Plex": "📺 Downloaded. Waiting for Plex to add it", Stuck: "⚠️ Download is stuck", Failed: "❌ Download failed" };
+const STEP_TIPS = ["You asked for it", "The owner said yes (trusted people and owners skip this)", "Radarr or Sonarr finds a copy and SABnzbd downloads it", "It's in Plex, ready to watch"];
 
 // status: pending | approved | processing | declined | failed | completed | available
 function journeyState(status, p, part) {
   switch (status) {
-    case "pending": return { at: 1, text: "Waiting for the owner to approve it" };
-    case "declined": return { at: 1, bad: true, text: "The owner declined this request" };
-    case "failed": return { at: 2, bad: true, text: "Couldn't start the download. The owner can retry it" };
-    case "completed": case "available": return { at: 4, text: "Ready to watch in Plex" };
+    case "pending": return { at: 1, text: "⏳ Waiting for the owner to approve it" };
+    case "declined": return { at: 1, bad: true, text: "🚫 The owner declined this request" };
+    case "failed": return { at: 2, bad: true, text: "❌ Couldn't start the download. The owner can retry it" };
+    case "completed": case "available": return { at: 4, text: "🍿 Ready to watch in Plex" };
   }
   if (!p && part && part.want > 0 && part.have > 0) {
     const left = part.want - part.have;
-    return { at: 2, text: `${part.have} of ${part.want} episodes in Plex`, bits: [`looking for the other ${left}`], fill: Math.round((part.have / part.want) * 100) };
+    return { at: 2, text: `📺 ${part.have} of ${part.want} episodes in Plex`, bits: [`looking for the other ${left}`], fill: Math.round((part.have / part.want) * 100) };
   }
-  if (!p) return { at: 2, text: "Looking for a copy to download", fill: 0 };
+  if (!p) return { at: 2, text: "🔎 Looking for a copy to download", fill: 0 };
   const stage = p.stage || "Downloading";
   const text = STAGE_TEXT[stage] || stage;
   if (["Unpacking", "Importing", "Waiting for Plex"].includes(stage)) return { at: 3, text, busy: true };
@@ -443,7 +460,7 @@ function journeyHTML(status, p, compact, part) {
     // fills with the download itself.
     const fill = i < j.at ? 100 : i === j.at && j.fill != null ? j.fill : 0;
     const node = i < j.at ? (i === 3 ? MARK(compact ? 14 : 20) : I.check) : i === j.at && j.bad ? "!" : "";
-    return `<li class="${cls}" style="--f:${fill}%"><span class="node">${node}</span><span class="lab">${label}</span></li>`;
+    return `<li class="${cls}" style="--f:${fill}%"${tip(STEP_TIPS[i])} tabindex="0"><span class="node">${node}</span><span class="lab">${label}</span></li>`;
   }).join("");
   const done = j.at >= 4;
   const detail = `<div class="jtext ${j.bad ? "bad" : done ? "good" : ""}"><strong>${esc(j.text)}</strong>${j.bits && j.bits.length ? `<span>${j.bits.map(esc).join(", ")}</span>` : ""}${j.busy ? `<span class="spinner sm" aria-hidden="true"></span>` : ""}</div>${j.note && !compact ? `<div class="small dim">${esc(j.note)}</div>` : ""}`;
@@ -492,13 +509,13 @@ async function pageTitle(main, type, id) {
       ${d.tagline ? `<p class="tagline">${esc(d.tagline)}</p>` : ""}
       <div class="genres">${(d.genres || []).map((g) => `<span>${esc(g)}</span>`).join("")}</div>
       <div class="actions">
-        ${requestable ? `<button class="btn primary" id="reqBtn">${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
+        ${requestable ? `<button class="btn primary" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
         ${statusLine}
-        ${d.trailer ? `<button class="btn" id="trailer">${I.play} Trailer</button>` : ""}
+        ${d.trailer ? `<button class="btn" id="trailer"${tip("Watch the trailer here")}>${I.play} Trailer</button>` : ""}
         ${cancelBtn}
       </div>
       ${prog}
-      ${mine ? `<div class="small muted">You requested this ${esc(ago(mine.created))}${mine.status === "pending" ? ": waiting for an admin." : "."}</div>` : s.requestCount ? `<div class="small muted">Requested by ${s.requestCount} ${s.requestCount === 1 ? "person" : "people"}.</div>` : ""}
+      ${mine ? `<div class="small muted">You requested this ${when(mine.created)}${mine.status === "pending" ? ": waiting for an admin." : "."}</div>` : s.requestCount ? `<div class="small muted">Requested by ${s.requestCount} ${s.requestCount === 1 ? "person" : "people"}.</div>` : ""}
       <p class="overview">${esc(d.overview)}</p>
     </div>
   </div>
@@ -515,7 +532,7 @@ async function pageTitle(main, type, id) {
   const cb = qs("#cancelReq");
   if (cb) cb.addEventListener("click", async () => {
     if (!confirmBox("Cancel your request?")) return;
-    try { await api(`/requests/${mine.id}`, { method: "DELETE" }); toast("Request cancelled"); route(); } catch (e) { toast(e.message, "error"); }
+    try { await api(`/requests/${mine.id}`, { method: "DELETE" }); toast("🗑️ Request cancelled"); route(); } catch (e) { toast(e.message, "error"); }
   });
   // While it's on its way, update just the progress box every few seconds;
   // redraw the page once it lands in Plex.
@@ -570,7 +587,7 @@ function requestModal(type, d, s) {
     try {
       const r = await api("/requests", { method: "POST", body });
       m.close();
-      toast(r.status === "approved" ? "Encore requested: it's on its way" : "Encore requested: waiting for approval", "ok");
+      toast(r.status === "approved" ? "🎉 Encore requested: it's on its way" : "🎉 Encore requested: waiting for approval", "ok");
       route();
       if (isAdmin()) refreshPending();
     } catch (err) {
@@ -623,16 +640,16 @@ function reqRow(r) {
   const p = img(r.poster, "w185");
   const prog = journeyHTML(r.status, r.progress, true, { have: r.have || 0, want: r.want || 0 });
   let actions = "";
-  if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}">${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}">Decline</button>`;
-  else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}">Retry</button>`;
+  if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}"${tip("Say yes: it goes straight to Radarr/Sonarr to download")}>${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}"${tip("Say no: they'll see it was declined")}>Decline</button>`;
+  else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}"${tip("Send it to Radarr/Sonarr again")}>🔁 Retry</button>`;
   if (r.status === "pending" && (admin || r.requestedBy === state.user.id)) actions += `<button class="btn sm" data-act="delete" data-id="${r.id}">${admin ? "Delete" : "Cancel"}</button>`;
-  else if (admin && r.status !== "pending") actions += `<button class="btn sm" data-act="delete" data-id="${r.id}" title="Remove from the list">Remove</button>`;
+  else if (admin && r.status !== "pending") actions += `<button class="btn sm" data-act="delete" data-id="${r.id}"${tip("Remove from this list (doesn't delete anything from Plex)")}>Remove</button>`;
   const src = { watchlist: "from Plex watchlist", app: "from the app", discord: "from Discord" }[r.source] || "";
   return `<div class="glass req">
     <a href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${p ? `<img src="${esc(p)}" alt="">` : `<div class="ph"></div>`}</a>
     <div class="info">
       <a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}" style="color:inherit">${esc(r.title)} <span class="dim" style="font-weight:500">${esc(r.year || "")}</span></a>
-      <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : "Film · "}${esc(r.user || "Someone")} · ${esc(ago(r.created))}${src ? " · " + esc(src) : ""}</div>
+      <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : "Film · "}${esc(r.user || "Someone")} · ${when(r.created)}${src ? " · " + esc(src) : ""}</div>
       ${r.note ? `<div class="s">“${esc(r.note)}”</div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
     </div>
@@ -645,7 +662,7 @@ function bindReqActions(box, reload) {
   qsa("[data-act]", box).forEach((b) => b.addEventListener("click", async () => {
     const id = b.dataset.id, act = b.dataset.act;
     try {
-      if (act === "approve") { busy(b, true, "Approving…"); await api(`/requests/${id}/approve`, { method: "POST", body: {} }); toast("Approved: sent to download", "ok"); }
+      if (act === "approve") { busy(b, true, "Approving…"); await api(`/requests/${id}/approve`, { method: "POST", body: {} }); toast("✅ Approved: sent to download", "ok"); }
       if (act === "retry") { busy(b, true, "Retrying…"); await api(`/requests/${id}/retry`, { method: "POST", body: {} }); toast("Sent again"); }
       if (act === "decline") {
         const reason = window.prompt("Reason for declining (optional, shown to the requester):", "");
@@ -661,7 +678,7 @@ function bindReqActions(box, reload) {
 }
 
 // ---------- users ----------
-const ROLE_NAMES = { admin: "Owner", trusted: "Trusted", friend: "Friend" };
+const ROLE_NAMES = { admin: "👑 Owner", trusted: "⭐ Trusted", friend: "🙂 Friend" };
 const ROLE_HELP = { admin: "Can do everything, including settings", trusted: "Requests start downloading straight away", friend: "Requests wait for your approval" };
 
 async function pageUsers(main) {
@@ -681,7 +698,7 @@ async function pageUsers(main) {
         ${u.thumb ? `<img class="pic" src="${esc(u.thumb)}" alt="">` : `<span class="pic initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
         <div class="who"><strong>${esc(u.username)}</strong>${me ? ' <span class="dim small">(you)</span>' : ""}
           <div class="small dim">Signs in with ${esc(how || "nothing yet")}${u.signedIn ? "" : ", hasn't signed in yet"}${u.mustChangePassword && !me ? ", needs to pick a password" : ""}</div>
-          <div class="small dim">${u.requests || 0} request${u.requests === 1 ? "" : "s"}, joined ${esc(ago(u.created))}</div></div>
+          <div class="small dim">${u.requests || 0} request${u.requests === 1 ? "" : "s"}, joined ${when(u.created)}</div></div>
         <label class="rolepick"><span class="sr">Role for ${esc(u.username)}</span><select data-uid="${u.id}" ${me ? "disabled title='You can't change your own role'" : ""}>${Object.keys(ROLE_NAMES).map((k) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${ROLE_NAMES[k]}</option>`).join("")}</select></label>
         <div class="row acts">
           <button class="btn sm" data-pw="${u.id}" data-name="${esc(u.username)}">${u.hasPassword ? "New password" : "Give a password"}</button>
@@ -689,7 +706,7 @@ async function pageUsers(main) {
         </div></div>`;
     }).join("");
     qsa("select[data-uid]").forEach((sel) => sel.addEventListener("change", async () => {
-      try { await api(`/users/${sel.dataset.uid}`, { method: "PATCH", body: { role: sel.value } }); toast("Role updated", "ok"); } catch (e) { toast(e.message, "error"); load(); }
+      try { await api(`/users/${sel.dataset.uid}`, { method: "PATCH", body: { role: sel.value } }); toast("👍 Role updated", "ok"); } catch (e) { toast(e.message, "error"); load(); }
     }));
     qsa("[data-pw]").forEach((b) => b.addEventListener("click", async () => {
       if (!confirmBox(`Make a new password for ${b.dataset.name}? Their old one stops working and they'll be signed out.`)) return;
@@ -753,7 +770,7 @@ function shareDetails(username, password, title) {
     ${/localhost|127\.0\.0\.1/.test(addr) ? `<div class="notice warn">That address only works on this computer. Set your public address in Settings → General so friends can reach Encorr.</div>` : ""}
     <div class="foot"><button class="btn" data-close>Done</button><button class="btn primary" id="cpy">Copy message</button></div>`);
   qs("#cpy", m.el).addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(text); toast("Copied. Paste it into a message to them", "ok"); }
+    try { await navigator.clipboard.writeText(text); toast("📋 Copied. Paste it into a message to them", "ok"); }
     catch (_) {
       const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
       try { document.execCommand("copy"); toast("Copied", "ok"); } catch (__) { toast("Couldn't copy. Select the details and copy them by hand", "error"); }
@@ -800,7 +817,7 @@ function pageProfile(main) {
     busy(qs("#pgo"), true, "Saving…");
     try {
       state.user = await api("/me/password", { method: "POST", body: { current: qs("#pcur") ? qs("#pcur").value : "", new: qs("#pnew").value } });
-      toast("Password saved", "ok");
+      toast("🔒 Password saved", "ok");
       pageProfile(main);
     } catch (err) { toast(err.message, "error"); busy(qs("#pgo"), false); }
   });
@@ -837,7 +854,7 @@ function waitForBackground(box) {
     tries++;
     try {
       const b = await api("/system/background");
-      if (b.isService) { clearInterval(t); toast("Encorr is running in the background", "ok"); loadBackgroundCard(box); }
+      if (b.isService) { clearInterval(t); toast("🌙 Encorr is running in the background", "ok"); loadBackgroundCard(box); }
     } catch (_) { /* restarting */ }
     if (tries > 90) clearInterval(t);
   }, 2000);
@@ -957,7 +974,7 @@ function discordForm(saved) {
 function bindDiscord(root) {
   qs("#dTest", root).addEventListener("click", async (e) => {
     busy(e.currentTarget, true, "Sending…");
-    try { await api("/settings/discord/test", { method: "POST", body: { webhookUrl: qs("#dHook", root).value } }); toast("Test sent: check your Discord channel", "ok"); }
+    try { await api("/settings/discord/test", { method: "POST", body: { webhookUrl: qs("#dHook", root).value } }); toast("💬 Test sent: check your Discord channel", "ok"); }
     catch (err) { toast(err.message, "error"); }
     busy(e.currentTarget, false);
   });
@@ -1098,10 +1115,10 @@ async function renderWizard(stepName) {
 }
 
 // ---------- settings pages ----------
-const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["jobs", "Jobs & backup"]];
+const SETTINGS_MENU = [["general", "⚙️ General"], ["plex", "🟧 Plex"], ["radarr", "🎬 Radarr"], ["sonarr", "📺 Sonarr"], ["sabnzbd", "⬇️ SABnzbd"], ["discord", "💬 Discord"], ["health", "❤️ Health"], ["jobs", "🗂️ Jobs & backup"]];
 
 async function pageSettings(main, section) {
-  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener">What's new ↗</a></div></div></div>
     <div class="settings"><nav class="glass menu">${SETTINGS_MENU.map(([k, l]) => `<a href="#/settings/${k}" class="${k === section ? "on" : ""}">${esc(l)}</a>`).join("")}</nav>
     <section class="glass panel" id="panel"><span class="spinner"></span></section></div>`;
   const panel = qs("#panel");
@@ -1120,9 +1137,9 @@ async function pageSettings(main, section) {
       <div class="swatches">${[["violet", "#9b7bff", "Soft violet"], ["coral", "#ff7a66", "Coral"]].map(([k, c, l]) => `<div class="swatch ${s.accent === k ? "on" : ""}" data-acc="${k}"><div class="chip" style="background:${c}"></div>${l}</div>`).join("")}</div>
       <h2>Requests</h2>
       <p class="lead">Limits for Friends. Trusted users and admins have no limit. Use 0 for no limit.</p>
-      <div class="row"><label class="field grow"><span>Films per period</span><input type="number" min="0" id="qm" value="${s.quotas.friendMovieLimit}"></label>
-        <label class="field grow"><span>TV shows per period</span><input type="number" min="0" id="qt" value="${s.quotas.friendTvLimit}"></label>
-        <label class="field grow"><span>Period (days)</span><input type="number" min="1" id="qd" value="${s.quotas.days}"></label></div>
+      <div class="row"><label class="field grow"${tip("How many films each Friend can ask for in the period. 0 = no limit")}><span>🎬 Films per period</span><input type="number" min="0" id="qm" value="${s.quotas.friendMovieLimit}"></label>
+        <label class="field grow"${tip("How many shows each Friend can ask for in the period. 0 = no limit")}><span>📺 TV shows per period</span><input type="number" min="0" id="qt" value="${s.quotas.friendTvLimit}"></label>
+        <label class="field grow"${tip("The limits reset after this many days")}><span>📅 Period (days)</span><input type="number" min="1" id="qd" value="${s.quotas.days}"></label></div>
       <h2>Address and region</h2>
       <label class="field"><span>Public address (optional)</span><input type="url" id="appUrl" value="${esc(s.appUrl)}" placeholder="https://encorr.example.com"><small>Used for links in Discord messages, e.g. your Cloudflare Tunnel address.</small></label>
       <label class="field"><span>Region</span><select id="region">${[["GB", "United Kingdom"], ["IE", "Ireland"], ["US", "United States"], ["CA", "Canada"], ["AU", "Australia"], ["NZ", "New Zealand"]].map(([k, l]) => `<option value="${k}" ${s.region === k ? "selected" : ""}>${l}</option>`).join("")}</select><small>Sets release dates, age ratings and “coming soon”.</small></label>

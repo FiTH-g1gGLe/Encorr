@@ -460,3 +460,23 @@ table.users select { width: auto; padding: 6px 10px; }
 .creds span { color: var(--text-3); font-size: 13.5px; }
 .creds strong { font-size: 15px; word-break: break-all; text-align: right; user-select: all; }
 .creds .pw { color: var(--accent-2); font-size: 17px; letter-spacing: .02em; }
+
+/* ---------- tooltips: hover or keyboard focus ---------- */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px);
+  width: max-content; max-width: 260px; padding: 7px 10px; border-radius: 9px; z-index: 70;
+  background: #0b1130; border: 1px solid var(--glass-border); box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.35; text-align: left; white-space: normal; letter-spacing: 0; text-transform: none;
+  opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; transition-delay: 0s;
+}
+[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); transition-delay: .35s; }
+.nav a.item[data-tip]::after { left: calc(100% + 10px); bottom: auto; top: 50%; transform: translate(4px, -50%); }
+.nav a.item[data-tip]:hover::after, .nav a.item[data-tip]:focus-visible::after { transform: translate(0, -50%); }
+@media (min-width: 1001px) { .nav a.item[data-tip]::after { display: none; } } /* labels already visible */
+@media (max-width: 760px) { [data-tip]::after { display: none; } } /* no hover on phones */
+.journey li[data-tip]:focus-visible { outline: none; }
+.journey li[data-tip]:focus-visible .node { outline: 2px solid var(--accent); outline-offset: 2px; }
+time[data-tip] { text-decoration: underline dotted rgba(255,255,255,.25); text-underline-offset: 3px; cursor: help; }
+@media (prefers-reduced-motion: reduce) { [data-tip]::after { transition: none; } }
+.poster [data-tip]::after, .req img + [data-tip]::after { display: none; }
