@@ -1,6 +1,8 @@
-# Encorr
+<p align="center"><img src="docs/encorr-icon.svg" width="120" alt="Encorr"></p>
 
-**Request the encore.**
+<h1 align="center">Encorr</h1>
+
+<p align="center"><b>Request the encore.</b></p>
 
 Encorr is a media request app for Plex. Your friends and family ask for a film or show, and it arrives in Plex without you lifting a finger. It talks to the Radarr and Sonarr you already run.
 

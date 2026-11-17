@@ -100,6 +100,11 @@ const STATUS = {
 };
 const pill = (s, text) => { const [cls, label] = STATUS[s] || ["off", s]; return `<span class="pill ${cls}"><span class="dot"></span>${esc(text || label)}</span>`; };
 
+// ---------- brand ----------
+// The e-Loop: the "e" of encorr is also a replay loop. Drawn in the accent colour.
+const MARK = (size, cls = "") => `<svg class="mark ${cls}" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><path d="M14.0 32H50.0" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/><path d="M50.0 32.0A18 18 0 1 0 43.1 46.2" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/><path d="M49.0 41.6L45.7 52.0L38.1 42.2Z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
+const LOCKUP = (size) => `<span class="lockup" style="font-size:${size}px" role="img" aria-label="Encorr">${MARK(Math.round(size), "lk")}<span>ncorr</span></span>`;
+
 // ---------- icons ----------
 const I = {
   discover: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z" fill="currentColor" fill-opacity=".25"/></svg>',
@@ -164,7 +169,7 @@ function renderShell() {
   $app.innerHTML = `
   <div class="shell">
     <nav class="nav" aria-label="Main">
-      <a href="#/discover" class="brand" title="Encorr"><img src="/logo.svg" alt="Encorr"></a>
+      <a href="#/discover" class="brand" title="Encorr" aria-label="Encorr">${MARK(46)}</a>
       <a class="item" data-page="discover" href="#/discover">${I.discover}<span class="label">Discover</span></a>
       <a class="item" data-page="search" href="#/search">${I.search}<span class="label">Search</span></a>
       <a class="item" data-page="requests" href="#/requests">${I.requests}<span class="label">Requests</span><span class="badge" id="pendingBadge" hidden></span></a>
@@ -229,8 +234,7 @@ function renderLogin() {
   const s = state.status;
   $app.innerHTML = `
   <div class="center"><div class="glass wizard login">
-    <img class="mark" src="/logo.svg" alt="">
-    <h1>Encorr</h1>
+    <h1 class="brandhead">${LOCKUP(64)}</h1>
     <div class="tag">Request the encore.</div>
     <p class="muted">${s.serverName ? `Sign in with the Plex account that ${esc(s.serverName)} is shared with.` : "Sign in with your Plex account."}</p>
     <button class="btn plex" id="signin" style="margin-top:10px">${I.plex} Sign in with Plex</button>
@@ -239,7 +243,7 @@ function renderLogin() {
 }
 
 function renderNotReady() {
-  $app.innerHTML = `<div class="center"><div class="glass wizard login"><img class="mark" src="/logo.svg" alt=""><h1>Almost there</h1><p class="muted">The server owner is still setting Encorr up. Check back soon.</p><button class="btn" id="out">Sign out</button></div></div>`;
+  $app.innerHTML = `<div class="center"><div class="glass wizard login"><div class="brandhead">${LOCKUP(48)}</div><h1>Almost there</h1><p class="muted">The server owner is still setting Encorr up. Check back soon.</p><button class="btn" id="out">Sign out</button></div></div>`;
   qs("#out").addEventListener("click", signOut);
 }
 
@@ -747,7 +751,7 @@ async function renderWizard(stepName) {
   const go = (s) => renderWizard(s);
   const shell = (title, lead, body, { back = true, next = "Continue", skip = false } = {}) => {
     $app.innerHTML = `<div class="center"><div class="glass wizard">
-      <div class="logo"><img src="/logo.svg" alt=""><div><div class="word">Encorr</div><div class="tag">Request the encore.</div></div></div>
+      <div class="logo"><div>${LOCKUP(34)}<div class="tag">Request the encore.</div></div></div>
       <div class="steps">${STEPS.map((_, i) => `<i class="${i < idx ? "done" : i === idx ? "now" : ""}"></i>`).join("")}</div>
       <h1>${esc(title)}</h1><p class="lead">${lead}</p>
       <div id="wbody">${body}</div>

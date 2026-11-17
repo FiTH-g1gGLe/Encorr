@@ -321,3 +321,13 @@ table.users select { width: auto; padding: 6px 10px; }
 .searchbar input { padding: 14px 18px 14px 46px; font-size: 16px; border-radius: 999px; }
 .searchbar svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--text-3); }
 .code { font-family: ui-monospace, Consolas, monospace; background: rgba(255,255,255,.06); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+
+/* ---------- brand lockup ---------- */
+.mark { color: var(--accent); display: block; flex: none; }
+.nav .brand { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+.nav .brand .mark { filter: drop-shadow(0 4px 14px var(--accent-glow)); }
+.lockup { display: inline-flex; align-items: center; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--text); }
+.lockup .mark.lk { width: 1em; height: 1em; margin: 0.14em -0.17em 0 -0.12em; }
+.brandhead { margin: 0 0 6px; display: flex; justify-content: center; }
+.wizard .logo .lockup { display: flex; }
+.wizard .logo .tag { margin-top: 6px; }
