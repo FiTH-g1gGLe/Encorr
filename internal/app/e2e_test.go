@@ -373,6 +373,14 @@ func TestEndToEnd(t *testing.T) {
 	if code, _ := friend.call("PATCH", "/me", map[string]any{"discordId": "not-a-number"}, nil); code != 400 {
 		t.Fatal("bad Discord ID should be rejected")
 	}
+	// Until a full Plex scan has worked, the watchlist waits (so it can't
+	// request films you already own).
+	if msg, err := a.jobWatchlists(ctx); err != nil || !strings.Contains(msg, "waiting") {
+		t.Fatalf("watchlist should wait for a full scan first: %q %v", msg, err)
+	}
+	if !a.runJob(a.jobs["plex-full"]) {
+		t.Fatal("full Plex scan failed")
+	}
 	if _, err := a.jobWatchlists(ctx); err != nil {
 		t.Fatal(err)
 	}

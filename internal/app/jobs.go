@@ -67,10 +67,13 @@ func (a *App) startJobs() {
 				first = untilHour(j.Hour)
 			}
 			if j.Name == "plex-full" {
-				// Run a first full scan soon after start if none has ever run.
-				var last time.Time
-				a.Store.Read(func(d *store.Data) { last = d.Jobs[j.Name].LastRun })
-				if last.IsZero() {
+				// Scan the whole library soon after start unless a full scan
+				// worked within the last day: Encorr needs to know what you
+				// already have before it can say "In Plex" or skip watchlist
+				// titles you own.
+				var last store.JobInfo
+				a.Store.Read(func(d *store.Data) { last = d.Jobs[j.Name] })
+				if !last.LastOK || time.Since(last.LastRun) > 24*time.Hour {
 					first = 45 * time.Second
 				}
 			}
@@ -89,10 +92,13 @@ func (a *App) startJobs() {
 						}
 					}
 				}
-				a.runJob(j)
+				ok := a.runJob(j)
 				next := j.Every
 				if next == 0 {
 					next = untilHour(j.Hour)
+					if !ok && next > time.Hour {
+						next = time.Hour // a nightly job that failed tries again in an hour
+					}
 				}
 				timer.Reset(next)
 			}
@@ -109,14 +115,14 @@ func untilHour(h int) time.Duration {
 	return time.Until(next)
 }
 
-func (a *App) runJob(j *job) {
+func (a *App) runJob(j *job) bool {
 	if !a.settings().SetupComplete {
-		return
+		return true
 	}
 	a.mu.Lock()
 	if j.running {
 		a.mu.Unlock()
-		return
+		return true
 	}
 	j.running = true
 	a.mu.Unlock()
@@ -132,6 +138,7 @@ func (a *App) runJob(j *job) {
 		a.logf("job %s: %v", j.Name, err)
 	}
 	_ = a.Store.Update(func(d *store.Data) error { d.Jobs[j.Name] = info; return nil })
+	return err == nil
 }
 
 // RunJob triggers a job now.
@@ -775,13 +782,20 @@ func (a *App) jobWatchlists(ctx context.Context) (string, error) {
 		token string
 	}
 	var users []who
+	known := false
 	a.Store.Read(func(d *store.Data) {
+		known = d.Jobs["plex-full"].LastOK
 		for _, u := range d.Users {
 			if u.WatchlistSync && u.PlexToken != "" {
 				users = append(users, who{u.ID, u.Username, string(u.PlexToken)})
 			}
 		}
 	})
+	if len(users) > 0 && !known {
+		// Without a full picture of the library we'd request films you
+		// already own. Wait for the full Plex scan to finish first.
+		return "waiting for the first full Plex library scan before reading watchlists", nil
+	}
 	made := 0
 	var errs []string
 	for _, u := range users {
