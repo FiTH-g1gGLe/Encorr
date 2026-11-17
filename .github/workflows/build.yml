@@ -1,0 +1,76 @@
+name: Test and build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { name: windows-x64, goos: windows, goarch: amd64, bin: encorr.exe }
+          - { name: linux-x64, goos: linux, goarch: amd64, bin: encorr }
+          - { name: linux-arm64, goos: linux, goarch: arm64, bin: encorr }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; else v="$(grep -oP 'var Version = "\K[^"]+' internal/app/app.go)-dev.${GITHUB_SHA::7}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Build (TMDB key comes from the repo secret, never committed)
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+        run: |
+          if [ -z "$TMDB_READ_TOKEN" ]; then echo "No TMDB_READ_TOKEN secret set: users will be asked for a key"; else echo "TMDB key bundled"; fi
+          LDF="-s -w -X github.com/FiTH-g1gGLe/encorr/internal/app.Version=${{ steps.ver.outputs.version }} -X github.com/FiTH-g1gGLe/encorr/internal/tmdb.BuiltInKey=${TMDB_READ_TOKEN}"
+          mkdir -p out
+          go build -trimpath -ldflags "$LDF" -o "out/${{ matrix.bin }}" ./cmd/encorr
+          cp README.md TESTING.md LICENSE out/
+          cd out && zip -9 "../Encorr-${{ steps.ver.outputs.version }}-${{ matrix.name }}.zip" *
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Encorr-${{ steps.ver.outputs.version }}-${{ matrix.name }}
+          path: Encorr-*.zip
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

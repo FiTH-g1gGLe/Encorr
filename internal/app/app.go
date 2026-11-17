@@ -17,7 +17,8 @@ import (
 	"github.com/FiTH-g1gGLe/encorr/internal/tmdb"
 )
 
-const Version = "0.1.0"
+// Version can be set at build time with -ldflags "-X .../internal/app.Version=x.y.z".
+var Version = "0.1.0"
 
 type App struct {
 	Store *store.Store
