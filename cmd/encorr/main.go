@@ -102,10 +102,10 @@ func main() {
 
 	local := fmt.Sprintf("http://localhost:%d", *port)
 	logger.Printf("Encorr %s is running. Open %s (data folder: %s)", app.Version, local, *configDir)
-	logger.Printf("Press Ctrl+C to stop.")
-	setupDone := false
-	st.Read(func(d *store.Data) { setupDone = d.Settings.SetupComplete })
-	if !*noBrowser && !setupDone {
+	logger.Printf("Keep this window open while you use Encorr. Close it (or press Ctrl+C) to stop.")
+	// Open the browser every time it's started by hand, so double-clicking
+	// the exe always takes you to Encorr. (-no-browser for background use.)
+	if !*noBrowser {
 		go func() { time.Sleep(700 * time.Millisecond); openBrowser(local) }()
 	}
 
