@@ -158,6 +158,8 @@ function rowIcon(key) {
 }
 
 const I = {
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/></svg>',
   discover: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z" fill="currentColor" fill-opacity=".25"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>',
   requests: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 8.5h8M8 12h8M8 15.5h5"/></svg>',
@@ -171,6 +173,28 @@ const I = {
 };
 
 const ACCENTS = [["violet", "#b4b6ff", "Lavender"], ["blue", "#5b93f0", "Blue"], ["teal", "#2fbfae", "Teal"], ["green", "#52c47c", "Green"], ["yellow", "#e9bb4a", "Yellow"], ["coral", "#ef8256", "Orange"], ["red", "#e55a61", "Red"], ["pink", "#e46aa8", "Pink"]];
+
+// The "+" on a poster: films are requested on the spot, shows open the
+// season picker on their page.
+async function quickRequest(el) {
+  const [type, id] = el.dataset.qreq.split(":");
+  if (type === "tv") { state.autoReq = true; location.hash = `#/title/tv/${id}`; return; }
+  el.classList.add("busy");
+  try {
+    await api("/requests", { method: "POST", body: { type: "movie", tmdbId: Number(id) } });
+    el.classList.remove("busy"); el.classList.add("done"); el.innerHTML = I.check; el.removeAttribute("data-qreq");
+    toast("Requested", "ok");
+    if (isAdmin()) refreshPending();
+  } catch (e) { el.classList.remove("busy"); toast(e.message, "error"); }
+}
+document.addEventListener("click", (e) => {
+  const q = e.target.closest && e.target.closest("[data-qreq]");
+  if (!q) return;
+  e.preventDefault(); e.stopPropagation(); quickRequest(q);
+}, true);
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-qreq]")) { e.preventDefault(); quickRequest(e.target); }
+}, true);
 
 // ---------- boot & routing ----------
 async function boot() {
@@ -377,11 +401,12 @@ function card(c) {
   const st = c.status && c.status !== "none" ? `<div class="flag">${pill(c.status === "available" ? "available" : c.status)}</div>` : "";
   const p = img(c.poster);
   const rating = c.rating ? `<span class="crate">${c.rating.toFixed(1)}</span>` : "";
+  const quick = (!c.status || c.status === "none") ? `<span class="qadd" role="button" tabindex="0" data-qreq="${esc(c.type)}:${esc(c.id)}" aria-label="Request ${esc(c.title)}"${tip(c.type === "tv" ? "Request: pick the seasons" : "Request this film")}>${I.plus}</span>` : "";
   return `<a class="card" href="#/title/${esc(c.type)}/${esc(c.id)}" title="${esc(c.title)}">
     <div class="poster">${p ? `<img loading="lazy" src="${esc(p)}" alt="">` : `<div class="noimg">${esc(c.title)}</div>`}
-      <span class="type">${c.type === "tv" ? "TV" : "Film"}</span>${st}
+      ${c.rating ? `<span class="rchip">${c.rating.toFixed(1)}</span>` : ""}${st}${quick}
       <div class="peek"><div class="pt">${esc(c.title)}</div><div class="pm">${esc(c.year || "")} ${rating}</div>${c.overview ? `<div class="po">${esc(c.overview)}</div>` : ""}<span class="pgo">${c.status === "available" ? "In your Plex" : "View"} ${I.chev}</span></div></div>
-    <div class="meta"><div class="t">${esc(c.title)}</div><div class="y">${esc(c.year || "")}</div></div></a>`;
+    <div class="meta"><div class="t">${esc(c.title)}</div><div class="y">${[c.year, c.type === "tv" ? "TV" : "Film"].filter(Boolean).map(esc).join(" · ")}</div></div></a>`;
 }
 
 const skeletonRow = () => `<div class="scroller">${Array.from({ length: 8 }, () => `<div><div class="skeleton" style="aspect-ratio:2/3"></div></div>`).join("")}</div>`;
@@ -501,7 +526,7 @@ async function pageDiscover(main, q = "", focus = false) {
     : `<a class="btn primary" href="#/title/${esc(x.type)}/${esc(x.id)}">${I.plus} Request</a>`;
   h.innerHTML = slides.map((x, i) => `<div class="slide ${i === 0 ? "on" : ""}" style="background-image:url('${esc(img(x.backdrop, "w1280"))}')" aria-hidden="${i === 0 ? "false" : "true"}">
       <div class="inner">
-        ${x.status === "available" ? `<div class="qchips"><span class="qchip plex">In your Plex</span></div>` : ""}<div class="eyebrow">Trending this week · ${x.type === "tv" ? "TV show" : "Film"}</div>
+        ${x.status === "available" ? `<div class="qchips"><span class="qchip plex">In your Plex</span></div>` : ""}<div class="eyebrow"><span class="ech">Trending this week</span><span>${x.type === "tv" ? "TV show" : "Film"}</span></div>
         <h1>${esc(x.title)}</h1>
         <div class="hmeta">${x.rating ? `<span class="crate">${x.rating.toFixed(1)}</span>` : ""}${x.year ? `<span>${esc(x.year)}</span>` : ""}</div>
         <p>${esc(x.overview)}</p>
@@ -751,7 +776,7 @@ async function pageTitle(main, type, id) {
         ${qchipsHTML(P)}
         <div class="actions">
           ${P && P.url && ["available", "partial"].includes(s.status) ? `<a class="btn plex" href="${esc(P.url)}" target="_blank" rel="noopener"${tip("Open it in Plex")}>${I.play} Play on Plex</a>` : ""}
-          ${requestable ? `<button class="btn primary" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
+          ${requestable ? `<button class="btn primary cta" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
           ${d.trailer ? `<button class="btn" id="trailer"${tip("Watch the trailer here")}>Trailer</button>` : ""}
           ${cancelBtn}
         </div>
@@ -785,6 +810,7 @@ async function pageTitle(main, type, id) {
 
   const reqBtn = qs("#reqBtn");
   if (reqBtn) reqBtn.addEventListener("click", () => requestModal(type, d, s));
+  if (state.autoReq) { state.autoReq = false; if (reqBtn) requestModal(type, d, s); }
   const tr = qs("#trailer");
   if (tr) tr.addEventListener("click", () => modal(`<iframe class="video" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(d.trailer)}?autoplay=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Trailer"></iframe>`, { wide: true }));
   const cb = qs("#cancelReq");
@@ -965,12 +991,12 @@ function reqRow(r) {
   const p = img(r.poster, "w185");
   const prog = journeyHTML(r.status, r.progress, true, r);
   let actions = "";
-  if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}"${tip("Say yes: it goes straight to Radarr/Sonarr to download")}>${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}"${tip("Say no: they'll see it was declined")}>Decline</button>`;
-  else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}"${tip("Send it to Radarr/Sonarr again")}>Retry</button>`;
-  if (admin && r.progress && r.progress.blocked) actions += `<button class="btn sm ok" data-act="import" data-id="${r.id}"${tip("Radarr/Sonarr downloaded it but want someone to confirm the import (usually the file name doesn't quite match). This confirms it for you")}>Import it</button>`;
-  if (admin && r.status === "approved" && ["searching", "attention"].includes(r.state)) actions += `<button class="btn sm" data-act="search" data-id="${r.id}"${tip("Ask Radarr/Sonarr to look for a copy right now")}>Search again</button>`;
-  if (r.status === "pending" && (admin || r.requestedBy === state.user.id)) actions += `<button class="btn sm" data-act="delete" data-id="${r.id}">${admin ? "Delete" : "Cancel"}</button>`;
-  else if (admin && r.status !== "pending") actions += `<button class="btn sm ghost" data-act="delete" data-id="${r.id}"${tip(r.source === "watchlist" ? "Remove from this list. Encorr won't add it again from your Plex watchlist" : "Remove from this list (doesn't delete anything from Plex)")}>Remove</button>`;
+  if (admin && r.status === "pending") actions = `<button class="btn primary grow" data-act="approve" data-id="${r.id}"${tip("Say yes: it goes straight to Radarr/Sonarr to download")}>${I.check} Approve</button><button class="btn sq danger" data-act="decline" data-id="${r.id}" aria-label="Decline"${tip("Say no: they'll see it was declined")}>${I.x}</button>`;
+  else if (admin && r.status === "failed") actions = `<button class="btn primary grow" data-act="retry" data-id="${r.id}"${tip("Send it to Radarr/Sonarr again")}>Retry</button>`;
+  if (admin && r.progress && r.progress.blocked) actions += `<button class="btn primary grow" data-act="import" data-id="${r.id}"${tip("Radarr/Sonarr downloaded it but want someone to confirm the import (usually the file name doesn't quite match). This confirms it for you")}>Import it</button>`;
+  if (admin && r.status === "approved" && ["searching", "attention"].includes(r.state)) actions += `<button class="btn grow" data-act="search" data-id="${r.id}"${tip("Ask Radarr/Sonarr to look for a copy right now")}>Search again</button>`;
+  if (r.status === "pending" && (admin || r.requestedBy === state.user.id)) actions += `<button class="btn sq" data-act="delete" data-id="${r.id}" aria-label="${admin ? "Delete" : "Cancel"}"${tip(admin ? "Delete this request" : "Cancel your request")}>${I.trash}</button>`;
+  else if (admin && r.status !== "pending") actions += `<button class="btn sq" aria-label="Remove" data-act="delete" data-id="${r.id}"${tip(r.source === "watchlist" ? "Remove from this list. Encorr won't add it again from your Plex watchlist" : "Remove from this list (doesn't delete anything from Plex)")}>${I.trash}</button>`;
   const src = { watchlist: "from Plex watchlist", app: "from the app", discord: "from Discord" }[r.source] || "";
   const extra = [];
   if (r.type === "tv" && r.status === "approved" && r.want > 0) extra.push(`<span${tip("It moves to Completed once every episode that has aired is in Plex")}><b>${r.have || 0} of ${r.want}</b> episodes in Plex</span>`);
@@ -978,6 +1004,7 @@ function reqRow(r) {
   if (r.state === "searching") extra.push(r.lastSearch ? `<span${tip("Encorr asks Radarr/Sonarr to look again every 12 hours")}>Searched again ${when(r.lastSearch)}</span>` : `<span${tip("Encorr asks Radarr/Sonarr to look again every 12 hours")}>Encorr will search again automatically</span>`);
   const j = journeyState(r.status, r.progress, r);
   const pr = r.progress || {};
+  const lone = actions && !/grow|primary/.test(actions); // just a remove button: tuck it beside the status
   let progHtml = "";
   if (r.status === "approved" && r.state === "downloading" && pr.percent != null) {
     const pct = Math.max(0, Math.min(100, pr.percent));
@@ -991,14 +1018,14 @@ function reqRow(r) {
   return `<div class="req2 st-${esc(r.state || "")}" data-state="${esc(r.state || "")}">
     <a class="rposter" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${p ? `<img src="${esc(p)}" alt="">` : `<div class="ph"></div>`}<span class="rtype">${r.type === "tv" ? "TV" : "FILM"}</span></a>
     <div class="rbody">
-      <div class="rtop"><a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${esc(r.title)} <span class="yr">${esc(r.year || "")}</span></a><span class="spill2 ${esc(pillTxt[0])}">${esc(pillTxt[1])}</span></div>
+      <div class="rtop"><a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${esc(r.title)} <span class="yr">${esc(r.year || "")}</span></a><span class="rtr"><span class="spill2 ${esc(pillTxt[0])}">${esc(pillTxt[1])}</span>${lone ? actions : ""}</span></div>
       <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : ""}Requested by ${esc(r.user || "someone")} · ${when(r.created)}${src ? " · " + esc(src) : ""}</div>
       ${extra.length ? `<div class="s extras">${extra.join("")}</div>` : ""}
       ${r.note ? `<div class="s">“${esc(r.note)}”</div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
       ${progHtml}
       ${r.status === "approved" ? seasonBars(r.seasonProgress) : ""}
-      <div class="racts">${actions}</div>
+      ${lone ? "" : `<div class="racts">${actions}</div>`}
     </div>
   </div>`;
 }

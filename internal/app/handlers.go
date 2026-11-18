@@ -579,7 +579,7 @@ func (a *App) hDiscover(w http.ResponseWriter, r *http.Request, u *store.User) {
 		if page <= 1 {
 			cards = append(cards, a.plexRecent(r.Context())...)
 		}
-		writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": 1, "title": "🆕 Just added to Plex"})
+		writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": 1, "title": "Just added to Plex"})
 		return
 	}
 	cards, pages, err := a.TMDB().List(r.Context(), key, page)

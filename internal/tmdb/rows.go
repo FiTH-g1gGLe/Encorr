@@ -20,7 +20,7 @@ type Row struct {
 // Fixed rows always show, in this order.
 var fixedRows = []Row{
 	{"trending", "Trending this week"},
-	{"plex-recent", "🆕 Just added to Plex"},
+	{"plex-recent", "Just added to Plex"},
 	{"movies", "Popular films"},
 	{"tv", "Popular TV"},
 	{"upcoming", "Coming soon to cinemas"},
@@ -42,7 +42,7 @@ var rotatingPool = []Row{
 	{"network:2552", "Apple TV+"},
 	{"network:2739", "Disney+ originals"},
 	{"network:1024", "Prime Video originals"},
-	{"network:4", "🇬🇧 BBC One"},
+	{"network:4", "🇧 BBC One"},
 	{"top-movies", "Top rated films of all time"},
 	{"top-tv", "Top rated TV of all time"},
 	{"now-playing", "In cinemas now"},
