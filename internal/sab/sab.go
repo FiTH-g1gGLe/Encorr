@@ -42,6 +42,17 @@ type Snapshot struct {
 	Slots    map[string]Slot // by lower-case nzo_id
 	KBPerSec float64
 	Paused   bool
+	// Working is the finished download SABnzbd is unpacking/checking right
+	// now (it does one at a time), and Waiting how many are queued behind it.
+	Working *Working
+	Waiting int
+}
+
+// Working describes the job in SABnzbd's post-processing step.
+type Working struct {
+	Name   string // release name
+	Status string // Extracting, Verifying, Repairing, Moving, Running
+	Action string // SABnzbd's own progress line, e.g. "Unpacking: 52/101"
 }
 
 func num(s string) float64 { f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64); return f }
@@ -126,13 +137,23 @@ func (c *Client) Snapshot(ctx context.Context) (*Snapshot, error) {
 		History struct {
 			Slots []struct {
 				ID     string  `json:"nzo_id"`
+				Name   string  `json:"name"`
 				Status string  `json:"status"`
 				Bytes  float64 `json:"bytes"`
+				Action string  `json:"action_line"`
 			} `json:"slots"`
 		} `json:"history"`
 	}
-	if err := c.call(ctx, "history", url.Values{"limit": {"30"}}, &h); err == nil {
+	if err := c.call(ctx, "history", url.Values{"limit": {"200"}}, &h); err == nil {
 		for _, x := range h.History.Slots {
+			switch x.Status {
+			case "Queued":
+				s.Waiting++
+			case "Extracting", "Verifying", "Repairing", "Moving", "Running", "Fetching":
+				if s.Working == nil {
+					s.Working = &Working{Name: x.Name, Status: x.Status, Action: x.Action}
+				}
+			}
 			k := strings.ToLower(x.ID)
 			if _, inQueue := s.Slots[k]; inQueue {
 				continue

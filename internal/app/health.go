@@ -135,6 +135,12 @@ func (a *App) Health(ctx context.Context) []Check {
 			z.Status, z.Message, z.Fix = "warn", err.Error(), "Check the address and API key in Settings → SABnzbd. Progress falls back to Radarr/Sonarr meanwhile."
 		} else {
 			z.Status, z.Message = "ok", "Connected (SABnzbd "+v+"): progress bars are live."
+			if st := a.SABStalled(); st != nil {
+				z.Status = "error"
+				z.Message = fmt.Sprintf("Unpacking looks stuck: %s has been on \"%s\" for %s, and %d finished downloads are waiting behind it.",
+					st.Name, st.Action, time.Since(st.Since).Round(time.Minute), st.Waiting)
+				z.Fix = "Usually a broken or password-protected download has frozen SABnzbd's unpacking tool. Open SABnzbd → History, delete that job (tick \"delete files\"), and if it won't go, end UnRAR.exe in Task Manager or restart SABnzbd. Radarr/Sonarr then grab another copy."
+			}
 		}
 		cancel()
 	} else {

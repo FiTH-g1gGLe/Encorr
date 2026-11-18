@@ -33,6 +33,7 @@ type App struct {
 	tmdbSig   string
 	downloads map[string]map[int][]arr.QueueItem // "radarr"/"sonarr" -> external id -> items
 	sabSnap   *sab.Snapshot                      // live SABnzbd numbers (nil without SABnzbd)
+	sabWatch  sabWatch                           // spots SABnzbd's unpacking getting stuck
 	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
 
 	sabTried bool

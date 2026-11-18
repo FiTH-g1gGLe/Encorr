@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
+	"github.com/FiTH-g1gGLe/encorr/internal/notify"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
 	"github.com/FiTH-g1gGLe/encorr/internal/sab"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
@@ -414,7 +415,15 @@ func (a *App) jobDownloads(ctx context.Context) (string, error) {
 		a.downloads[svc] = out[svc]
 	}
 	a.sabSnap = snap
+	stuckNow := a.sabWatch.see(snap, time.Now())
 	a.mu.Unlock()
+	if stuckNow != nil {
+		a.logf("SABnzbd looks stuck: %q has been on %q for %s, with %d finished downloads waiting behind it",
+			stuckNow.Name, stuckNow.Action, time.Since(stuckNow.Since).Round(time.Minute), stuckNow.Waiting)
+		a.Notify(notify.Message{Event: notify.EventFailed, Title: "SABnzbd looks stuck",
+			Detail: fmt.Sprintf("It has been on %s (%s) for %s, and %d finished downloads are waiting behind it. Check Settings → Health in Encorr.",
+				stuckNow.Name, stuckNow.Action, time.Since(stuckNow.Since).Round(time.Minute), stuckNow.Waiting)})
+	}
 	// Something left the queue: it's been imported, so look for it in Plex
 	// shortly (Plex needs a moment to scan it) rather than waiting for the
 	// next scheduled scan.
