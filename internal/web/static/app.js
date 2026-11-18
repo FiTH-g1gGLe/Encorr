@@ -151,6 +151,8 @@ const I = {
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><path d="m9 5 7 7-7 7"/></svg>',
 };
 
+const ACCENTS = [["violet", "#9b7bff", "Violet"], ["blue", "#4f8dff", "Blue"], ["teal", "#14c8b4", "Teal"], ["green", "#3ccf6e", "Green"], ["yellow", "#fbc531", "Yellow"], ["coral", "#ff7a4d", "Orange"], ["red", "#f2414b", "Red"], ["pink", "#f05aa6", "Pink"]];
+
 // ---------- boot & routing ----------
 async function boot() {
   clearTimers();
@@ -162,6 +164,7 @@ async function boot() {
   }
   state.user = state.status.user || null;
   document.documentElement.dataset.accent = state.status.accent || "violet";
+  document.documentElement.dataset.theme = state.status.theme || "black";
   const s = state.status;
   if (!s.hasAdmin || (!s.setupComplete && isAdmin())) return renderWizard();
   if (!state.user) return renderLogin();
@@ -1420,8 +1423,10 @@ async function pageSettings(main, section) {
   });
 
   if (section === "general") {
-    panel.innerHTML = `<div id="bgCard"></div><h2>Look</h2>
-      <div class="swatches">${[["violet", "#9b7bff", "Soft violet"], ["coral", "#ff7a66", "Coral"]].map(([k, c, l]) => `<div class="swatch ${s.accent === k ? "on" : ""}" data-acc="${k}"><div class="chip" style="background:${c}"></div>${l}</div>`).join("")}</div>
+    panel.innerHTML = `<div id="bgCard"></div><h2>🎨 Look</h2><div class="field-label">Accent colour</div>
+      <div class="swatches">${ACCENTS.map(([k, c, l]) => `<button type="button" class="swatch ${(s.accent || "violet") === k ? "on" : ""}" data-acc="${k}"><span class="chip" style="background:${c}"></span>${l}</button>`).join("")}</div>
+      <div class="field-label" style="margin-top:18px">Background</div>
+      <div class="themes">${[["black", "Black glass", "Neutral black and grey: lets posters bring the colour"], ["navy", "Midnight navy", "The original deep-blue look"]].map(([k, l, d]) => `<button type="button" class="theme-opt ${(s.theme || "black") === k ? "on" : ""}" data-theme-opt="${k}"><span class="tprev ${k}"><i></i><i></i><i></i></span><span><strong>${l}</strong><span class="small dim">${d}</span></span></button>`).join("")}</div>
       <h2>Requests</h2>
       <p class="lead">Limits for Friends. Trusted users and admins have no limit. Use 0 for no limit.</p>
       <div class="row"><label class="field grow"${tip("How many films each Friend can ask for in the period. 0 = no limit")}><span>🎬 Films per period</span><input type="number" min="0" id="qm" value="${s.quotas.friendMovieLimit}"></label>
@@ -1432,7 +1437,13 @@ async function pageSettings(main, section) {
       <label class="field"><span>Region</span><select id="region">${[["GB", "United Kingdom"], ["IE", "Ireland"], ["US", "United States"], ["CA", "Canada"], ["AU", "Australia"], ["NZ", "New Zealand"]].map(([k, l]) => `<option value="${k}" ${s.region === k ? "selected" : ""}>${l}</option>`).join("")}</select><small>Sets release dates, age ratings and “coming soon”.</small></label>
       <h2>TMDB</h2>${tmdbForm(s.tmdb)}${saveBar()}`;
     loadBackgroundCard(qs("#bgCard"));
-    let accent = s.accent;
+    let accent = s.accent || "violet";
+    let theme = s.theme || "black";
+    qsa("[data-theme-opt]").forEach((el) => el.addEventListener("click", () => {
+      theme = el.dataset.themeOpt;
+      document.documentElement.dataset.theme = theme;
+      qsa("[data-theme-opt]").forEach((x) => x.classList.toggle("on", x === el));
+    }));
     qsa("[data-acc]").forEach((el) => el.addEventListener("click", () => {
       accent = el.dataset.acc;
       qsa("[data-acc]").forEach((x) => x.classList.toggle("on", x === el));
@@ -1443,7 +1454,7 @@ async function pageSettings(main, section) {
       try { await api("/settings/tmdb", { method: "PUT", body: { key: "" } }); toast("Using the built-in TMDB key", "ok"); route(); } catch (e) { toast(e.message, "error"); }
     });
     onSave(async () => {
-      await api("/settings/general", { method: "PUT", body: { accent, appUrl: qs("#appUrl").value, region: qs("#region").value, quotas: { friendMovieLimit: Number(qs("#qm").value), friendTvLimit: Number(qs("#qt").value), days: Number(qs("#qd").value) } } });
+      await api("/settings/general", { method: "PUT", body: { accent, theme, appUrl: qs("#appUrl").value, region: qs("#region").value, quotas: { friendMovieLimit: Number(qs("#qm").value), friendTvLimit: Number(qs("#qt").value), days: Number(qs("#qd").value) } } });
       const k = qs("#tmdbKey").value.trim();
       if (k) await api("/settings/tmdb", { method: "PUT", body: { key: k } });
     });

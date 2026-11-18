@@ -68,7 +68,8 @@ type Settings struct {
 	AppURL        string         `json:"appUrl"`
 	Region        string         `json:"region"`   // GB
 	Language      string         `json:"language"` // en-GB
-	Accent        string         `json:"accent"`   // violet | coral
+	Accent        string         `json:"accent"`   // violet | blue | teal | green | yellow | coral | red | pink
+	Theme         string         `json:"theme"`    // black (default) | navy
 	Plex          PlexSettings   `json:"plex"`
 	TMDBKey       Secret         `json:"tmdbKey"`
 	Radarr        ArrSettings    `json:"radarr"`

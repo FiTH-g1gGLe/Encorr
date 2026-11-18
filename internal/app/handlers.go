@@ -50,7 +50,7 @@ func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
 	a.Store.Read(func(d *store.Data) { hasAdmin = d.HasAdmin() })
 	out := map[string]any{
 		"version": Version, "setupComplete": s.SetupComplete, "hasAdmin": hasAdmin,
-		"accent": s.Accent, "serverName": s.Plex.ServerName, "appUrl": s.AppURL,
+		"accent": s.Accent, "theme": s.Theme, "serverName": s.Plex.ServerName, "appUrl": s.AppURL,
 		"radarr": s.Radarr.Enabled, "sonarr": s.Sonarr.Enabled,
 	}
 	if u := a.currentUser(r); u != nil {
@@ -984,7 +984,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 	s := a.settings()
 	writeJSON(w, 200, map[string]any{
 		"setupComplete": s.SetupComplete, "appUrl": s.AppURL, "region": s.Region, "language": s.Language,
-		"accent": s.Accent, "quotas": s.Quotas,
+		"accent": s.Accent, "theme": s.Theme, "quotas": s.Quotas,
 		"plex":    map[string]any{"serverName": s.Plex.ServerName, "machineId": s.Plex.MachineID, "url": s.Plex.URL, "libraries": s.Plex.Libraries},
 		"tmdb":    map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked(), "builtIn": tmdb.BuiltInKey != ""},
 		"radarr":  maskArr(s.Radarr),
@@ -999,6 +999,7 @@ func (a *App) hSaveGeneral(w http.ResponseWriter, r *http.Request, u *store.User
 		AppURL *string              `json:"appUrl"`
 		Region *string              `json:"region"`
 		Accent *string              `json:"accent"`
+		Theme  *string              `json:"theme"`
 		Quotas *store.QuotaSettings `json:"quotas"`
 	}
 	if err := readJSON(r, &body); err != nil {
@@ -1018,7 +1019,10 @@ func (a *App) hSaveGeneral(w http.ResponseWriter, r *http.Request, u *store.User
 			st.Region = strings.ToUpper(*body.Region)
 			st.Language = "en-" + st.Region
 		}
-		if body.Accent != nil && (*body.Accent == "violet" || *body.Accent == "coral") {
+		if body.Theme != nil && (*body.Theme == "black" || *body.Theme == "navy") {
+			st.Theme = *body.Theme
+		}
+		if body.Accent != nil && validAccents[*body.Accent] {
 			st.Accent = *body.Accent
 		}
 		if body.Quotas != nil {
@@ -1580,3 +1584,6 @@ func (a *App) arrFor(reqID int) (svc string, c *arr.Client, id int, err error) {
 	}
 	return svc, c, id, nil
 }
+
+// validAccents are the accent colours the stylesheet defines.
+var validAccents = map[string]bool{"violet": true, "blue": true, "teal": true, "green": true, "yellow": true, "coral": true, "red": true, "pink": true}
