@@ -655,7 +655,7 @@ function reqRow(r) {
   if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}"${tip("Say yes: it goes straight to Radarr/Sonarr to download")}>${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}"${tip("Say no: they'll see it was declined")}>Decline</button>`;
   else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}"${tip("Send it to Radarr/Sonarr again")}>🔁 Retry</button>`;
   if (r.status === "pending" && (admin || r.requestedBy === state.user.id)) actions += `<button class="btn sm" data-act="delete" data-id="${r.id}">${admin ? "Delete" : "Cancel"}</button>`;
-  else if (admin && r.status !== "pending") actions += `<button class="btn sm" data-act="delete" data-id="${r.id}"${tip("Remove from this list (doesn't delete anything from Plex)")}>Remove</button>`;
+  else if (admin && r.status !== "pending") actions += `<button class="btn sm" data-act="delete" data-id="${r.id}"${tip(r.source === "watchlist" ? "Remove from this list. Encorr won't add it again from your Plex watchlist" : "Remove from this list (doesn't delete anything from Plex)")}>Remove</button>`;
   const src = { watchlist: "from Plex watchlist", app: "from the app", discord: "from Discord" }[r.source] || "";
   return `<div class="glass req">
     <a href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${p ? `<img src="${esc(p)}" alt="">` : `<div class="ph"></div>`}</a>

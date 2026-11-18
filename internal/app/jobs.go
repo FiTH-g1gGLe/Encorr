@@ -829,6 +829,10 @@ func (a *App) jobWatchlists(ctx context.Context) (string, error) {
 			}
 			skip := false
 			a.Store.Read(func(d *store.Data) {
+				if d.WatchlistSkip[store.SkipKey(u.id, typ, id)] {
+					skip = true // they removed it from Encorr before
+					return
+				}
 				if _, ok := d.Library[store.LibKey(typ, id)]; ok {
 					skip = true
 					return

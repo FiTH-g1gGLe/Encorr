@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // Roles keep permissions simple: three roles instead of thirty switches.
 const (
@@ -42,6 +45,14 @@ type Data struct {
 	Jobs     map[string]JobInfo  `json:"jobs"`
 	NextID   map[string]int      `json:"nextId"`
 	Library  map[string]LibEntry `json:"library"` // "movie:603" -> what Plex has
+	// WatchlistSkip lists watchlist titles someone removed from Encorr, so the
+	// watchlist sync doesn't keep adding them back: "userID:movie:603".
+	WatchlistSkip map[string]bool `json:"watchlistSkip,omitempty"`
+}
+
+// SkipKey is the WatchlistSkip key for one user's title.
+func SkipKey(userID int, typ string, tmdbID int) string {
+	return strconv.Itoa(userID) + ":" + LibKey(typ, tmdbID)
 }
 
 // LibEntry records that an item is in Plex. Seasons holds episode counts per

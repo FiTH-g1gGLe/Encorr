@@ -345,6 +345,13 @@ func (a *App) DeleteRequest(reqID int, user store.User) error {
 				return userErr("You can only cancel your own requests while they're waiting for approval.")
 			}
 			d.Requests = append(d.Requests[:i], d.Requests[i+1:]...)
+			if r.Source == "watchlist" {
+				// Removed on purpose: don't let the watchlist sync add it back.
+				if d.WatchlistSkip == nil {
+					d.WatchlistSkip = map[string]bool{}
+				}
+				d.WatchlistSkip[store.SkipKey(r.RequestedBy, r.Type, r.TMDBID)] = true
+			}
 			if m := d.MediaByID(r.MediaID); m != nil && !hasActive(d, m.ID) && (m.Status == store.MediaPending || m.Status == store.MediaProcessing) {
 				m.Status = store.MediaUnknown
 			}

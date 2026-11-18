@@ -593,6 +593,31 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("web UI: %v %v", err, resp)
 	}
+
+	// 24. Removing a watchlist request sticks: the next sync doesn't add it back.
+	var wl *store.Request
+	a.Store.Read(func(d *store.Data) {
+		for _, r := range d.Requests {
+			if r.Source == "watchlist" && r.TMDBID == 104 {
+				c := *r
+				wl = &c
+			}
+		}
+	})
+	if wl == nil {
+		t.Fatal("expected the watchlist request to still be there")
+	}
+	owner.ok("DELETE", "/requests/"+itoa(wl.ID), nil, nil)
+	if _, err := a.jobWatchlists(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a.Store.Read(func(d *store.Data) {
+		for _, r := range d.Requests {
+			if r.Source == "watchlist" && r.TMDBID == 104 {
+				t.Fatal("removed watchlist request came back")
+			}
+		}
+	})
 }
 
 func ownerID(st *store.Store) int {
