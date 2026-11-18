@@ -193,12 +193,13 @@ function route() {
   const parts = path.split("/").filter(Boolean);
   const params = new URLSearchParams(query || "");
   const page = parts[0] || "discover";
-  qsa(".nav a.item").forEach((a) => a.classList.toggle("active", a.dataset.page === page || ((page === "title" || page === "browse" || page === "search") && a.dataset.page === "discover")));
+  qsa(".nav a.item").forEach((a) => a.classList.toggle("active", a.dataset.page === page || ((page === "title" || page === "browse" || page === "search" || page === "collection") && a.dataset.page === "discover")));
   const main = qs("main");
   const pages = {
     discover: () => pageDiscover(main, params.get("q") || "", params.get("focus") === "1"),
     search: () => pageDiscover(main, params.get("q") || "", true),
     browse: () => pageBrowse(main, decodeURIComponent(parts.slice(1).join("/"))),
+    collection: () => pageCollection(main, parts[1]),
     title: () => pageTitle(main, parts[1], parts[2]),
     requests: () => pageRequests(main, params.get("filter")),
     users: () => (isAdmin() ? pageUsers(main) : pageDiscover(main)),
@@ -376,6 +377,7 @@ async function pageDiscover(main, q = "", focus = false) {
         <button class="x" id="howClose" aria-label="Hide these tips" title="Got it">${I.check} Got it</button>
       </ol>`}
     </section>
+    <div id="libsync"></div>
     <div id="results" hidden></div>
     <div id="browse">
       <div id="hero" class="hero skeleton"></div>
@@ -426,6 +428,20 @@ async function pageDiscover(main, q = "", focus = false) {
   qs("#homeSearch").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(timer); showSearch(input.value); });
   if (focus || q) input.focus();
   if (q) showSearch(q);
+
+  // --- "reading your Plex library" banner (first sync, or a re-sync) ---
+  const syncBanner = async () => {
+    const box = qs("#libsync");
+    if (!box) return;
+    let st;
+    try { st = await api("/status"); } catch (_) { return; }
+    const L = st.library || {};
+    if (!L.running && L.synced) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div class="glass libsync">${L.running ? `<span class="spinner sm"></span>` : "📚"}<div><strong>${L.running ? "Reading your Plex library…" : "Encorr hasn't read your whole Plex library yet"}</strong>
+      <span class="small dim">${L.films || L.shows ? `Found ${L.films} films and ${L.shows} shows so far. ` : ""}${L.running ? "Anything you already have will show “In Plex” once it's done." : "It'll try again shortly."}</span></div></div>`;
+    if (L.running) state.timers.push(setTimeout(syncBanner, 4000));
+  };
+  syncBanner();
 
   // --- rows ---
   let rows;
@@ -497,6 +513,42 @@ async function pageBrowse(main, key) {
   const stop = () => { io.disconnect(); window.removeEventListener("hashchange", stop); };
   window.addEventListener("hashchange", stop);
   next();
+}
+
+// ---------- a film series ----------
+async function pageCollection(main, id) {
+  main.innerHTML = `<div class="hero skeleton"></div><div class="grid" style="margin-top:24px">${Array.from({ length: 6 }, () => `<div class="skeleton" style="aspect-ratio:2/3"></div>`).join("")}</div>`;
+  let c;
+  try { c = await api("/collection/" + encodeURIComponent(id)); } catch (e) { main.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; return; }
+  const have = c.parts.filter((p) => p.status === "available").length;
+  const asked = c.parts.filter((p) => ["pending", "processing", "approved", "partial"].includes(p.status)).length;
+  const upcoming = c.parts.filter((p) => !p.date).length;
+  setBackdrop(c.backdrop);
+  const summary = [`${c.parts.length} films`, have ? `${have} in your Plex` : "", asked ? `${asked} on the way` : "", upcoming ? `${upcoming} not dated yet` : ""].filter(Boolean).join(" · ");
+  const canAsk = c.missing > 0;
+  const who = isAdmin() || state.user.role === "trusted" ? "They'll start downloading straight away." : "They'll go to the owner to approve.";
+  main.innerHTML = `
+    <a class="back" href="#/discover">‹ Home</a>
+    <section class="hero col-hero" style="background-image:url('${esc(img(c.backdrop, "w1280"))}')"><div class="inner">
+      <div class="eyebrow">📚 Film series</div>
+      <h1>${esc(c.name)}</h1>
+      <div class="facts">${esc(summary)}</div>
+      ${c.overview ? `<p>${esc(c.overview)}</p>` : ""}
+      <div class="row">
+        ${canAsk ? `<button class="btn primary" id="reqAll"${tip(who)}>${I.plus} Request the ${c.missing === c.parts.length ? "whole series" : c.missing + " you haven't got"}</button>` : `<span class="have">${MARK(18)} ${have === c.parts.length ? "You've got the whole series" : "Everything that's out is in Plex or on its way"}</span>`}
+      </div></div></section>
+    <h2>In release order</h2>
+    <div class="grid">${c.parts.map(card).join("")}</div>`;
+  const b = qs("#reqAll");
+  if (b) b.addEventListener("click", async () => {
+    if (!confirmBox(`Request ${c.missing} film${c.missing === 1 ? "" : "s"} from ${c.name}? ${who}`)) return;
+    busy(b, true, "Requesting…");
+    try {
+      const r = await api(`/collection/${encodeURIComponent(id)}/request`, { method: "POST", body: {} });
+      toast(`🎬 Requested ${r.requested} film${r.requested === 1 ? "" : "s"}${r.failed ? ` (${r.failed} couldn't be added)` : ""}`, "ok");
+      pageCollection(main, id);
+    } catch (e) { toast(e.message, "error"); busy(b, false); }
+  });
 }
 
 // ---------- title page ----------
@@ -602,6 +654,7 @@ async function pageTitle(main, type, id) {
       ${prog}
       ${mine ? `<div class="small muted">You requested this ${when(mine.created)}${mine.status === "pending" ? ": waiting for an admin." : "."}</div>` : s.requestCount ? `<div class="small muted">Requested by ${s.requestCount} ${s.requestCount === 1 ? "person" : "people"}.</div>` : ""}
       <p class="overview">${esc(d.overview)}</p>
+      ${d.collection ? `<a class="glass colbanner" href="#/collection/${esc(d.collection.id)}"${tip("See every film in the series and request the ones you haven't got")}><span class="ic">📚</span><span><strong>Part of ${esc(d.collection.name)}</strong><span class="small dim">See all the films and request the rest in one go</span></span>${I.chev}</a>` : ""}
     </div>
   </div>
   ${seasons.length ? `<h2>Seasons</h2><div class="seasons">${seasons.map((x) => {
@@ -751,7 +804,7 @@ async function pageRequests(main, filter) {
 // seasonBars: one small bar per season, so a big show's progress is clear.
 function seasonBars(list) {
   if (!list || list.length < 2) return "";
-  return `<div class="seasons">${list.map((x) => {
+  return `<div class="sbars">${list.map((x) => {
     const pc = x.want ? Math.round((x.have / x.want) * 100) : 0;
     const done = x.want > 0 && x.have >= x.want;
     const label = x.want === 0 ? "not out yet" : `${x.have} of ${x.want} episodes`;

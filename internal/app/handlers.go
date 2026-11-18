@@ -55,8 +55,33 @@ func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if u := a.currentUser(r); u != nil {
 		out["user"] = toPublic(u)
+		out["library"] = a.librarySync()
 	}
 	writeJSON(w, 200, out)
+}
+
+// librarySync says how well Encorr knows the Plex library: counts, whether a
+// full read has ever worked, and whether one is running now.
+func (a *App) librarySync() map[string]any {
+	films, shows := 0, 0
+	var full store.JobInfo
+	a.Store.Read(func(d *store.Data) {
+		for k := range d.Library {
+			if strings.HasPrefix(k, store.TypeTV+":") {
+				shows++
+			} else {
+				films++
+			}
+		}
+		full = d.Jobs["plex-full"]
+	})
+	running := false
+	if j, ok := a.jobs["plex-full"]; ok {
+		a.mu.Lock()
+		running = j.running
+		a.mu.Unlock()
+	}
+	return map[string]any{"films": films, "shows": shows, "synced": full.LastOK, "running": running, "lastRun": full.LastRun}
 }
 
 func (a *App) hPlexPin(w http.ResponseWriter, r *http.Request) {
@@ -549,6 +574,14 @@ func (a *App) annotate(cards []tmdb.Card, userID int) []cardOut {
 func (a *App) hDiscover(w http.ResponseWriter, r *http.Request, u *store.User) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	key := r.PathValue("kind")
+	if key == "plex-recent" {
+		cards := []tmdb.Card{}
+		if page <= 1 {
+			cards = append(cards, a.plexRecent(r.Context())...)
+		}
+		writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": 1, "title": "🆕 Just added to Plex"})
+		return
+	}
 	cards, pages, err := a.TMDB().List(r.Context(), key, page)
 	if err != nil {
 		fail(w, err)
@@ -1115,6 +1148,9 @@ func (a *App) hPickServer(w http.ResponseWriter, r *http.Request, u *store.User)
 		saved = p.Libraries
 		return nil
 	})
+	if a.settings().SetupComplete {
+		_ = a.RunJob("plex-full") // a different server: read its library
+	}
 	writeJSON(w, 200, map[string]any{"serverName": pick.Name, "url": addr, "libraries": saved})
 }
 
@@ -1136,6 +1172,9 @@ func (a *App) hSaveLibraries(w http.ResponseWriter, r *http.Request, u *store.Us
 		}
 		return nil
 	})
+	if a.settings().SetupComplete {
+		_ = a.RunJob("plex-full") // re-read the library with the new choice
+	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

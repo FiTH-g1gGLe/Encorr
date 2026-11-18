@@ -227,6 +227,28 @@ func TestEndToEnd(t *testing.T) {
 	if code, _ := owner.call("GET", "/discover/company:abc:movie", nil, nil); code < 400 {
 		t.Fatal("bad row keys should be refused")
 	}
+	// "Just added to Plex" lists what's in Plex, newest first.
+	var recent struct {
+		Results []struct {
+			ID     int
+			Status string
+		}
+	}
+	owner.ok("GET", "/discover/plex-recent", nil, &recent)
+	if len(recent.Results) == 0 {
+		t.Fatal("expected something in Just added to Plex")
+	}
+	for _, c := range recent.Results {
+		if c.Status != "available" && c.Status != "partial" {
+			t.Fatalf("recently added item %d should be in Plex, got %q", c.ID, c.Status)
+		}
+	}
+	// Library sync status for the home screen.
+	var libst struct{ Library struct{ Films, Shows int } }
+	owner.ok("GET", "/status", nil, &libst)
+	if libst.Library.Films == 0 {
+		t.Fatal("expected the library counts in status")
+	}
 	// Search splits films and TV.
 	var sr struct{ Movies, TV []struct{ Type string } }
 	owner.ok("GET", "/search?q=a", nil, &sr)
@@ -693,6 +715,35 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if msg, _ := a.jobNudge(ctx); strings.Contains(msg, stalled) {
 		t.Fatal("should not ask again straight away")
+	}
+
+	// 25b. Collections: see the whole series and request what's missing in one go.
+	var col struct {
+		Name    string
+		Missing int
+		Parts   []struct {
+			ID     int
+			Status string
+		}
+	}
+	owner.ok("GET", "/collection/900", nil, &col)
+	if col.Name == "" || len(col.Parts) != 4 || col.Parts[3].ID != 199 {
+		t.Fatalf("collection: %+v", col)
+	}
+	colMissing := col.Missing
+	var cr struct{ Requested int }
+	owner.ok("POST", "/collection/900/request", map[string]any{}, &cr)
+	if cr.Requested != colMissing {
+		t.Fatalf("should request the %d missing films, requested %d", colMissing, cr.Requested)
+	}
+	owner.ok("GET", "/collection/900", nil, &col)
+	if col.Missing != 0 {
+		t.Fatalf("nothing should be left to request, %d left", col.Missing)
+	}
+	for _, p := range col.Parts {
+		if p.ID == 199 && p.Status != "none" {
+			t.Fatal("the undated sequel shouldn't be requested")
+		}
 	}
 
 	// 26. In progress tells you what state each request is in, and the owner

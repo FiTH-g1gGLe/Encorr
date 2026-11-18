@@ -440,6 +440,16 @@ func (s *Server) RecentlyAdded(ctx context.Context, libKey string, plexType int,
 	return c.MediaContainer.Metadata, nil
 }
 
+// Newest returns the n most recently added items of one type in a library.
+func (s *Server) Newest(ctx context.Context, libKey string, plexType, n int) ([]Item, error) {
+	var c container
+	p := fmt.Sprintf("/library/sections/%s/all?type=%d&sort=addedAt:desc&includeGuids=1", libKey, plexType)
+	if err := s.get(ctx, p, 0, n, &c); err != nil {
+		return nil, err
+	}
+	return c.MediaContainer.Metadata, nil
+}
+
 // FindByTitle searches one library by title (Plex matches part of the title).
 func (s *Server) FindByTitle(ctx context.Context, libKey string, plexType int, title string) ([]Item, error) {
 	var c container

@@ -20,6 +20,7 @@ type Row struct {
 // Fixed rows always show, in this order.
 var fixedRows = []Row{
 	{"trending", "🔥 Trending this week"},
+	{"plex-recent", "🆕 Just added to Plex"},
 	{"movies", "🎬 Popular films"},
 	{"tv", "📺 Popular TV"},
 	{"upcoming", "🎟️ Coming soon to cinemas"},
@@ -239,4 +240,53 @@ func (c *Client) RowTitle(ctx context.Context, key string) string {
 		}
 	}
 	return ""
+}
+
+// CollectionInfo is a film series (e.g. "Harry Potter Collection").
+type CollectionInfo struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Overview string `json:"overview"`
+	Poster   string `json:"poster,omitempty"`
+	Backdrop string `json:"backdrop,omitempty"`
+	Parts    []Card `json:"parts"`
+}
+
+// Collection fetches a film series with its films in release order.
+func (c *Client) Collection(ctx context.Context, id int) (*CollectionInfo, error) {
+	var r struct {
+		ID           int      `json:"id"`
+		Name         string   `json:"name"`
+		Overview     string   `json:"overview"`
+		PosterPath   string   `json:"poster_path"`
+		BackdropPath string   `json:"backdrop_path"`
+		Parts        []Result `json:"parts"`
+	}
+	if err := c.get(ctx, "/collection/"+strconv.Itoa(id), nil, 6*time.Hour, &r); err != nil {
+		return nil, err
+	}
+	out := &CollectionInfo{ID: r.ID, Name: r.Name, Overview: r.Overview, Poster: r.PosterPath, Backdrop: r.BackdropPath}
+	for _, p := range r.Parts {
+		if card, ok := p.Card("movie"); ok {
+			out.Parts = append(out.Parts, card)
+		}
+	}
+	// Release order; films with no date yet (announced) go last.
+	sortCards(out.Parts)
+	return out, nil
+}
+
+func sortCards(cs []Card) {
+	for i := 1; i < len(cs); i++ {
+		for j := i; j > 0 && later(cs[j-1], cs[j]); j-- {
+			cs[j-1], cs[j] = cs[j], cs[j-1]
+		}
+	}
+}
+
+func later(a, b Card) bool {
+	if a.Date == "" {
+		return b.Date != ""
+	}
+	return b.Date != "" && a.Date > b.Date
 }

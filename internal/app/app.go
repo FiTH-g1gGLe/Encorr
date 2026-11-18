@@ -38,6 +38,7 @@ type App struct {
 	nudged    map[string]time.Time               // "sonarr:12" -> last time Encorr asked for a fresh search
 	movieInfo map[int]arr.MovieInfo              // Radarr id -> release dates etc.
 	showInfo  map[int]arr.SeriesInfo             // Sonarr id -> next episode etc.
+	recent    recentCache                        // "Just added to Plex" row
 
 	sabTried bool
 	// Background is set by main: runs Encorr as a Windows service.

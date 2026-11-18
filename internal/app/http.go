@@ -35,6 +35,8 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("POST /api/v1/me/password", a.user(a.hChangeMyPassword))
 	api("GET /api/v1/discover/{kind}", a.user(a.hDiscover))
 	api("GET /api/v1/discover-rows", a.user(a.hDiscoverRows))
+	api("GET /api/v1/collection/{id}", a.user(a.hCollection))
+	api("POST /api/v1/collection/{id}/request", a.user(a.hRequestCollection))
 	api("GET /api/v1/search", a.user(a.hSearch))
 	api("GET /api/v1/title/{type}/{id}", a.user(a.hTitle))
 	api("GET /api/v1/requests", a.user(a.hRequests))

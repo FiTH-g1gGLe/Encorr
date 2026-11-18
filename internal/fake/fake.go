@@ -392,6 +392,15 @@ func (s *Stack) tmdb(w http.ResponseWriter, r *http.Request, p string) {
 		page(movies)
 	case p == "/tv/top_rated", p == "/tv/on_the_air", p == "/discover/tv":
 		page(shows)
+	case p == "/collection/900":
+		var parts []any
+		for i, m := range movies {
+			if i < 3 {
+				parts = append(parts, m)
+			}
+		}
+		parts = append(parts, map[string]any{"id": 199, "title": "The Last Lighthouse 4", "release_date": "", "poster_path": "/p199.jpg"})
+		writeJSON(w, map[string]any{"id": 900, "name": "The Lighthouse Collection", "overview": "Every light in the series.", "poster_path": "/c900.jpg", "backdrop_path": "/b900.jpg", "parts": parts})
 	case p == "/person/popular":
 		writeJSON(w, map[string]any{"results": []any{map[string]any{"id": 31, "name": "Tom Hanks", "known_for_department": "Acting"}}})
 	case p == "/person/31":
@@ -442,6 +451,9 @@ func (s *Stack) tmdb(w http.ResponseWriter, r *http.Request, p string) {
 		res["videos"] = map[string]any{"results": []any{map[string]any{"key": "abc123", "site": "YouTube", "type": "Trailer"}}}
 		res["release_dates"] = map[string]any{"results": []any{map[string]any{"iso_3166_1": "GB", "release_dates": []any{map[string]any{"certification": "12A"}}}}}
 		res["recommendations"] = map[string]any{"results": movies[:3]}
+		if id == 101 || id == 102 {
+			res["belongs_to_collection"] = map[string]any{"id": 900, "name": "The Lighthouse Collection"}
+		}
 		writeJSON(w, res)
 	case strings.HasPrefix(p, "/tv/"):
 		id, _ := strconv.Atoi(strings.TrimPrefix(p, "/tv/"))
