@@ -211,6 +211,15 @@ func (c *Client) rowQuery(key string) (path string, q url.Values, def string, er
 			q.Set("sort_by", "vote_count.desc")
 			return "/discover/movie", q, "movie", nil
 		}
+	case "keyword":
+		id, ok := num(1)
+		t, ok2 := kind(2)
+		if ok && ok2 {
+			popular(t)
+			q.Del("vote_count.gte")
+			q.Set("with_keywords", strconv.Itoa(id))
+			return "/discover/" + t, q, t, nil
+		}
 	case "gems":
 		if t, ok := kind(1); ok {
 			q.Set("sort_by", "vote_average.desc")
@@ -228,6 +237,31 @@ func (c *Client) RowTitle(ctx context.Context, key string) string {
 	for _, r := range append(append([]Row(nil), fixedRows...), rotatingPool...) {
 		if r.Key == key {
 			return r.Title
+		}
+	}
+	if strings.HasPrefix(key, "keyword:") {
+		parts := strings.Split(key, ":")
+		var k struct {
+			Name string `json:"name"`
+		}
+		if len(parts) > 1 && c.get(ctx, "/keyword/"+parts[1], nil, 24*time.Hour, &k) == nil && k.Name != "" {
+			what := "Films"
+			if len(parts) > 2 && parts[2] == "tv" {
+				what = "Shows"
+			}
+			return "🏷️ " + what + " about " + k.Name
+		}
+	}
+	if strings.HasPrefix(key, "genre:") {
+		parts := strings.Split(key, ":")
+		if len(parts) == 3 {
+			if n, ok := genreNames[parts[1]]; ok {
+				what := "films"
+				if parts[2] == "tv" {
+					what = "shows"
+				}
+				return "🎭 " + n + " " + what
+			}
 		}
 	}
 	if strings.HasPrefix(key, "person:") {
@@ -289,4 +323,13 @@ func later(a, b Card) bool {
 		return b.Date != ""
 	}
 	return b.Date != "" && a.Date > b.Date
+}
+
+// genreNames covers TMDB's film and TV genre ids, for "see all" titles.
+var genreNames = map[string]string{
+	"28": "Action", "12": "Adventure", "16": "Animated", "35": "Comedy", "80": "Crime", "99": "Documentary",
+	"18": "Drama", "10751": "Family", "14": "Fantasy", "36": "History", "27": "Horror", "10402": "Music",
+	"9648": "Mystery", "10749": "Romance", "878": "Sci-fi", "10770": "TV movie", "53": "Thriller", "10752": "War",
+	"37": "Western", "10759": "Action & adventure", "10762": "Kids", "10763": "News", "10764": "Reality",
+	"10765": "Sci-fi & fantasy", "10766": "Soap", "10767": "Talk", "10768": "War & politics",
 }

@@ -277,11 +277,65 @@ type Details struct {
 		Name string `json:"name"`
 	} `json:"collection,omitempty"`
 	Recommended []Card `json:"recommended,omitempty"`
+
+	// The richer facts for the title page.
+	GenreList     []Named     `json:"genreList,omitempty"` // with ids, for links
+	VoteCount     int         `json:"voteCount,omitempty"`
+	OriginalTitle string      `json:"originalTitle,omitempty"`
+	Language      string      `json:"language,omitempty"` // original language, in English
+	Countries     []string    `json:"countries,omitempty"`
+	Studios       []string    `json:"studios,omitempty"`
+	Budget        int64       `json:"budget,omitempty"`
+	Revenue       int64       `json:"revenue,omitempty"`
+	Releases      []Release   `json:"releases,omitempty"` // this region's cinema/digital/disc dates
+	FirstAir      string      `json:"firstAir,omitempty"`
+	LastAir       string      `json:"lastAir,omitempty"`
+	NumSeasons    int         `json:"numSeasons,omitempty"`
+	NumEpisodes   int         `json:"numEpisodes,omitempty"`
+	Cast          []Person    `json:"cast,omitempty"`
+	Crew          []CrewGroup `json:"crew,omitempty"`
+	Keywords      []Named     `json:"keywords,omitempty"`
+	Providers     []Provider  `json:"providers,omitempty"` // where to stream it in this region
+	ProvidersURL  string      `json:"providersUrl,omitempty"`
+	Homepage      string      `json:"homepage,omitempty"`
+}
+
+// Named is anything TMDB gives an id and a name (genres, keywords).
+type Named struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// Person is one cast member.
+type Person struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Character string `json:"character,omitempty"`
+	Photo     string `json:"photo,omitempty"`
+}
+
+// CrewGroup is a job and who did it (e.g. Director: Christopher Nolan).
+type CrewGroup struct {
+	Job    string   `json:"job"`
+	People []Person `json:"people"`
+}
+
+// Release is one dated release: "cinema", "digital", "disc" or "tv".
+type Release struct {
+	Kind string `json:"kind"`
+	Date string `json:"date"`
+}
+
+// Provider is a streaming service (logo from TMDB, data by JustWatch).
+type Provider struct {
+	Name string `json:"name"`
+	Logo string `json:"logo"`
 }
 
 type rawDetails struct {
 	Result
 	Genres []struct {
+		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"genres"`
 	Runtime        int         `json:"runtime"`
@@ -306,6 +360,8 @@ type rawDetails struct {
 			ISO          string `json:"iso_3166_1"`
 			ReleaseDates []struct {
 				Certification string `json:"certification"`
+				Type          int    `json:"type"`
+				Date          string `json:"release_date"`
 			} `json:"release_dates"`
 		} `json:"results"`
 	} `json:"release_dates"`
@@ -320,10 +376,63 @@ type rawDetails struct {
 		Name string `json:"name"`
 	} `json:"belongs_to_collection"`
 	Recommendations Page `json:"recommendations"`
+
+	VoteCount        int    `json:"vote_count"`
+	OriginalTitle    string `json:"original_title"`
+	OriginalName     string `json:"original_name"`
+	OriginalLanguage string `json:"original_language"`
+	SpokenLanguages  []struct {
+		ISO         string `json:"iso_639_1"`
+		EnglishName string `json:"english_name"`
+	} `json:"spoken_languages"`
+	ProductionCountries []struct {
+		Name string `json:"name"`
+	} `json:"production_countries"`
+	ProductionCompanies []struct {
+		Name string `json:"name"`
+	} `json:"production_companies"`
+	Budget      int64  `json:"budget"`
+	Revenue     int64  `json:"revenue"`
+	Homepage    string `json:"homepage"`
+	LastAirDate string `json:"last_air_date"`
+	NumSeasons  int    `json:"number_of_seasons"`
+	NumEpisodes int    `json:"number_of_episodes"`
+	CreatedBy   []struct {
+		ID          int    `json:"id"`
+		Name        string `json:"name"`
+		ProfilePath string `json:"profile_path"`
+	} `json:"created_by"`
+	Credits struct {
+		Cast []struct {
+			ID          int    `json:"id"`
+			Name        string `json:"name"`
+			Character   string `json:"character"`
+			ProfilePath string `json:"profile_path"`
+		} `json:"cast"`
+		Crew []struct {
+			ID          int    `json:"id"`
+			Name        string `json:"name"`
+			Job         string `json:"job"`
+			ProfilePath string `json:"profile_path"`
+		} `json:"crew"`
+	} `json:"credits"`
+	Keywords struct {
+		Keywords []Named `json:"keywords"` // films
+		Results  []Named `json:"results"`  // TV
+	} `json:"keywords"`
+	WatchProviders struct {
+		Results map[string]struct {
+			Link     string `json:"link"`
+			Flatrate []struct {
+				Name string `json:"provider_name"`
+				Logo string `json:"logo_path"`
+			} `json:"flatrate"`
+		} `json:"results"`
+	} `json:"watch/providers"`
 }
 
 func (c *Client) details(ctx context.Context, typ string, id int) (*Details, error) {
-	extra := "external_ids,videos,recommendations"
+	extra := "external_ids,videos,recommendations,credits,keywords,watch/providers"
 	if typ == "movie" {
 		extra += ",release_dates"
 	} else {
@@ -380,6 +489,7 @@ func (c *Client) details(ctx context.Context, typ string, id int) (*Details, err
 		}
 	}
 	d.Collection = r.BelongsTo
+	c.enrich(d, &r, typ)
 	recs := cards(r.Recommendations, typ)
 	if len(recs) > 12 {
 		recs = recs[:12]

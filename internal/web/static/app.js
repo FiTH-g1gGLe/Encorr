@@ -185,6 +185,7 @@ window.addEventListener("hashchange", () => { if (state.user && state.status && 
 
 function route() {
   if (!qs("main")) renderShell();
+  qsa(".modal-bg").forEach((m) => m.remove()); // a pop-up never outlives its page
   clearTimers();
   setBackdrop(null);
   window.scrollTo(0, 0);
@@ -353,9 +354,11 @@ async function signOut() {
 function card(c) {
   const st = c.status && c.status !== "none" ? `<div class="flag">${pill(c.status === "available" ? "available" : c.status)}</div>` : "";
   const p = img(c.poster);
+  const rating = c.rating ? `<span class="crate">★ ${c.rating.toFixed(1)}</span>` : "";
   return `<a class="card" href="#/title/${esc(c.type)}/${esc(c.id)}" title="${esc(c.title)}">
     <div class="poster">${p ? `<img loading="lazy" src="${esc(p)}" alt="">` : `<div class="noimg">${esc(c.title)}</div>`}
-      <span class="type">${c.type === "tv" ? "📺 TV" : "🎬 Film"}</span>${st}</div>
+      <span class="type">${c.type === "tv" ? "📺 TV" : "🎬 Film"}</span>${st}
+      <div class="peek"><div class="pt">${esc(c.title)}</div><div class="pm">${esc(c.year || "")} ${rating}</div>${c.overview ? `<div class="po">${esc(c.overview)}</div>` : ""}<span class="pgo">${c.status === "available" ? "In your Plex" : "View"} ${I.chev}</span></div></div>
     <div class="meta"><div class="t">${esc(c.title)}</div><div class="y">${esc(c.year || "")}</div></div></a>`;
 }
 
@@ -465,21 +468,39 @@ async function pageDiscover(main, q = "", focus = false) {
     }
   };
   const [trending] = await Promise.all(rows.map(load));
-  const hero = (trending || []).find((t) => t.backdrop) || null;
+  const slides = (trending || []).filter((t) => t.backdrop).slice(0, 5);
   const h = qs("#hero");
   if (!h) return;
-  if (!hero) { h.remove(); return; }
-  if (!qs("#results").hidden) setBackdrop(null); else setBackdrop(hero.backdrop);
+  if (!slides.length) { h.remove(); return; }
   h.classList.remove("skeleton");
-  h.style.backgroundImage = `url("${img(hero.backdrop, "w1280")}")`;
-  h.innerHTML = `<div class="inner">
-      <div class="eyebrow">🔥 Trending this week</div>
-      <h1>${esc(hero.title)}</h1>
-      <p>${esc(hero.overview)}</p>
-      <div class="row">
-        ${hero.status === "available" ? `<span class="have">${MARK(18)} In your Plex library</span>` : ["processing", "pending"].includes(hero.status) ? `<span class="have req">${I.check} Requested</span>` : `<a class="btn primary" href="#/title/${esc(hero.type)}/${esc(hero.id)}">${I.plus} Request</a>`}
-        <a class="btn" href="#/title/${esc(hero.type)}/${esc(hero.id)}">More info</a>
-      </div></div>`;
+  h.classList.add("carousel");
+  const action = (x) => x.status === "available" ? `<span class="have">${MARK(18)} In your Plex library</span>`
+    : ["processing", "pending"].includes(x.status) ? `<span class="have req">${I.check} Requested</span>`
+    : `<a class="btn primary" href="#/title/${esc(x.type)}/${esc(x.id)}">${I.plus} Request</a>`;
+  h.innerHTML = slides.map((x, i) => `<div class="slide ${i === 0 ? "on" : ""}" style="background-image:url('${esc(img(x.backdrop, "w1280"))}')" aria-hidden="${i === 0 ? "false" : "true"}">
+      <div class="inner">
+        <div class="eyebrow">🔥 Trending this week · ${x.type === "tv" ? "TV show" : "Film"}</div>
+        <h1>${esc(x.title)}</h1>
+        <div class="hmeta">${x.rating ? `<span class="crate">★ ${x.rating.toFixed(1)}</span>` : ""}${x.year ? `<span>${esc(x.year)}</span>` : ""}</div>
+        <p>${esc(x.overview)}</p>
+        <div class="row">${action(x)}<a class="btn" href="#/title/${esc(x.type)}/${esc(x.id)}">More info</a></div>
+      </div></div>`).join("") +
+    (slides.length > 1 ? `<div class="dots" role="tablist">${slides.map((x, i) => `<button class="${i === 0 ? "on" : ""}" data-i="${i}" aria-label="Show ${esc(x.title)}"></button>`).join("")}</div>` : "");
+  let at = 0;
+  const show = (i) => {
+    at = (i + slides.length) % slides.length;
+    qsa(".slide", h).forEach((el, j) => { el.classList.toggle("on", j === at); el.setAttribute("aria-hidden", j === at ? "false" : "true"); });
+    qsa(".dots button", h).forEach((el, j) => el.classList.toggle("on", j === at));
+    if (qs("#results").hidden) setBackdrop(slides[at].backdrop);
+  };
+  qsa(".dots button", h).forEach((b) => b.addEventListener("click", () => { show(Number(b.dataset.i)); restart(); }));
+  let paused = false;
+  h.addEventListener("mouseenter", () => (paused = true));
+  h.addEventListener("mouseleave", () => (paused = false));
+  let spin;
+  const restart = () => { clearInterval(spin); if (slides.length > 1 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) { spin = setInterval(() => { if (!paused && !document.hidden) show(at + 1); }, 8000); state.timers.push(spin); } };
+  show(0);
+  restart();
 }
 
 // ---------- "see all" for one row ----------
@@ -616,8 +637,6 @@ async function pageTitle(main, type, id) {
   const d = data.details, s = data.status;
   setBackdrop(d.backdrop);
   const runtime = d.runtime ? (type === "movie" ? `${Math.floor(d.runtime / 60)}h ${d.runtime % 60}m` : `${d.runtime} min episodes`) : "";
-  const facts = [d.year, d.cert ? `<span class="cert">${esc(d.cert)}</span>` : "", runtime, d.network, d.rating ? `★ ${d.rating.toFixed(1)}` : ""]
-    .filter(Boolean).map((f) => (String(f).startsWith("<span") ? f : esc(f))).join("<span class='dim'>•</span>");
 
   const seasons = d.seasons || [];
   const seasonState = (n) => (s.seasons || {})[n] || "";
@@ -636,27 +655,96 @@ async function pageTitle(main, type, id) {
   const showJourney = (st) => st.myRequest || st.status === "processing" || st.status === "pending";
   const prog = showJourney(s) ? journeyHTML(jStatus(s), s.progress) : "";
 
+  const P = data.plex || null;
+  const money = (n) => n ? new Intl.NumberFormat("en-GB", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n) : "";
+  const longDate = (x) => { const t = new Date(x); return isNaN(t) ? x : t.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }); };
+  const genreKind = type === "tv" ? "tv" : "movie";
+  const genres = (d.genreList && d.genreList.length ? d.genreList : (d.genres || []).map((g) => ({ name: g })))
+    .map((g) => g.id ? `<a href="#/browse/${encodeURIComponent(`genre:${g.id}:${genreKind}`)}">${esc(g.name)}</a>` : esc(g.name)).join(", ");
+  const runtimeTxt = d.runtime ? (type === "movie" ? `${Math.floor(d.runtime / 60) ? Math.floor(d.runtime / 60) + "h " : ""}${d.runtime % 60}m` : `${d.runtime} min episodes`) : "";
+  const headFacts = [d.cert ? `<span class="cert">${esc(d.cert)}</span>` : "", runtimeTxt ? esc(runtimeTxt) : "", genres].filter(Boolean).join(`<span class="sep">|</span>`);
+  const personLink = (p) => `<a href="#/browse/person:${esc(p.id)}"${tip("Films with " + p.name)}>${esc(p.name)}</a>`;
+
+  // Ratings: TMDB always, plus IMDb / Rotten Tomatoes from Plex for things you have.
+  const ratings = [];
+  if (d.rating) ratings.push(`<span class="rt tmdb"${tip(`TMDB users${d.voteCount ? ` (${d.voteCount.toLocaleString()} votes)` : ""}`)}><b>TMDB</b> ${Math.round(d.rating * 10)}%</span>`);
+  for (const r of (P && P.ratings) || []) {
+    if (r.source === "tmdb") continue;
+    const ic = r.source === "imdb" ? `<b class="imdb">IMDb</b>` : r.source === "rt-critic" ? (r.fresh ? "🍅" : "🤢") : (r.fresh ? "🍿" : "🫤");
+    ratings.push(`<span class="rt ${esc(r.source)}"${tip(r.label)}>${ic} ${esc(r.value)}</span>`);
+  }
+
+  const RELEASE = { cinema: "🎟️ In cinemas", digital: "💻 Digital", disc: "💿 Disc", tv: "📺 On TV" };
+  const facts = [];
+  const fact = (k, v) => { if (v) facts.push(`<div class="frow"><span class="k">${k}</span><span class="v">${v}</span></div>`); };
+  fact("Status", esc({ "Returning Series": "Still running", "Ended": "Ended", "Canceled": "Cancelled", "In Production": "In production", "Planned": "Planned", "Released": "Released", "Post Production": "Post-production", "Rumored": "Rumoured" }[d.tmdbStatus] || d.tmdbStatus || ""));
+  if (d.releases && d.releases.length) fact("Release dates", d.releases.map((r) => `<span class="rel">${RELEASE[r.kind] || esc(r.kind)} <span class="dim">${esc(longDate(r.date))}</span></span>`).join(""));
+  else if (type === "movie" && d.date) fact("Released", esc(longDate(d.date)));
+  if (type === "tv") {
+    fact("First aired", d.firstAir ? esc(longDate(d.firstAir)) : "");
+    fact("Last aired", d.lastAir && d.tmdbStatus !== "Returning Series" ? esc(longDate(d.lastAir)) : "");
+    fact("Seasons", d.numSeasons ? `${d.numSeasons}${d.numEpisodes ? ` <span class="dim">(${d.numEpisodes} episodes)</span>` : ""}` : "");
+    fact("Network", esc(d.network || ""));
+  }
+  fact("Revenue", money(d.revenue));
+  fact("Budget", money(d.budget));
+  fact("Original language", esc(d.language || ""));
+  fact("Original title", esc(d.originalTitle || ""));
+  fact("Country", esc((d.countries || []).join(", ")));
+  fact("Studio", esc((d.studios || []).join(", ")));
+  if (P && (P.quality || P.audio)) fact("In your Plex", [P.quality, P.audio].filter(Boolean).map((q) => `<span class="qual">${esc(q)}</span>`).join(" "));
+  const providers = (d.providers || []).length ? `<div class="fblock"><div class="k">Currently streaming on</div><div class="provs">${d.providers.map((p) => `<a href="${esc(d.providersUrl || "#")}" target="_blank" rel="noopener" title="${esc(p.name)}"><img src="${esc(img(p.logo, "w92"))}" alt="${esc(p.name)}"></a>`).join("")}</div><div class="tiny dim">Streaming info from JustWatch</div></div>` : "";
+  const links = [
+    `<a href="https://www.themoviedb.org/${type}/${esc(d.id)}" target="_blank" rel="noopener">TMDB</a>`,
+    d.imdbId ? `<a href="https://www.imdb.com/title/${esc(d.imdbId)}" target="_blank" rel="noopener">IMDb</a>` : "",
+    d.imdbId ? `<a href="https://trakt.tv/search/imdb/${esc(d.imdbId)}" target="_blank" rel="noopener">Trakt</a>` : "",
+    type === "movie" ? `<a href="https://letterboxd.com/tmdb/${esc(d.id)}" target="_blank" rel="noopener">Letterboxd</a>` : "",
+    type === "tv" && d.tvdbId ? `<a href="https://thetvdb.com/dereferrer/series/${esc(d.tvdbId)}" target="_blank" rel="noopener">TheTVDB</a>` : "",
+    d.homepage ? `<a href="${esc(d.homepage)}" target="_blank" rel="noopener">Official site</a>` : "",
+  ].filter(Boolean).join("");
+
+  const statusPill = s.status === "available" ? `<span class="tpill ok">${MARK(14)} In your Plex</span>`
+    : s.status === "partial" ? `<span class="tpill part">Some seasons in Plex</span>`
+    : s.status === "processing" ? `<span class="tpill busy">On its way</span>`
+    : s.status === "pending" ? `<span class="tpill wait">Waiting for approval</span>` : "";
+
   main.innerHTML = `
-  <div class="title-top">
-    <div class="poster">${d.poster ? `<img src="${esc(img(d.poster, "w500"))}" alt="">` : ""}</div>
-    <div>
-      <div class="dim small" style="font-weight:600">${type === "tv" ? "TV show" : "Film"}</div>
-      <h1>${esc(d.title)}</h1>
-      <div class="facts">${facts}</div>
-      ${d.tagline ? `<p class="tagline">${esc(d.tagline)}</p>` : ""}
-      <div class="genres">${(d.genres || []).map((g) => `<span>${esc(g)}</span>`).join("")}</div>
-      <div class="actions">
-        ${requestable ? `<button class="btn primary" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
-        ${statusLine}
-        ${d.trailer ? `<button class="btn" id="trailer"${tip("Watch the trailer here")}>${I.play} Trailer</button>` : ""}
-        ${cancelBtn}
+  <section class="t-hero">
+    <div class="t-bd" style="background-image:url('${esc(img(d.backdrop, "w1280"))}')"></div>
+    <div class="t-head">
+      <div class="poster">${d.poster ? `<img src="${esc(img(d.poster, "w500"))}" alt="">` : ""}</div>
+      <div class="t-main">
+        ${statusPill}
+        <h1>${esc(d.title)} ${d.year ? `<span class="yr">(${esc(d.year)})</span>` : ""}</h1>
+        <div class="t-facts">${headFacts}</div>
+        <div class="actions">
+          ${P && P.url && ["available", "partial"].includes(s.status) ? `<a class="btn plex" href="${esc(P.url)}" target="_blank" rel="noopener"${tip("Open it in Plex")}>${I.play} Play on Plex</a>` : ""}
+          ${requestable ? `<button class="btn primary" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
+          ${d.trailer ? `<button class="btn" id="trailer"${tip("Watch the trailer here")}>🎞️ Trailer</button>` : ""}
+          ${cancelBtn}
+        </div>
       </div>
-      ${prog}
-      ${mine ? `<div class="small muted">You requested this ${when(mine.created)}${mine.status === "pending" ? ": waiting for an admin." : "."}</div>` : s.requestCount ? `<div class="small muted">Requested by ${s.requestCount} ${s.requestCount === 1 ? "person" : "people"}.</div>` : ""}
-      <p class="overview">${esc(d.overview)}</p>
+    </div>
+  </section>
+  ${prog}
+  <div class="t-body">
+    <div class="t-left">
+      ${d.tagline ? `<p class="tagline">${esc(d.tagline)}</p>` : ""}
+      <h2>Overview</h2>
+      <p class="overview">${esc(d.overview || "No description yet.")}</p>
+      ${(d.crew || []).length ? `<div class="crew">${d.crew.map((g) => `<div><div class="k">${esc(g.job)}</div><div class="v">${g.people.map(personLink).join(", ")}</div></div>`).join("")}</div>` : ""}
+      ${mine ? `<div class="small muted">You requested this ${when(mine.created)}${mine.status === "pending" ? ": waiting for approval." : "."}</div>` : s.requestCount ? `<div class="small muted">Requested by ${s.requestCount} ${s.requestCount === 1 ? "person" : "people"}.</div>` : ""}
+      ${(d.keywords || []).length ? `<div class="tags">${d.keywords.map((k) => `<a href="#/browse/${encodeURIComponent(`keyword:${k.id}:${genreKind}`)}"${tip("More like this: " + k.name)}>🏷️ ${esc(k.name)}</a>`).join("")}</div>` : ""}
       ${d.collection ? `<a class="glass colbanner" href="#/collection/${esc(d.collection.id)}"${tip("See every film in the series and request the ones you haven't got")}><span class="ic">📚</span><span><strong>Part of ${esc(d.collection.name)}</strong><span class="small dim">See all the films and request the rest in one go</span></span>${I.chev}</a>` : ""}
     </div>
+    <aside class="t-side glass">
+      ${ratings.length ? `<div class="ratings">${ratings.join("")}</div>` : ""}
+      ${facts.join("")}
+      ${providers}
+      <div class="fblock"><div class="k">Find out more</div><div class="links">${links}</div></div>
+    </aside>
   </div>
+  ${(d.cast || []).length ? `<h2>Cast</h2><div class="scroller cast">${d.cast.map((c) => `<a class="person" href="#/browse/person:${esc(c.id)}"${tip("Films with " + c.name)}><div class="ph">${c.photo ? `<img loading="lazy" src="${esc(img(c.photo, "w185"))}" alt="">` : `<span>${esc((c.name || "?").split(" ").map((x) => x[0]).join("").slice(0, 2))}</span>`}</div><div class="n">${esc(c.name)}</div><div class="c">${esc(c.character || "")}</div></a>`).join("")}</div>` : ""}
   ${seasons.length ? `<h2>Seasons</h2><div class="seasons">${seasons.map((x) => {
     const st = seasonState(x.season_number);
     return `<div class="glass season"><div><strong>${esc(x.name)}</strong><div class="small dim">${x.episode_count} episodes${x.air_date ? " · " + esc(x.air_date.slice(0, 4)) : ""}</div></div>${st ? pill(st) : ""}</div>`;
@@ -696,24 +784,37 @@ function requestModal(type, d, s) {
   const seasons = d.seasons || [];
   const st = (n) => (s.seasons || {})[n] || "";
   const free = seasons.filter((x) => !["available", "processing", "pending"].includes(st(x.season_number)));
+  const SEASON_STATUS = { available: "In Plex", partial: "Partly in Plex", processing: "On its way", pending: "Waiting for approval" };
+  const sw = (attrs) => `<label class="switch sm"><input type="checkbox" ${attrs}><span class="slider"></span></label>`;
   const seasonHtml = type === "tv" ? `
-    <label class="check" style="border-bottom:1px solid var(--glass-border);margin-bottom:6px"><input type="checkbox" id="allS" checked> <strong>All available seasons</strong></label>
-    <div id="sList" style="max-height:280px;overflow:auto">${seasons.map((x) => {
-      const taken = !free.includes(x);
-      return `<label class="check"><input type="checkbox" value="${x.season_number}" ${taken ? "disabled" : "checked"}> <span class="grow">${esc(x.name)} <span class="dim small">(${x.episode_count} episodes)</span></span>${st(x.season_number) ? pill(st(x.season_number)) : ""}</label>`;
-    }).join("")}</div>` : "";
+    <div class="stable">
+      <div class="shead">${sw(`id="allS" ${free.length ? "checked" : "disabled"}`)}<span>Season</span><span><span class="long">Episodes</span><span class="short">Eps</span></span><span>Status</span></div>
+      <div id="sList">${seasons.map((x) => {
+        const taken = !free.includes(x), status = st(x.season_number);
+        const future = x.air_date && x.air_date > new Date().toISOString().slice(0, 10);
+        return `<label class="srow ${taken ? "taken" : ""}">${sw(`value="${x.season_number}" ${taken ? "disabled" : "checked"}`)}<span class="sn">${esc(x.name)}${x.air_date ? ` <span class="dim">${esc(x.air_date.slice(0, 4))}</span>` : ""}</span><span>${x.episode_count || "–"}</span><span>${status ? `<span class="spill st-${esc(status)}">${esc(SEASON_STATUS[status] || status)}</span>` : future ? `<span class="spill future">Not out yet</span>` : `<span class="spill none">Not requested</span>`}</span></label>`;
+      }).join("")}</div>
+    </div>
+    <div class="small dim" id="sCount" style="margin:8px 2px 0"></div>` : "";
   const role = state.user.role;
   const m = modal(`
-    <h2>Request ${esc(d.title)}</h2>
-    <p class="muted" style="margin-top:-6px">${role === "friend" ? "An admin will approve it, then it downloads automatically." : "Approved automatically: it'll start downloading straight away."}</p>
+    <div class="mhead">${d.poster ? `<img src="${esc(img(d.poster, "w185"))}" alt="">` : ""}<div><div class="eyebrow">${type === "tv" ? "Request a show" : "Request a film"}</div><h2>${esc(d.title)} ${d.year ? `<span class="dim" style="font-weight:500">(${esc(d.year)})</span>` : ""}</h2></div></div>
+    <div class="notice ${role === "friend" ? "" : "ok"}" style="margin:4px 0 14px">${role === "friend" ? "ℹ️ The owner will approve it, then it downloads by itself." : "✅ This request will be approved automatically."}</div>
     ${seasonHtml}
     <label class="field"><span>Note (optional)</span><input type="text" id="note" maxlength="300" placeholder="e.g. extended cut please"></label>
     <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="go">${I.plus} Request the encore</button></div>`);
   const all = qs("#allS", m.el);
   if (all) {
     const boxes = qsa("#sList input:not([disabled])", m.el);
-    all.addEventListener("change", () => boxes.forEach((b) => (b.checked = all.checked)));
-    boxes.forEach((b) => b.addEventListener("change", () => (all.checked = boxes.every((x) => x.checked))));
+    const eps = (b) => Number((seasons.find((x) => String(x.season_number) === b.value) || {}).episode_count || 0);
+    const count = () => {
+      const on = boxes.filter((b) => b.checked);
+      qs("#sCount", m.el).textContent = on.length ? `${on.length} season${on.length === 1 ? "" : "s"}, ${on.reduce((n, b) => n + eps(b), 0)} episodes` : "Pick the seasons you want";
+      qs("#go", m.el).disabled = !on.length;
+    };
+    all.addEventListener("change", () => { boxes.forEach((b) => (b.checked = all.checked)); count(); });
+    boxes.forEach((b) => b.addEventListener("change", () => { all.checked = boxes.every((x) => x.checked); count(); }));
+    count();
   }
   qs("#go", m.el).addEventListener("click", async (e) => {
     const body = { type, tmdbId: d.id, note: qs("#note", m.el).value };

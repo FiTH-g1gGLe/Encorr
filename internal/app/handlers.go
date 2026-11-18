@@ -685,7 +685,17 @@ func (a *App) hTitle(w http.ResponseWriter, r *http.Request, u *store.User) {
 		}
 	})
 	det.Recommended = nil
-	writeJSON(w, 200, map[string]any{"details": det, "status": si, "recommended": recs})
+	out := map[string]any{"details": det, "status": si, "recommended": recs}
+	var plexKey string
+	a.Store.Read(func(d *store.Data) {
+		if lib, ok := d.Library[store.LibKey(typ, id)]; ok {
+			plexKey = lib.Key
+		}
+	})
+	if pi := a.plexDetails(r.Context(), plexKey); pi != nil {
+		out["plex"] = pi
+	}
+	writeJSON(w, 200, out)
 }
 
 // ---------- requests ----------

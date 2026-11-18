@@ -249,6 +249,33 @@ func TestEndToEnd(t *testing.T) {
 	if libst.Library.Films == 0 {
 		t.Fatal("expected the library counts in status")
 	}
+	// Title pages are rich: crew, cast, tags, money, releases, streaming, and
+	// Plex's ratings and picture quality for things in the library.
+	var rich struct {
+		Details struct {
+			Cast      []struct{ Name string }
+			Crew      []struct{ Job string }
+			Keywords  []struct{ ID int }
+			Releases  []struct{ Kind string }
+			Providers []struct{ Name string }
+			Budget    int64
+			Studios   []string
+			Language  string
+		}
+		Plex *struct {
+			URL     string
+			Quality string
+			Ratings []struct{ Source, Value string }
+		}
+	}
+	owner.ok("GET", "/title/movie/105", nil, &rich)
+	dd := rich.Details
+	if len(dd.Cast) == 0 || len(dd.Crew) == 0 || dd.Crew[0].Job != "Director" || len(dd.Keywords) == 0 || len(dd.Releases) != 2 || len(dd.Providers) == 0 || dd.Budget == 0 || len(dd.Studios) == 0 || dd.Language != "English" {
+		t.Fatalf("title details not rich enough: %+v", dd)
+	}
+	if rich.Plex == nil || rich.Plex.Quality != "4K HDR10" || len(rich.Plex.Ratings) != 3 || rich.Plex.Ratings[1].Value != "91%" {
+		t.Fatalf("plex info: %+v", rich.Plex)
+	}
 	// Search splits films and TV.
 	var sr struct{ Movies, TV []struct{ Type string } }
 	owner.ok("GET", "/search?q=a", nil, &sr)

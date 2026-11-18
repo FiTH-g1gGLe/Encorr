@@ -298,6 +298,25 @@ type Item struct {
 	} `json:"Location,omitempty"`
 	GuidString string `json:"guid"`
 	Guids      []Guid `json:"Guid"`
+
+	// Ratings Plex has for the item (IMDb, Rotten Tomatoes, TMDB), on its
+	// detail page. Newer servers send the list; older ones the single fields.
+	Ratings []struct {
+		Image string  `json:"image"` // e.g. imdb://image.rating, rottentomatoes://image.rating.ripe
+		Value float64 `json:"value"`
+		Type  string  `json:"type"` // critic | audience
+	} `json:"Rating,omitempty"`
+	Rating              float64 `json:"rating,omitempty"`
+	RatingImage         string  `json:"ratingImage,omitempty"`
+	AudienceRating      float64 `json:"audienceRating,omitempty"`
+	AudienceRatingImage string  `json:"audienceRatingImage,omitempty"`
+	Media               []struct {
+		VideoResolution string `json:"videoResolution"`
+		VideoCodec      string `json:"videoCodec"`
+		AudioCodec      string `json:"audioCodec"`
+		AudioChannels   int    `json:"audioChannels"`
+		VideoDynamic    string `json:"videoDynamicRangeType,omitempty"`
+	} `json:"Media,omitempty"`
 }
 
 type container struct {

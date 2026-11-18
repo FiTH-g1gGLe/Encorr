@@ -293,6 +293,14 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 			}
 		}
 		mc("Metadata", items)
+	case strings.HasPrefix(p, "/library/metadata/m"):
+		id, _ := strconv.Atoi(strings.TrimPrefix(p, "/library/metadata/m"))
+		mc("Metadata", []any{map[string]any{"ratingKey": fmt.Sprintf("m%d", id), "type": "movie", "title": s.movie(id).Title,
+			"guid": "plex://item/fake", "Guid": []any{map[string]any{"id": fmt.Sprintf("tmdb://%d", id)}},
+			"Rating": []any{map[string]any{"image": "imdb://image.rating", "value": 7.8, "type": "audience"},
+				map[string]any{"image": "rottentomatoes://image.rating.ripe", "value": 9.1, "type": "critic"},
+				map[string]any{"image": "rottentomatoes://image.rating.upright", "value": 8.4, "type": "audience"}},
+			"Media": []any{map[string]any{"videoResolution": "4k", "videoDynamicRangeType": "HDR10", "audioChannels": 6}}}})
 	case strings.HasPrefix(p, "/library/metadata/s"):
 		rest := strings.TrimPrefix(p, "/library/metadata/s")
 		children := strings.HasSuffix(rest, "/children")
@@ -447,9 +455,17 @@ func (s *Stack) tmdb(w http.ResponseWriter, r *http.Request, p string) {
 		res["runtime"] = 118
 		res["tagline"] = "Some lights are meant to be found."
 		res["imdb_id"] = m.IMDB
-		res["genres"] = []any{map[string]any{"name": "Drama"}, map[string]any{"name": "Mystery"}}
+		res["budget"], res["revenue"], res["vote_count"], res["original_language"] = 40000000, 145603415, 2381, "en"
+		res["production_countries"] = []any{map[string]any{"name": "United Kingdom"}}
+		res["production_companies"] = []any{map[string]any{"name": "Northlight Pictures"}, map[string]any{"name": "Harbour Films"}}
+		res["credits"] = fakeCredits()
+		res["keywords"] = map[string]any{"keywords": []any{map[string]any{"id": 1, "name": "lighthouse"}, map[string]any{"id": 2, "name": "island"}, map[string]any{"id": 3, "name": "mystery signal"}}}
+		res["watch/providers"] = map[string]any{"results": map[string]any{"GB": map[string]any{"link": "https://www.themoviedb.org/", "flatrate": []any{map[string]any{"provider_name": "Netflix", "logo_path": "/prov1.jpg"}}}}}
+		res["genres"] = []any{map[string]any{"id": 18, "name": "Drama"}, map[string]any{"id": 9648, "name": "Mystery"}}
 		res["videos"] = map[string]any{"results": []any{map[string]any{"key": "abc123", "site": "YouTube", "type": "Trailer"}}}
-		res["release_dates"] = map[string]any{"results": []any{map[string]any{"iso_3166_1": "GB", "release_dates": []any{map[string]any{"certification": "12A"}}}}}
+		res["release_dates"] = map[string]any{"results": []any{map[string]any{"iso_3166_1": "GB", "release_dates": []any{
+			map[string]any{"certification": "12A", "type": 3, "release_date": fmt.Sprintf("%d-03-14T00:00:00.000Z", m.Year)},
+			map[string]any{"type": 4, "release_date": fmt.Sprintf("%d-06-02T00:00:00.000Z", m.Year)}}}}}
 		res["recommendations"] = map[string]any{"results": movies[:3]}
 		if id == 101 || id == 102 {
 			res["belongs_to_collection"] = map[string]any{"id": 900, "name": "The Lighthouse Collection"}
@@ -475,6 +491,9 @@ func (s *Stack) tmdb(w http.ResponseWriter, r *http.Request, p string) {
 		res["external_ids"] = map[string]any{"tvdb_id": m.TVDB}
 		res["content_ratings"] = map[string]any{"results": []any{map[string]any{"iso_3166_1": "GB", "rating": "15"}}}
 		res["recommendations"] = map[string]any{"results": shows}
+		res["credits"] = fakeCredits()
+		res["created_by"] = []any{map[string]any{"id": 77, "name": "Ruth Calloway"}}
+		res["number_of_seasons"], res["number_of_episodes"] = len(m.Seasons), 0
 		writeJSON(w, res)
 	case strings.HasPrefix(p, "/find/"):
 		writeJSON(w, map[string]any{"movie_results": []any{}, "tv_results": []any{}})
@@ -735,3 +754,16 @@ func (s *Stack) AddToPlex(typ string, tmdbID int, seasons map[int]int) {
 
 func (s *Stack) Lock()   { s.mu.Lock() }
 func (s *Stack) Unlock() { s.mu.Unlock() }
+
+func fakeCredits() map[string]any {
+	cast := []any{}
+	for i, n := range []string{"Ada Morrow", "Ben Okafor", "Clara Voss", "Dev Patel-Shaw", "Elin Hart", "Finn Rook"} {
+		cast = append(cast, map[string]any{"id": 300 + i, "name": n, "character": []string{"Keeper", "Harbourmaster", "Signal officer", "Fisherman", "Doctor", "Boy"}[i], "profile_path": fmt.Sprintf("/cast%d.jpg", i)})
+	}
+	return map[string]any{"cast": cast, "crew": []any{
+		map[string]any{"id": 400, "name": "Iris Lowe", "job": "Director"},
+		map[string]any{"id": 401, "name": "Iris Lowe", "job": "Screenplay"},
+		map[string]any{"id": 402, "name": "Sam Hale", "job": "Producer"},
+		map[string]any{"id": 403, "name": "Noor Quinn", "job": "Original Music Composer"},
+	}}
+}
