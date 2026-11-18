@@ -19,50 +19,50 @@ type Row struct {
 
 // Fixed rows always show, in this order.
 var fixedRows = []Row{
-	{"trending", "🔥 Trending this week"},
+	{"trending", "Trending this week"},
 	{"plex-recent", "🆕 Just added to Plex"},
-	{"movies", "🎬 Popular films"},
-	{"tv", "📺 Popular TV"},
-	{"upcoming", "🎟️ Coming soon to cinemas"},
+	{"movies", "Popular films"},
+	{"tv", "Popular TV"},
+	{"upcoming", "Coming soon to cinemas"},
 }
 
 // The pool the rotating rows are picked from. Ids are TMDB company, network
 // and genre ids.
 var rotatingPool = []Row{
-	{"company:420:movie", "🦸 Marvel Studios"},
-	{"company:2:movie", "🏰 Disney"},
-	{"company:3:movie", "🧸 Pixar"},
-	{"company:521:movie", "🐉 DreamWorks Animation"},
-	{"company:1:movie", "🌌 Lucasfilm"},
-	{"company:9993:movie", "🦇 DC"},
-	{"company:41077:movie", "🎞️ A24"},
-	{"company:10342:movie", "🍃 Studio Ghibli"},
-	{"network:213", "🟥 Netflix originals"},
-	{"network:49", "🎭 HBO"},
-	{"network:2552", "🍎 Apple TV+"},
-	{"network:2739", "✨ Disney+ originals"},
-	{"network:1024", "📦 Prime Video originals"},
+	{"company:420:movie", "Marvel Studios"},
+	{"company:2:movie", "Disney"},
+	{"company:3:movie", "Pixar"},
+	{"company:521:movie", "DreamWorks Animation"},
+	{"company:1:movie", "Lucasfilm"},
+	{"company:9993:movie", "DC"},
+	{"company:41077:movie", "A24"},
+	{"company:10342:movie", "Studio Ghibli"},
+	{"network:213", "Netflix originals"},
+	{"network:49", "HBO"},
+	{"network:2552", "Apple TV+"},
+	{"network:2739", "Disney+ originals"},
+	{"network:1024", "Prime Video originals"},
 	{"network:4", "🇬🇧 BBC One"},
-	{"top-movies", "🏆 Top rated films of all time"},
-	{"top-tv", "🏆 Top rated TV of all time"},
-	{"now-playing", "🍿 In cinemas now"},
-	{"on-air", "📡 New episodes this week"},
-	{"genre:27:movie", "👻 Horror"},
-	{"genre:35:movie", "😂 Comedy"},
-	{"genre:878:movie", "🚀 Sci-fi"},
-	{"genre:28:movie", "💥 Action"},
-	{"genre:53:movie", "🔪 Thrillers"},
-	{"genre:16:movie", "🎨 Animated films"},
-	{"genre:10751:movie", "👨‍👩‍👧 Family night"},
-	{"genre:99:movie", "🌍 Documentaries"},
-	{"genre:80:tv", "🕵️ Crime drama"},
-	{"genre:10765:tv", "🧙 Sci-fi & fantasy TV"},
-	{"genre:16:tv", "📺 Animated series"},
-	{"genre:35:tv", "😆 Comedy series"},
-	{"decade:1980", "📼 Best of the 80s"},
-	{"decade:1990", "💿 Best of the 90s"},
-	{"decade:2000", "📀 Best of the 2000s"},
-	{"gems:movie", "💎 Hidden gems"},
+	{"top-movies", "Top rated films of all time"},
+	{"top-tv", "Top rated TV of all time"},
+	{"now-playing", "In cinemas now"},
+	{"on-air", "New episodes this week"},
+	{"genre:27:movie", "Horror"},
+	{"genre:35:movie", "Comedy"},
+	{"genre:878:movie", "Sci-fi"},
+	{"genre:28:movie", "Action"},
+	{"genre:53:movie", "Thrillers"},
+	{"genre:16:movie", "Animated films"},
+	{"genre:10751:movie", "Family night"},
+	{"genre:99:movie", "Documentaries"},
+	{"genre:80:tv", "Crime drama"},
+	{"genre:10765:tv", "Sci-fi & fantasy TV"},
+	{"genre:16:tv", "Animated series"},
+	{"genre:35:tv", "Comedy series"},
+	{"decade:1980", "Best of the 80s"},
+	{"decade:1990", "Best of the 90s"},
+	{"decade:2000", "Best of the 2000s"},
+	{"gems:movie", "Hidden gems"},
 }
 
 // rotating is how many pool rows show each day (plus one actor spotlight).
@@ -127,7 +127,7 @@ func (c *Client) spotlight(ctx context.Context, day time.Time) (Row, bool) {
 		return Row{}, false
 	}
 	r := p.Results[actors[int(daySeed(day)%uint32(len(actors)))]]
-	return Row{Key: "person:" + strconv.Itoa(r.ID), Title: "⭐ Starring " + r.Name}, true
+	return Row{Key: "person:" + strconv.Itoa(r.ID), Title: "Starring " + r.Name}, true
 }
 
 // rowQuery turns a row key into a TMDB request. Only known shapes with
@@ -249,7 +249,7 @@ func (c *Client) RowTitle(ctx context.Context, key string) string {
 			if len(parts) > 2 && parts[2] == "tv" {
 				what = "Shows"
 			}
-			return "🏷️ " + what + " about " + k.Name
+			return "" + what + " about " + k.Name
 		}
 	}
 	if strings.HasPrefix(key, "genre:") {
@@ -260,7 +260,7 @@ func (c *Client) RowTitle(ctx context.Context, key string) string {
 				if parts[2] == "tv" {
 					what = "shows"
 				}
-				return "🎭 " + n + " " + what
+				return "" + n + " " + what
 			}
 		}
 	}
@@ -270,7 +270,7 @@ func (c *Client) RowTitle(ctx context.Context, key string) string {
 			Name string `json:"name"`
 		}
 		if c.get(ctx, "/person/"+id, nil, 24*time.Hour, &p) == nil && p.Name != "" {
-			return "⭐ Starring " + p.Name
+			return "Starring " + p.Name
 		}
 	}
 	return ""

@@ -218,7 +218,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("row %s: title %q, %d results", r.Key, page.Title, len(page.Results))
 		}
 		if strings.HasPrefix(r.Key, "person:") {
-			sawActor = page.Title == "⭐ Starring Tom Hanks"
+			sawActor = page.Title == "Starring Tom Hanks"
 		}
 	}
 	if !sawActor {
