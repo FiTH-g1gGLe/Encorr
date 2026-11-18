@@ -82,6 +82,7 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	})
 
 	// Web UI: serve files, fall back to index.html for app routes.
+	assetStamp := Version + "-" + strconv.FormatInt(time.Now().Unix(), 36)
 	files := http.FileServer(http.FS(static))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
@@ -100,9 +101,15 @@ func (a *App) Handler(static fs.FS) http.Handler {
 			http.Error(w, "web UI missing", 500)
 			return
 		}
+		// Stamp the script and stylesheet addresses with this build, so phones
+		// and Cloudflare always fetch the new look after an update.
+		html := strings.NewReplacer(
+			`href="/styles.css"`, `href="/styles.css?v=`+assetStamp+`"`,
+			`src="/app.js"`, `src="/app.js?v=`+assetStamp+`"`,
+		).Replace(string(b))
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(b)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(html))
 	})
 
 	return a.secure(mux)
