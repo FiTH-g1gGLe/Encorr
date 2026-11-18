@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FiTH-g1gGLe/encorr/internal/arr"
 	"github.com/FiTH-g1gGLe/encorr/internal/fake"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
@@ -618,6 +619,43 @@ func TestEndToEnd(t *testing.T) {
 			}
 		}
 	})
+
+	// 25. A request that's been sitting with nothing downloading gets a fresh
+	// search from Radarr/Sonarr (once, not every run).
+	var stalled string
+	_ = a.Store.Update(func(d *store.Data) error {
+		for _, r := range d.Requests {
+			if m := d.MediaByID(r.MediaID); m != nil && m.ExternalID != 0 {
+				r.Status, r.Updated = store.ReqApproved, time.Now().Add(-3*time.Hour)
+				stalled = m.Title
+				return nil
+			}
+		}
+		return nil
+	})
+	if stalled == "" {
+		t.Fatal("no request linked to Radarr/Sonarr to test with")
+	}
+	a.mu.Lock()
+	a.downloads = map[string]map[int][]arr.QueueItem{"radarr": {}, "sonarr": {}}
+	a.mu.Unlock()
+	cmdsBefore := len(fk.Commands)
+	msg, err := a.jobNudge(ctx)
+	if err != nil || !strings.Contains(msg, stalled) {
+		t.Fatalf("nudge: %q %v", msg, err)
+	}
+	searched := false
+	for _, c := range fk.Commands[cmdsBefore:] {
+		if c["name"] == "MoviesSearch" || c["name"] == "SeriesSearch" {
+			searched = true
+		}
+	}
+	if !searched {
+		t.Fatalf("expected a search command, got %v", fk.Commands[cmdsBefore:])
+	}
+	if msg, _ := a.jobNudge(ctx); strings.Contains(msg, stalled) {
+		t.Fatal("should not ask again straight away")
+	}
 }
 
 func ownerID(st *store.Store) int {

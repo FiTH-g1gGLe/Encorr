@@ -41,6 +41,7 @@ func (a *App) setupJobs() {
 	add(&job{Name: "downloads", Label: "Download progress", Every: 15 * time.Second, fn: a.jobDownloads})
 	add(&job{Name: "watchlists", Label: "Plex watchlist sync", Every: 10 * time.Minute, fn: a.jobWatchlists})
 	add(&job{Name: "cleanup", Label: "Tidy old sessions", Hour: 4, fn: a.jobCleanup})
+	add(&job{Name: "nudge", Label: "Search again for stalled requests", Every: 2 * time.Hour, fn: a.jobNudge})
 }
 
 func (j *job) schedule() string {
@@ -163,7 +164,7 @@ func (a *App) Jobs() []JobView {
 			infos[k] = v
 		}
 	})
-	order := []string{"plex-recent", "plex-full", "downloads", "watchlists", "cleanup"}
+	order := []string{"plex-recent", "plex-full", "downloads", "watchlists", "nudge", "cleanup"}
 	out := []JobView{}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -894,4 +895,86 @@ func (a *App) refreshAired(ctx context.Context, m store.Media) store.Media {
 		return nil
 	})
 	return m
+}
+
+// nudgeEvery is how often Encorr asks Radarr/Sonarr to search again for a
+// request that has nothing downloading.
+const nudgeEvery = 12 * time.Hour
+
+// jobNudge asks Radarr/Sonarr to search again for requests that are still
+// open but have nothing downloading. Radarr and Sonarr only search once,
+// when something is added; after that they wait for new uploads to appear.
+// If those first downloads failed or were removed, the request would sit
+// "looking for a copy" for ever.
+func (a *App) jobNudge(ctx context.Context) (string, error) {
+	type item struct {
+		svc   string
+		id    int
+		title string
+	}
+	var todo []item
+	cutoff := time.Now().Add(-2 * time.Hour)
+	a.Store.Read(func(d *store.Data) {
+		seen := map[string]bool{}
+		for _, r := range d.Requests {
+			if r.Status != store.ReqApproved || r.Updated.After(cutoff) {
+				continue // give a fresh request time to get going
+			}
+			m := d.MediaByID(r.MediaID)
+			if m == nil || m.ExternalID == 0 {
+				continue
+			}
+			svc := "radarr"
+			if m.Type == store.TypeTV {
+				svc = "sonarr"
+			}
+			k := svc + ":" + strconv.Itoa(m.ExternalID)
+			if !seen[k] {
+				seen[k] = true
+				todo = append(todo, item{svc, m.ExternalID, m.Title})
+			}
+		}
+	})
+	var asked []string
+	var errs []string
+	for _, it := range todo {
+		k := it.svc + ":" + strconv.Itoa(it.id)
+		a.mu.Lock()
+		busy := len(a.downloads[it.svc][it.id]) > 0
+		if a.nudged == nil {
+			a.nudged = map[string]time.Time{}
+		}
+		recent := time.Since(a.nudged[k]) < nudgeEvery
+		a.mu.Unlock()
+		if busy || recent {
+			continue
+		}
+		var c *arr.Client
+		body := map[string]any{}
+		if it.svc == "sonarr" {
+			c, body["name"], body["seriesId"] = a.Sonarr(), "SeriesSearch", it.id
+		} else {
+			c, body["name"], body["movieIds"] = a.Radarr(), "MoviesSearch", []int{it.id}
+		}
+		if c == nil {
+			continue
+		}
+		if err := c.Command(ctx, body); err != nil {
+			errs = append(errs, it.title+": "+err.Error())
+			continue
+		}
+		a.mu.Lock()
+		a.nudged[k] = time.Now()
+		a.mu.Unlock()
+		asked = append(asked, it.title)
+	}
+	msg := "nothing stalled"
+	if len(asked) > 0 {
+		msg = fmt.Sprintf("asked for a fresh search: %s", strings.Join(asked, ", "))
+		a.logf("%s", msg)
+	}
+	if len(errs) > 0 {
+		return msg, errors.New(strings.Join(errs, "; "))
+	}
+	return msg, nil
 }

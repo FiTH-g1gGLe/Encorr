@@ -35,6 +35,7 @@ type App struct {
 	sabSnap   *sab.Snapshot                      // live SABnzbd numbers (nil without SABnzbd)
 	sabWatch  sabWatch                           // spots SABnzbd's unpacking getting stuck
 	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
+	nudged    map[string]time.Time               // "sonarr:12" -> last time Encorr asked for a fresh search
 
 	sabTried bool
 	// Background is set by main: runs Encorr as a Windows service.
