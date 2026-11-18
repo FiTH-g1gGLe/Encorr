@@ -185,10 +185,7 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 		}
 		m.TVDBID, m.IMDBID, m.Title, m.Year, m.Poster = det.TVDBID, det.IMDBID, det.Title, det.Year, det.Poster
 		if nr.Type == store.TypeTV {
-			m.SeasonEps = map[int]int{}
-			for _, s := range det.Seasons {
-				m.SeasonEps[s.SeasonNumber] = s.EpisodeCount
-			}
+			m.SeasonEps = airedEps(det.Seasons)
 		}
 		if inLib {
 			m.PlexKey = lib.Key
@@ -498,15 +495,19 @@ func (a *App) markAvailable(typ string, tmdbID int, plexKey string, seasons map[
 			if typ == store.TypeMovie {
 				return true
 			}
-			want := m.SeasonEps[s]
-			return want > 0 && m.SeasonHave[s] >= want
+			// A season with nothing aired yet has nothing to wait for: it
+			// mustn't hold a request open until it airs.
+			return m.SeasonHave[s] >= m.SeasonEps[s]
 		}
 		// Media status.
 		if typ == store.TypeMovie {
 			m.Status = store.MediaAvailable
 		} else {
 			all, some := true, false
-			for s := range m.SeasonEps {
+			for s, want := range m.SeasonEps {
+				if want == 0 {
+					continue // not aired yet
+				}
 				if full(s) {
 					some = true
 				} else {
@@ -575,4 +576,14 @@ func (a *App) ensureSeasons(ctx context.Context, tmdbID int) {
 	if ss, err := srv.Seasons(ctx, key); err == nil {
 		a.markAvailable(store.TypeTV, tmdbID, key, seasonCounts(ss))
 	}
+}
+
+// airedEps maps season -> episodes aired so far, which is what Plex can
+// actually have.
+func airedEps(seasons []tmdb.Season) map[int]int {
+	out := map[int]int{}
+	for _, s := range seasons {
+		out[s.SeasonNumber] = s.Aired
+	}
+	return out
 }

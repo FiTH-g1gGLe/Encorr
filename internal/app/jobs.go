@@ -610,6 +610,9 @@ func (a *App) checkApproved(ctx context.Context) int {
 		if ctx.Err() != nil {
 			break
 		}
+		if m.Type == store.TypeTV {
+			m = a.refreshAired(ctx, m)
+		}
 		if a.findInPlex(ctx, m) {
 			found++
 		}
@@ -868,4 +871,23 @@ func (a *App) jobCleanup(ctx context.Context) (string, error) {
 		return nil
 	})
 	return fmt.Sprintf("removed %d expired sessions", n), err
+}
+
+// refreshAired brings a show's episode counts up to date with what has
+// actually aired (older requests counted announced episodes too, which kept
+// them "in progress" for ever). TMDB answers come from a 6-hour cache.
+func (a *App) refreshAired(ctx context.Context, m store.Media) store.Media {
+	det, err := a.TMDB().TV(ctx, m.TMDBID)
+	if err != nil || len(det.Seasons) == 0 {
+		return m
+	}
+	eps := airedEps(det.Seasons)
+	_ = a.Store.Update(func(d *store.Data) error {
+		if mm := d.MediaByID(m.ID); mm != nil {
+			mm.SeasonEps = eps
+			m = *mm
+		}
+		return nil
+	})
+	return m
 }

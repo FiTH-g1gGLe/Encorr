@@ -229,6 +229,32 @@ type Season struct {
 	EpisodeCount int    `json:"episode_count"`
 	AirDate      string `json:"air_date"`
 	PosterPath   string `json:"poster_path"`
+	// Aired is how many of the season's episodes have been shown so far
+	// (EpisodeCount includes announced episodes that haven't aired yet).
+	Aired int `json:"aired"`
+}
+
+// episodeRef is TMDB's last_episode_to_air.
+type episodeRef struct {
+	SeasonNumber  int `json:"season_number"`
+	EpisodeNumber int `json:"episode_number"`
+}
+
+// airedCounts fills in Season.Aired from the show's last aired episode.
+func airedCounts(seasons []Season, last *episodeRef, today string) {
+	for i := range seasons {
+		s := &seasons[i]
+		switch {
+		case s.AirDate != "" && s.AirDate > today:
+			s.Aired = 0 // not started yet
+		case last == nil || s.SeasonNumber < last.SeasonNumber:
+			s.Aired = s.EpisodeCount
+		case s.SeasonNumber == last.SeasonNumber:
+			s.Aired = min(last.EpisodeNumber, s.EpisodeCount)
+		default:
+			s.Aired = 0
+		}
+	}
 }
 
 type Details struct {
@@ -255,12 +281,13 @@ type rawDetails struct {
 	Genres []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
-	Runtime        int      `json:"runtime"`
-	EpisodeRunTime []int    `json:"episode_run_time"`
-	Tagline        string   `json:"tagline"`
-	IMDBID         string   `json:"imdb_id"`
-	Status         string   `json:"status"`
-	Seasons        []Season `json:"seasons"`
+	Runtime        int         `json:"runtime"`
+	EpisodeRunTime []int       `json:"episode_run_time"`
+	Tagline        string      `json:"tagline"`
+	IMDBID         string      `json:"imdb_id"`
+	Status         string      `json:"status"`
+	Seasons        []Season    `json:"seasons"`
+	LastEpisode    *episodeRef `json:"last_episode_to_air"`
 	Networks       []struct {
 		Name string `json:"name"`
 	} `json:"networks"`
@@ -325,6 +352,7 @@ func (c *Client) details(ctx context.Context, typ string, id int) (*Details, err
 			}
 		}
 	}
+	airedCounts(r.Seasons, r.LastEpisode, time.Now().Format("2006-01-02"))
 	for _, s := range r.Seasons {
 		if s.SeasonNumber > 0 { // specials (season 0) left out
 			d.Seasons = append(d.Seasons, s)
