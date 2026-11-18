@@ -138,6 +138,25 @@ const GMARK = (size, cls = "") => {
 const LOCKUP = (size) => `<span class="lockup" style="font-size:${size}px" role="img" aria-label="Encorr">${GMARK(Math.round(size * 1.05), "lk")}<span>encorr</span></span>`;
 
 // ---------- icons ----------
+const RI = {
+  flame: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3c.5 3.5 4.5 5.2 4.5 9.5a4.5 4.5 0 0 1-9 0c0-2 1-3.3 2-4.3.2 1.6 1 2.6 2 2.8C11 9 11 6 12 3Z"/></svg>',
+  recent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="12" rx="2.5"/><path d="M8 20.5h8M10.5 9l4 2-4 2z"/></svg>',
+  film: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 3.5v17M16 3.5v17M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4"/></svg>',
+  tv: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="12.5" rx="2.5"/><path d="m8.5 2.5 3.5 3.5 3.5-3.5"/></svg>',
+  ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2a2.5 2.5 0 0 0 0 5v2a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2a2.5 2.5 0 0 0 0-5z"/><path d="M14 6v12" stroke-dasharray="2 2.2"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
+  person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/></svg>',
+  studio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 20.5V9l8-5 8 5v11.5M9 20.5v-6h6v6M3 20.5h18"/></svg>',
+  network: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="2"/><path d="M8 8a5.6 5.6 0 0 0 0 8M16 8a5.6 5.6 0 0 1 0 8M5.2 5.2a9.6 9.6 0 0 0 0 13.6M18.8 5.2a9.6 9.6 0 0 1 0 13.6"/></svg>',
+  tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 12V4.5a1 1 0 0 1 1-1H12l8.5 8.5-8.5 8.5z"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5c.8 4.6 3.9 7.7 8.5 8.5-4.6.8-7.7 3.9-8.5 8.5-.8-4.6-3.9-7.7-8.5-8.5 4.6-.8 7.7-3.9 8.5-8.5Z"/></svg>',
+};
+function rowIcon(key) {
+  const k = String(key || ""), pre = k.split(":")[0];
+  const m = { trending: "flame", "plex-recent": "recent", movies: "film", tv: "tv", upcoming: "ticket", "now-playing": "ticket", "on-air": "tv", "top-movies": "star", "top-tv": "star", person: "person", company: "studio", network: "network", genre: "tag", keyword: "tag", decade: "spark", gems: "spark" };
+  return RI[m[k] || m[pre] || "spark"];
+}
+
 const I = {
   discover: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z" fill="currentColor" fill-opacity=".25"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>',
@@ -151,7 +170,7 @@ const I = {
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><path d="m9 5 7 7-7 7"/></svg>',
 };
 
-const ACCENTS = [["violet", "#9486f7", "Violet"], ["blue", "#5b93f0", "Blue"], ["teal", "#2fbfae", "Teal"], ["green", "#52c47c", "Green"], ["yellow", "#e9bb4a", "Yellow"], ["coral", "#ef8256", "Orange"], ["red", "#e55a61", "Red"], ["pink", "#e46aa8", "Pink"]];
+const ACCENTS = [["violet", "#b4b6ff", "Lavender"], ["blue", "#5b93f0", "Blue"], ["teal", "#2fbfae", "Teal"], ["green", "#52c47c", "Green"], ["yellow", "#e9bb4a", "Yellow"], ["coral", "#ef8256", "Orange"], ["red", "#e55a61", "Red"], ["pink", "#e46aa8", "Pink"]];
 
 // ---------- boot & routing ----------
 async function boot() {
@@ -164,7 +183,7 @@ async function boot() {
   }
   state.user = state.status.user || null;
   document.documentElement.dataset.accent = state.status.accent || "violet";
-  document.documentElement.dataset.theme = state.status.theme || "black";
+  document.documentElement.dataset.theme = state.status.theme || "navy";
   const s = state.status;
   if (!s.hasAdmin || (!s.setupComplete && isAdmin())) return renderWizard();
   if (!state.user) return renderLogin();
@@ -455,7 +474,7 @@ async function pageDiscover(main, q = "", focus = false) {
   const box = qs("#rows");
   if (!box) return;
   box.innerHTML = rows.map((r, i) => `<section class="shelf">
-      <a class="shelf-head" href="#/browse/${encodeURIComponent(r.key)}"${tip("See everything in " + r.title.replace(/^\S+\s/, ""))}><h2>${esc(r.title)}</h2><span class="see">See all ${I.chev}</span></a>
+      <a class="shelf-head" href="#/browse/${encodeURIComponent(r.key)}"${tip("See everything in " + r.title)}><h2><span class="ri" aria-hidden="true">${rowIcon(r.key)}</span>${esc(r.title)}</h2><span class="see">See all ${I.chev}</span></a>
       <div id="row-${i}">${skeletonRow()}</div></section>`).join("");
   const load = async (r, i) => {
     const el = qs("#row-" + i);
@@ -482,7 +501,7 @@ async function pageDiscover(main, q = "", focus = false) {
     : `<a class="btn primary" href="#/title/${esc(x.type)}/${esc(x.id)}">${I.plus} Request</a>`;
   h.innerHTML = slides.map((x, i) => `<div class="slide ${i === 0 ? "on" : ""}" style="background-image:url('${esc(img(x.backdrop, "w1280"))}')" aria-hidden="${i === 0 ? "false" : "true"}">
       <div class="inner">
-        <div class="eyebrow">Trending this week · ${x.type === "tv" ? "TV show" : "Film"}</div>
+        ${x.status === "available" ? `<div class="qchips"><span class="qchip plex">In your Plex</span></div>` : ""}<div class="eyebrow">Trending this week · ${x.type === "tv" ? "TV show" : "Film"}</div>
         <h1>${esc(x.title)}</h1>
         <div class="hmeta">${x.rating ? `<span class="crate">${x.rating.toFixed(1)}</span>` : ""}${x.year ? `<span>${esc(x.year)}</span>` : ""}</div>
         <p>${esc(x.overview)}</p>
@@ -628,6 +647,14 @@ function journeyHTML(status, p, compact, part) {
   return `<div class="journey ${compact ? "compact" : "glass"} ${done ? "complete" : ""}" ${compact ? "" : 'id="journey"'} role="group" aria-label="Request progress: ${esc(j.text)}"><ol>${steps}</ol>${detail}</div>`;
 }
 
+// "4K HDR10" + "5.1" -> chips. Only shown when Plex told us what you have.
+function qchipsHTML(P) {
+  if (!P || !(P.quality || P.audio)) return "";
+  const bits = String(P.quality || "").split(/\s+/).filter(Boolean);
+  if (P.audio) bits.push(P.audio);
+  return `<div class="qchips">${bits.map((b) => `<span class="qchip ${/^4k$/i.test(b) ? "k4" : ""}">${esc(b.toUpperCase() === "4K" ? "4K UHD" : b)}</span>`).join("")}</div>`;
+}
+
 async function pageTitle(main, type, id) {
   main.innerHTML = `<div class="title-top"><div class="poster skeleton"></div><div><div class="skeleton" style="height:40px;width:60%"></div><div class="skeleton" style="height:16px;width:40%;margin-top:14px"></div><div class="skeleton" style="height:90px;margin-top:20px"></div></div></div>`;
   let data;
@@ -721,6 +748,7 @@ async function pageTitle(main, type, id) {
         ${statusPill}
         <h1>${esc(d.title)} ${d.year ? `<span class="yr">(${esc(d.year)})</span>` : ""}</h1>
         <div class="t-facts">${headFacts}</div>
+        ${qchipsHTML(P)}
         <div class="actions">
           ${P && P.url && ["available", "partial"].includes(s.status) ? `<a class="btn plex" href="${esc(P.url)}" target="_blank" rel="noopener"${tip("Open it in Plex")}>${I.play} Play on Plex</a>` : ""}
           ${requestable ? `<button class="btn primary" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
@@ -860,9 +888,24 @@ async function pageRequests(main, filter) {
   main.innerHTML = `
     <div class="page-head"><div><h1>Requests</h1><div class="muted">${admin ? "Approve, decline and keep an eye on downloads." : "What you've asked for, and where it's up to."}</div></div>
       <div class="tabs">${tabs.map(([k, l, sh]) => `<button data-f="${k}" class="${k === filter ? "on" : ""}"><span class="long">${esc(l)}</span><span class="short">${esc(sh)}</span></button>`).join("")}</div></div>
+    <div class="rstats" id="rstats"></div>
     ${filter === "active" ? `<div id="rsum" class="rsum"></div>` : ""}
     <div id="rlist" class="list">${Array.from({ length: 4 }, () => `<div class="skeleton" style="height:105px"></div>`).join("")}</div>`;
   qsa(".tabs button", main).forEach((b) => b.addEventListener("click", () => (location.hash = "#/requests?filter=" + b.dataset.f)));
+  (async () => {
+    const tiles = admin
+      ? [["pending", "Waiting", "for your approval"], ["active", "In progress", ""], ["completed", "Completed", "ready in Plex"]]
+      : [["active", "In progress", ""], ["completed", "Completed", "ready in Plex"], ["mine", "All mine", "everything you asked for"]];
+    const got = await Promise.all(tiles.map(([k]) => api("/requests?filter=" + k).catch(() => null)));
+    const box = qs("#rstats");
+    if (!box) return;
+    box.innerHTML = tiles.map(([k, label, d], i) => {
+      const r = got[i]; const n = r ? r.results.length : "–";
+      const sub = k === "active" && r ? `${(r.counts || {}).downloading || 0} downloading` : d;
+      return `<button class="rstat ${k} ${k === filter ? "on" : ""}" data-f="${k}"><span class="k"><i></i>${esc(label)}</span><div class="n">${n}</div><div class="d">${esc(sub)}</div></button>`;
+    }).join("");
+    qsa(".rstat", box).forEach((b) => b.addEventListener("click", () => (location.hash = "#/requests?filter=" + b.dataset.f)));
+  })();
   let only = null; // state chip the user picked, if any
   const load = async () => {
     const box = qs("#rlist");
@@ -933,17 +976,30 @@ function reqRow(r) {
   if (r.type === "tv" && r.status === "approved" && r.want > 0) extra.push(`<span${tip("It moves to Completed once every episode that has aired is in Plex")}><b>${r.have || 0} of ${r.want}</b> episodes in Plex</span>`);
   if (r.nextAiring && r.state !== "waiting") extra.push(`<span${tip("New episodes download by themselves")}>Next episode ${esc(niceDate(r.nextAiring))}</span>`);
   if (r.state === "searching") extra.push(r.lastSearch ? `<span${tip("Encorr asks Radarr/Sonarr to look again every 12 hours")}>Searched again ${when(r.lastSearch)}</span>` : `<span${tip("Encorr asks Radarr/Sonarr to look again every 12 hours")}>Encorr will search again automatically</span>`);
-  return `<div class="glass req st-${esc(r.state || "")}" data-state="${esc(r.state || "")}">
-    <a href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${p ? `<img src="${esc(p)}" alt="">` : `<div class="ph"></div>`}</a>
-    <div class="info">
-      <a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}" style="color:inherit">${esc(r.title)} <span class="dim" style="font-weight:500">${esc(r.year || "")}</span></a>
-      <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : "Film · "}${esc(r.user || "Someone")} · ${when(r.created)}${src ? " · " + esc(src) : ""}</div>
+  const j = journeyState(r.status, r.progress, r);
+  const pr = r.progress || {};
+  let progHtml = "";
+  if (r.status === "approved" && r.state === "downloading" && pr.percent != null) {
+    const pct = Math.max(0, Math.min(100, pr.percent));
+    progHtml = `<div class="rprog"><div class="pline"><span class="hi">${pct}%${pr.speed ? ` · ${esc(pr.speed)}` : ""}</span><span class="eta">${pr.timeLeft ? `${esc(pr.timeLeft)} left` : esc(STAGE_TEXT[pr.stage] || pr.stage || "")}</span></div><div class="pbar"><i style="width:${pct}%;--w:${Math.max(pct, 1)}"></i></div></div>`;
+  } else if (j.text) {
+    const done = j.at >= 4;
+    progHtml = `<div class="rprog"><div class="pstate ${j.bad ? "bad" : done ? "good" : ""}"><span class="sd ${esc(r.state || (done ? "done" : ""))}"></span><strong>${esc(j.text)}</strong>${j.bits && j.bits.length ? `<span class="b">${j.bits.map(esc).join(", ")}</span>` : ""}${j.busy ? `<span class="spinner sm" aria-hidden="true"></span>` : ""}</div></div>`;
+  }
+  const pillTxt = { pending: ["pending", "Waiting for approval"], declined: ["declined", "Declined"], failed: ["failed", "Failed"], completed: ["done", "In Plex"], available: ["done", "In Plex"] }[r.status]
+    || (STATES[r.state] ? [r.state, STATES[r.state].label] : ["approved", "Approved"]);
+  return `<div class="req2 st-${esc(r.state || "")}" data-state="${esc(r.state || "")}">
+    <a class="rposter" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${p ? `<img src="${esc(p)}" alt="">` : `<div class="ph"></div>`}<span class="rtype">${r.type === "tv" ? "TV" : "FILM"}</span></a>
+    <div class="rbody">
+      <div class="rtop"><a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${esc(r.title)} <span class="yr">${esc(r.year || "")}</span></a><span class="spill2 ${esc(pillTxt[0])}">${esc(pillTxt[1])}</span></div>
+      <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : ""}Requested by ${esc(r.user || "someone")} · ${when(r.created)}${src ? " · " + esc(src) : ""}</div>
       ${extra.length ? `<div class="s extras">${extra.join("")}</div>` : ""}
       ${r.note ? `<div class="s">“${esc(r.note)}”</div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
+      ${progHtml}
+      ${r.status === "approved" ? seasonBars(r.seasonProgress) : ""}
+      <div class="racts">${actions}</div>
     </div>
-    <div class="right"><div class="row">${actions}</div></div>
-    <div class="track">${prog}${r.status === "approved" ? seasonBars(r.seasonProgress) : ""}</div>
   </div>`;
 }
 
@@ -1427,7 +1483,7 @@ async function pageSettings(main, section) {
     panel.innerHTML = `<div id="bgCard"></div><h2>Look</h2><div class="field-label">Accent colour</div>
       <div class="swatches">${ACCENTS.map(([k, c, l]) => `<button type="button" class="swatch ${(s.accent || "violet") === k ? "on" : ""}" data-acc="${k}"><span class="sw" style="background:${c}"></span>${l}</button>`).join("")}</div>
       <div class="field-label" style="margin-top:18px">Background</div>
-      <div class="themes">${[["black", "Graphite", "Neutral dark grey: lets the posters bring the colour"], ["navy", "Midnight navy", "The original deep-blue look"]].map(([k, l, d]) => `<button type="button" class="theme-opt ${(s.theme || "black") === k ? "on" : ""}" data-theme-opt="${k}"><span class="tprev ${k}"><i></i><i></i><i></i></span><span><strong>${l}</strong><span class="small dim">${d}</span></span></button>`).join("")}</div>
+      <div class="themes">${[["navy", "Midnight", "Deep navy with soft colour highlights"], ["black", "Graphite", "Neutral dark grey: lets the posters bring the colour"]].map(([k, l, d]) => `<button type="button" class="theme-opt ${(s.theme || "navy") === k ? "on" : ""}" data-theme-opt="${k}"><span class="tprev ${k}"><i></i><i></i><i></i></span><span><strong>${l}</strong><span class="small dim">${d}</span></span></button>`).join("")}</div>
       <h2>Requests</h2>
       <p class="lead">Limits for Friends. Trusted users and admins have no limit. Use 0 for no limit.</p>
       <div class="row"><label class="field grow"${tip("How many films each Friend can ask for in the period. 0 = no limit")}><span>Films per period</span><input type="number" min="0" id="qm" value="${s.quotas.friendMovieLimit}"></label>
@@ -1439,7 +1495,7 @@ async function pageSettings(main, section) {
       <h2>TMDB</h2>${tmdbForm(s.tmdb)}${saveBar()}`;
     loadBackgroundCard(qs("#bgCard"));
     let accent = s.accent || "violet";
-    let theme = s.theme || "black";
+    let theme = s.theme || "navy";
     qsa("[data-theme-opt]").forEach((el) => el.addEventListener("click", () => {
       theme = el.dataset.themeOpt;
       document.documentElement.dataset.theme = theme;
