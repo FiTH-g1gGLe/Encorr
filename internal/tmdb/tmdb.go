@@ -182,29 +182,19 @@ func cards(p Page, defaultType string) []Card {
 	return out
 }
 
-// List fetches a discover row: trending | movies | tv | upcoming.
-func (c *Client) List(ctx context.Context, kind string, page int) ([]Card, int, error) {
-	q := url.Values{"page": {strconv.Itoa(max(page, 1))}}
-	var p Page
-	var path, def string
-	switch kind {
-	case "trending":
-		path, def = "/trending/all/week", ""
-	case "movies":
-		path, def = "/movie/popular", "movie"
-		q.Set("region", c.Region)
-	case "tv":
-		path, def = "/tv/popular", "tv"
-	case "upcoming":
-		path, def = "/movie/upcoming", "movie"
-		q.Set("region", c.Region)
-	default:
-		return nil, 0, errors.New("unknown list")
+// List fetches one page of a home-screen row (see rows.go for the keys).
+func (c *Client) List(ctx context.Context, key string, page int) ([]Card, int, error) {
+	path, q, def, err := c.rowQuery(key)
+	if err != nil {
+		return nil, 0, err
 	}
+	q.Set("page", strconv.Itoa(max(page, 1)))
+	var p Page
 	if err := c.get(ctx, path, q, 30*time.Minute, &p); err != nil {
 		return nil, 0, err
 	}
-	return cards(p, def), p.TotalPages, nil
+	// TMDB caps paging at 500.
+	return cards(p, def), min(p.TotalPages, 500), nil
 }
 
 func (c *Client) Search(ctx context.Context, query string, page int) ([]Card, int, error) {
@@ -214,6 +204,19 @@ func (c *Client) Search(ctx context.Context, query string, page int) ([]Card, in
 		return nil, 0, err
 	}
 	return cards(p, ""), p.TotalPages, nil
+}
+
+// SearchType searches only films ("movie") or only TV ("tv").
+func (c *Client) SearchType(ctx context.Context, typ, query string, page int) ([]Card, int, error) {
+	if typ != "movie" && typ != "tv" {
+		return nil, 0, errors.New("unknown type")
+	}
+	q := url.Values{"query": {query}, "page": {strconv.Itoa(max(page, 1))}, "include_adult": {"false"}}
+	var p Page
+	if err := c.get(ctx, "/search/"+typ, q, 10*time.Minute, &p); err != nil {
+		return nil, 0, err
+	}
+	return cards(p, typ), p.TotalPages, nil
 }
 
 type Video struct {

@@ -36,6 +36,8 @@ type App struct {
 	sabWatch  sabWatch                           // spots SABnzbd's unpacking getting stuck
 	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
 	nudged    map[string]time.Time               // "sonarr:12" -> last time Encorr asked for a fresh search
+	movieInfo map[int]arr.MovieInfo              // Radarr id -> release dates etc.
+	showInfo  map[int]arr.SeriesInfo             // Sonarr id -> next episode etc.
 
 	sabTried bool
 	// Background is set by main: runs Encorr as a Windows service.

@@ -200,6 +200,44 @@ func TestEndToEnd(t *testing.T) {
 	if !found {
 		t.Fatal("film 105 missing from discover")
 	}
+	// Home rows: fixed ones first, then today's rotating ones (incl. an actor).
+	var rows struct{ Rows []struct{ Key, Title string } }
+	owner.ok("GET", "/discover-rows", nil, &rows)
+	if len(rows.Rows) < 8 || rows.Rows[0].Key != "trending" {
+		t.Fatalf("home rows: %+v", rows.Rows)
+	}
+	sawActor := false
+	for _, r := range rows.Rows {
+		var page struct {
+			Results    []any
+			Title      string
+			TotalPages int
+		}
+		owner.ok("GET", "/discover/"+r.Key, nil, &page)
+		if page.Title == "" || len(page.Results) == 0 {
+			t.Fatalf("row %s: title %q, %d results", r.Key, page.Title, len(page.Results))
+		}
+		if strings.HasPrefix(r.Key, "person:") {
+			sawActor = page.Title == "⭐ Starring Tom Hanks"
+		}
+	}
+	if !sawActor {
+		t.Fatal("expected an actor spotlight row")
+	}
+	if code, _ := owner.call("GET", "/discover/company:abc:movie", nil, nil); code < 400 {
+		t.Fatal("bad row keys should be refused")
+	}
+	// Search splits films and TV.
+	var sr struct{ Movies, TV []struct{ Type string } }
+	owner.ok("GET", "/search?q=a", nil, &sr)
+	if len(sr.Movies) == 0 || len(sr.TV) == 0 {
+		t.Fatalf("search should find both: %d films, %d shows", len(sr.Movies), len(sr.TV))
+	}
+	for _, m := range sr.Movies {
+		if m.Type != "movie" {
+			t.Fatal("a show in the films list")
+		}
+	}
 	// A show in Plex that nobody requested: its page checks seasons live.
 	var parish struct{ Status statusInfo }
 	owner.ok("GET", "/title/tv/203", nil, &parish)
@@ -656,6 +694,89 @@ func TestEndToEnd(t *testing.T) {
 	if msg, _ := a.jobNudge(ctx); strings.Contains(msg, stalled) {
 		t.Fatal("should not ask again straight away")
 	}
+
+	// 26. In progress tells you what state each request is in, and the owner
+	// can search again or confirm a stuck import from Encorr.
+	if _, err := a.jobArrInfo(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var reqID, movieExt int
+	var reqType string
+	a.Store.Read(func(d *store.Data) {
+		for _, r := range d.Requests {
+			if m := d.MediaByID(r.MediaID); m != nil && m.ExternalID != 0 && r.Type == store.TypeMovie {
+				reqID, movieExt, reqType = r.ID, m.ExternalID, r.Type
+			}
+		}
+	})
+	if reqID == 0 {
+		t.Fatal("no film request linked to Radarr")
+	}
+	_ = a.Store.Update(func(d *store.Data) error {
+		for _, r := range d.Requests {
+			if r.ID == reqID {
+				r.Status = store.ReqApproved
+			}
+		}
+		return nil
+	})
+	var prog struct {
+		Results []struct {
+			ID         int
+			State      string
+			LastSearch *time.Time
+			Progress   *struct{ Blocked bool }
+		}
+		Counts map[string]int
+	}
+	owner.ok("POST", "/requests/"+itoa(reqID)+"/search", map[string]any{}, nil)
+	owner.ok("GET", "/requests?filter=active", nil, &prog)
+	if len(prog.Counts) == 0 {
+		t.Fatal("expected state counts")
+	}
+	for _, r := range prog.Results {
+		if r.State == "" {
+			t.Fatalf("request %d has no state", r.ID)
+		}
+		if r.ID == reqID && r.LastSearch == nil {
+			t.Fatal("Search now should be remembered")
+		}
+	}
+	// Make its download "finished but blocked", like a name mismatch.
+	fk.Queue["radarr"] = []map[string]any{{"movieId": movieExt, "title": "Some.Film.2020.1080p", "size": 4e9, "sizeleft": 0,
+		"status": "completed", "trackedDownloadState": "importBlocked", "trackedDownloadStatus": "warning",
+		"downloadId": "SABnzbd_nzo_blocked", "outputPath": `D:\complete\movies\Some.Film`,
+		"statusMessages": []any{map[string]any{"title": "Some.Film", "messages": []any{"Found matching movie via grab history, but release was matched to movie by ID. Manual Import required."}}}}}
+	if _, err := a.jobDownloads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner.ok("GET", "/requests?filter=active", nil, &prog)
+	blocked := false
+	for _, r := range prog.Results {
+		if r.ID == reqID {
+			blocked = r.State == "attention" && r.Progress != nil && r.Progress.Blocked
+		}
+	}
+	if !blocked {
+		t.Fatalf("expected the film to need attention with a blocked import: %+v", prog.Results)
+	}
+	cmdsBefore = len(fk.Commands)
+	owner.ok("POST", "/requests/"+itoa(reqID)+"/import", map[string]any{}, nil)
+	var mi map[string]any
+	for _, c := range fk.Commands[cmdsBefore:] {
+		if c["name"] == "ManualImport" {
+			mi = c
+		}
+	}
+	if mi == nil {
+		t.Fatal("expected a ManualImport command")
+	}
+	files := mi["files"].([]any)
+	f0 := files[0].(map[string]any)
+	if len(files) != 1 || !strings.HasSuffix(f0["path"].(string), "release.mkv") || int(f0["movieId"].(float64)) != movieExt {
+		t.Fatalf("should import the main file for the right film: %+v", files)
+	}
+	_ = reqType
 }
 
 func ownerID(st *store.Store) int {

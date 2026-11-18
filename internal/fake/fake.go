@@ -388,6 +388,31 @@ func (s *Stack) tmdb(w http.ResponseWriter, r *http.Request, p string) {
 		page(movies)
 	case p == "/tv/popular":
 		page(shows)
+	case p == "/movie/top_rated", p == "/movie/now_playing", p == "/discover/movie":
+		page(movies)
+	case p == "/tv/top_rated", p == "/tv/on_the_air", p == "/discover/tv":
+		page(shows)
+	case p == "/person/popular":
+		writeJSON(w, map[string]any{"results": []any{map[string]any{"id": 31, "name": "Tom Hanks", "known_for_department": "Acting"}}})
+	case p == "/person/31":
+		writeJSON(w, map[string]any{"id": 31, "name": "Tom Hanks"})
+	case p == "/search/movie", p == "/search/tv":
+		q := strings.ToLower(r.URL.Query().Get("query"))
+		var out []any
+		if p == "/search/movie" {
+			for _, m := range s.Movies {
+				if strings.Contains(strings.ToLower(m.Title), q) {
+					out = append(out, s.movieResult(m))
+				}
+			}
+		} else {
+			for _, m := range s.Shows {
+				if strings.Contains(strings.ToLower(m.Title), q) {
+					out = append(out, s.showResult(m))
+				}
+			}
+		}
+		page(out)
 	case p == "/search/multi":
 		q := strings.ToLower(r.URL.Query().Get("query"))
 		var out []any
@@ -468,6 +493,10 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 		t := map[string]any{"id": s.id(), "label": b["label"]}
 		s.Tags[app] = append(s.Tags[app], t)
 		writeJSON(w, t)
+	case p == "/manualimport":
+		f := r.URL.Query().Get("folder")
+		writeJSON(w, []any{map[string]any{"path": f + `\release.mkv`, "size": 4e9, "quality": map[string]any{"quality": map[string]any{"id": 7}}, "languages": []any{}, "releaseGroup": "GRP", "episodes": []any{}},
+			map[string]any{"path": f + `\sample.mkv`, "size": 4e7, "quality": map[string]any{}, "languages": []any{}}})
 	case p == "/command":
 		s.Commands = append(s.Commands, readBody(r))
 		writeJSON(w, map[string]any{"id": s.id()})
@@ -488,7 +517,7 @@ func (s *Stack) radarr(w http.ResponseWriter, r *http.Request, p string) {
 		tm, _ := strconv.Atoi(r.URL.Query().Get("tmdbId"))
 		var out []any
 		for _, m := range s.RadarrMovies {
-			if int(m["tmdbId"].(float64)) == tm {
+			if tm == 0 || int(m["tmdbId"].(float64)) == tm {
 				out = append(out, m)
 			}
 		}
@@ -502,6 +531,11 @@ func (s *Stack) radarr(w http.ResponseWriter, r *http.Request, p string) {
 		id := s.id()
 		b["id"] = float64(id)
 		b["hasFile"] = false
+		b["isAvailable"], b["status"] = true, "released"
+		if int(b["tmdbId"].(float64)) == 102 { // one "still in cinemas" film for the preview
+			b["isAvailable"], b["status"] = false, "inCinemas"
+			b["digitalRelease"] = time.Now().AddDate(0, 0, 13).Format(time.RFC3339)
+		}
 		b["path"] = fmt.Sprintf(`%v\%v (%v)`, b["rootFolderPath"], b["title"], b["year"])
 		s.RadarrMovies[id] = b
 		// Simulate a download starting.

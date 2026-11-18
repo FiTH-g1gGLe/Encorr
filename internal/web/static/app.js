@@ -83,6 +83,20 @@ function ago(iso) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// niceDate: "today", "tomorrow", "on Fri 21 Nov", "on 1 Dec 2027".
+function niceDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const diff = Math.round((day(d) - day(new Date())) / 86400000);
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  if (diff > 1 && diff < 7) return "on " + d.toLocaleDateString(undefined, { weekday: "long" });
+  const opts = { weekday: "short", day: "numeric", month: "short" };
+  if (d.getFullYear() !== new Date().getFullYear()) { delete opts.weekday; opts.year = "numeric"; }
+  return "on " + d.toLocaleDateString(undefined, opts);
+}
+
 function setBackdrop(path) {
   const b = qs("#backdrop");
   if (path) { b.style.backgroundImage = `url("${img(path, "w1280")}")`; b.classList.add("on"); }
@@ -134,6 +148,7 @@ const I = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   plex: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3h5.2l6.8 9-6.8 9H6l6.8-9z"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><path d="m9 5 7 7-7 7"/></svg>',
 };
 
 // ---------- boot & routing ----------
@@ -162,8 +177,8 @@ document.addEventListener("keydown", (e) => {
   const t = e.target;
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
   e.preventDefault();
-  const box = qs("#hq") || qs("#q");
-  if (box) box.focus(); else location.hash = "#/search";
+  const box = qs("#hq");
+  if (box) box.focus(); else location.hash = "#/discover?focus=1";
 });
 
 window.addEventListener("hashchange", () => { if (state.user && state.status && state.status.setupComplete) route(); });
@@ -178,11 +193,12 @@ function route() {
   const parts = path.split("/").filter(Boolean);
   const params = new URLSearchParams(query || "");
   const page = parts[0] || "discover";
-  qsa(".nav a.item").forEach((a) => a.classList.toggle("active", a.dataset.page === page || (page === "title" && a.dataset.page === "discover")));
+  qsa(".nav a.item").forEach((a) => a.classList.toggle("active", a.dataset.page === page || ((page === "title" || page === "browse" || page === "search") && a.dataset.page === "discover")));
   const main = qs("main");
   const pages = {
-    discover: () => pageDiscover(main),
-    search: () => pageSearch(main, params.get("q") || ""),
+    discover: () => pageDiscover(main, params.get("q") || "", params.get("focus") === "1"),
+    search: () => pageDiscover(main, params.get("q") || "", true),
+    browse: () => pageBrowse(main, decodeURIComponent(parts.slice(1).join("/"))),
     title: () => pageTitle(main, parts[1], parts[2]),
     requests: () => pageRequests(main, params.get("filter")),
     users: () => (isAdmin() ? pageUsers(main) : pageDiscover(main)),
@@ -200,7 +216,6 @@ function renderShell() {
     <nav class="nav" aria-label="Main">
       <a href="#/discover" class="brand" aria-label="Encorr home">${LOCKUP(30)}</a>
       <a class="item" data-page="discover" href="#/discover"${tip("What's popular, trending and coming soon")}>${I.discover}<span class="label">Home</span></a>
-      <a class="item" data-page="search" href="#/search"${tip("Find any film or show (shortcut: /)")}>${I.search}<span class="label">Search</span></a>
       <a class="item" data-page="requests" href="#/requests"${tip("Everything asked for, and where it's up to")}>${I.requests}<span class="label">${admin ? "Requests" : "My requests"}</span><span class="badge" id="pendingBadge" hidden title="Waiting for your approval"></span></a>
       ${admin ? `<a class="item" data-page="users" href="#/users"${tip("Make accounts and choose what people can do")}>${I.users}<span class="label">People</span></a>
       <a class="item" data-page="settings" href="#/settings"${tip("Plex, Radarr, Sonarr, SABnzbd, Discord and more")}>${I.settings}<span class="label">Settings</span></a>` : ""}
@@ -345,7 +360,7 @@ function card(c) {
 
 const skeletonRow = () => `<div class="scroller">${Array.from({ length: 8 }, () => `<div><div class="skeleton" style="aspect-ratio:2/3"></div></div>`).join("")}</div>`;
 
-async function pageDiscover(main) {
+async function pageDiscover(main, q = "", focus = false) {
   const hr = new Date().getHours();
   const hello = hr < 12 ? "Morning" : hr < 18 ? "Afternoon" : "Evening";
   let seenHow = false;
@@ -353,43 +368,92 @@ async function pageDiscover(main) {
   main.innerHTML = `
     <section class="welcome">
       <h1>${hello}, ${esc(state.user.username)} 👋 What do you fancy watching?</h1>
-      <form class="searchbar big" id="homeSearch" role="search">${I.search}<input type="search" id="hq" placeholder="Search for a film or TV show  (press / )" autocomplete="off" aria-label="Search for a film or TV show"><button class="btn primary" type="submit">Search</button></form>
+      <form class="searchbar big" id="homeSearch" role="search">${I.search}<input type="search" id="hq" placeholder="Search for a film or TV show  (press / )" autocomplete="off" aria-label="Search for a film or TV show" value="${esc(q)}"><button class="btn primary" type="submit">Search</button></form>
       ${seenHow ? "" : `<ol class="how glass" id="how">
-        <li><span class="n">1</span><div><strong>🔎 Find it</strong><span>Search, or browse what's popular below.</span></div></li>
+        <li><span class="n">1</span><div><strong>🔎 Find it</strong><span>Search, or browse the rows below. Tap a heading to see everything in it.</span></div></li>
         <li><span class="n">2</span><div><strong>🙋 Request it</strong><span>Press Request. That's all you do.</span></div></li>
         <li><span class="n">3</span><div><strong>🍿 Watch it in Plex</strong><span>It downloads by itself and we tell you when it's ready.</span></div></li>
         <button class="x" id="howClose" aria-label="Hide these tips" title="Got it">${I.check} Got it</button>
       </ol>`}
     </section>
-    <div id="hero" class="hero skeleton"></div>
-    <h2>🔥 Trending this week</h2><div id="row-trending">${skeletonRow()}</div>
-    <h2>🎬 Popular films</h2><div id="row-movies">${skeletonRow()}</div>
-    <h2>📺 Popular TV</h2><div id="row-tv">${skeletonRow()}</div>
-    <h2>🎟️ Coming soon to UK cinemas</h2><div id="row-upcoming">${skeletonRow()}</div>`;
-  qs("#homeSearch").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const v = qs("#hq").value.trim();
-    location.hash = "#/search" + (v ? "?q=" + encodeURIComponent(v) : "");
-  });
+    <div id="results" hidden></div>
+    <div id="browse">
+      <div id="hero" class="hero skeleton"></div>
+      <div id="rows">${Array.from({ length: 4 }, () => `<div class="shelf"><h2 class="skeleton" style="width:220px;height:26px"></h2>${skeletonRow()}</div>`).join("")}</div>
+    </div>`;
   const hc = qs("#howClose");
   if (hc) hc.addEventListener("click", () => { try { localStorage.setItem("encorr.how", "1"); } catch (_) {} qs("#how").remove(); });
-  const load = async (kind) => {
-    const el = qs("#row-" + kind);
+
+  // --- search, right here on the home screen ---
+  const input = qs("#hq");
+  let timer, lastQ = null;
+  const showSearch = async (val) => {
+    val = val.trim();
+    if (val === lastQ) return;
+    lastQ = val;
+    history.replaceState(null, "", "#/discover" + (val ? "?q=" + encodeURIComponent(val) : ""));
+    const res = qs("#results"), browse = qs("#browse");
+    if (!val) { res.hidden = true; res.innerHTML = ""; browse.hidden = false; return; }
+    browse.hidden = true;
+    res.hidden = false;
+    const sk = `<div class="grid">${Array.from({ length: 6 }, () => `<div class="skeleton" style="aspect-ratio:2/3"></div>`).join("")}</div>`;
+    res.innerHTML = `<h2>🎬 Films</h2>${sk}<h2>📺 TV shows</h2>${sk}`;
     try {
-      const r = await api("/discover/" + kind);
-      el.innerHTML = `<div class="scroller">${r.results.map(card).join("")}</div>`;
-      return r.results;
+      const r = await api("/search?q=" + encodeURIComponent(val));
+      if (lastQ !== val) return;
+      if (!r.movies.length && !r.tv.length) {
+        res.innerHTML = `<div class="empty"><div class="big">🔍</div>Nothing found for “${esc(val)}”. Check the spelling, or try fewer words.</div>`;
+        return;
+      }
+      const block = (title, list, kind) => `<section class="results-block"><div class="results-head"><h2>${title} <span class="count">${list.length}${list.length >= 20 ? "+" : ""}</span></h2></div>
+        ${list.length ? `<div class="grid">${list.map(card).join("")}</div>` : `<div class="empty small">No ${kind} called “${esc(val)}”.</div>`}</section>`;
+      // Films first, unless only a show matches the title exactly.
+      const exact = (l) => l.length && l[0].title.toLowerCase() === val.toLowerCase();
+      const filmsFirst = r.movies.length && !(exact(r.tv) && !exact(r.movies));
+      const films = block("🎬 Films", r.movies, "films"), tv = block("📺 TV shows", r.tv, "shows");
+      res.innerHTML = `<div class="search-jump">${r.movies.length ? `<a href="#" data-jump="0">🎬 Films (${r.movies.length})</a>` : ""}${r.tv.length ? `<a href="#" data-jump="1">📺 TV shows (${r.tv.length})</a>` : ""}</div>` + (filmsFirst ? films + tv : tv + films);
+      qsa("[data-jump]", res).forEach((a) => a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const want = a.dataset.jump === "0" ? "🎬 Films" : "📺 TV shows";
+        const h = qsa(".results-block h2", res).find((x) => x.textContent.startsWith(want));
+        if (h) h.scrollIntoView({ behavior: "smooth", block: "start" });
+      }));
     } catch (e) {
-      el.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
+      res.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
+    }
+  };
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => showSearch(input.value), 350); });
+  qs("#homeSearch").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(timer); showSearch(input.value); });
+  if (focus || q) input.focus();
+  if (q) showSearch(q);
+
+  // --- rows ---
+  let rows;
+  try { rows = (await api("/discover-rows")).rows; } catch (e) { qs("#rows").innerHTML = `<div class="notice error">${esc(e.message)}</div>`; qs("#hero").remove(); return; }
+  const box = qs("#rows");
+  if (!box) return;
+  box.innerHTML = rows.map((r, i) => `<section class="shelf">
+      <a class="shelf-head" href="#/browse/${encodeURIComponent(r.key)}"${tip("See everything in " + r.title.replace(/^\S+\s/, ""))}><h2>${esc(r.title)}</h2><span class="see">See all ${I.chev}</span></a>
+      <div id="row-${i}">${skeletonRow()}</div></section>`).join("");
+  const load = async (r, i) => {
+    const el = qs("#row-" + i);
+    try {
+      const d = await api("/discover/" + encodeURIComponent(r.key));
+      if (!el) return [];
+      if (!d.results.length) { el.closest(".shelf").remove(); return []; }
+      el.innerHTML = `<div class="scroller">${d.results.map(card).join("")}<a class="card more" href="#/browse/${encodeURIComponent(r.key)}"><div class="poster"><div class="noimg">See all<br>${I.chev}</div></div></a></div>`;
+      return d.results;
+    } catch (e) {
+      if (el) el.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
       return [];
     }
   };
-  const [trending] = await Promise.all(["trending", "movies", "tv", "upcoming"].map(load));
+  const [trending] = await Promise.all(rows.map(load));
   const hero = (trending || []).find((t) => t.backdrop) || null;
   const h = qs("#hero");
   if (!h) return;
   if (!hero) { h.remove(); return; }
-  setBackdrop(hero.backdrop);
+  if (!qs("#results").hidden) setBackdrop(null); else setBackdrop(hero.backdrop);
   h.classList.remove("skeleton");
   h.style.backgroundImage = `url("${img(hero.backdrop, "w1280")}")`;
   h.innerHTML = `<div class="inner">
@@ -402,35 +466,37 @@ async function pageDiscover(main) {
       </div></div>`;
 }
 
-// ---------- search ----------
-function pageSearch(main, q) {
+// ---------- "see all" for one row ----------
+async function pageBrowse(main, key) {
   main.innerHTML = `
-    <div class="page-head"><div><h1>Search</h1><div class="muted">Find a film or show to request.</div></div></div>
-    <div class="searchbar">${I.search}<input type="search" id="q" placeholder="Search films and TV…" value="${esc(q)}" autocomplete="off"></div>
-    <div id="results" style="margin-top:24px"></div>`;
-  const input = qs("#q");
-  input.focus();
-  let t;
-  const run = async (val) => {
-    const box = qs("#results");
-    if (!val.trim()) { box.innerHTML = `<div class="empty"><div class="big">🎬</div>Type a title to get started.</div>`; return; }
-    box.innerHTML = `<div class="grid">${Array.from({ length: 12 }, () => `<div class="skeleton" style="aspect-ratio:2/3"></div>`).join("")}</div>`;
+    <div class="page-head"><div><a class="back" href="#/discover">‹ Home</a><h1 id="btitle">&nbsp;</h1><div class="muted" id="bsub">Everything in this list. Keep scrolling for more.</div></div></div>
+    <div class="grid" id="bgrid"></div>
+    <div id="bmore" class="more-loader"><span class="spinner"></span></div>`;
+  const grid = qs("#bgrid"), more = qs("#bmore");
+  let page = 0, pages = 1, loading = false;
+  const next = async () => {
+    if (loading || page >= pages) return;
+    loading = true;
     try {
-      const r = await api("/search?q=" + encodeURIComponent(val));
-      if (input.value !== val) return;
-      box.innerHTML = r.results.length ? `<div class="grid">${r.results.map(card).join("")}</div>` : `<div class="empty"><div class="big">🔍</div>Nothing found for “${esc(val)}”.</div>`;
+      const d = await api(`/discover/${encodeURIComponent(key)}?page=${page + 1}`);
+      if (!qs("#bgrid")) return;
+      page++;
+      pages = d.totalPages || 1;
+      if (d.title) { qs("#btitle").textContent = d.title; document.title = d.title.replace(/^\S+\s/, "") + " · Encorr"; }
+      grid.insertAdjacentHTML("beforeend", d.results.map(card).join(""));
+      if (page >= pages || !d.results.length) more.innerHTML = page > 1 || d.results.length ? `<span class="dim">That's everything 🎬</span>` : `<div class="empty">Nothing here right now.</div>`;
     } catch (e) {
-      box.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
-    }
+      more.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
+      pages = 0;
+    } finally { loading = false; }
+    // If the first page doesn't fill the screen, keep going.
+    if (page < pages && more.getBoundingClientRect().top < window.innerHeight + 400) next();
   };
-  input.addEventListener("input", () => {
-    clearTimeout(t);
-    t = setTimeout(() => {
-      history.replaceState(null, "", "#/search?q=" + encodeURIComponent(input.value));
-      run(input.value);
-    }, 350);
-  });
-  run(q);
+  const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) next(); }, { rootMargin: "600px" });
+  io.observe(more);
+  const stop = () => { io.disconnect(); window.removeEventListener("hashchange", stop); };
+  window.addEventListener("hashchange", stop);
+  next();
 }
 
 // ---------- title page ----------
@@ -449,9 +515,15 @@ function journeyState(status, p, part) {
     case "failed": return { at: 2, bad: true, text: "❌ Couldn't start the download. The owner can retry it" };
     case "completed": case "available": return { at: 4, text: "🍿 Ready to watch in Plex" };
   }
-  if (!p && part && part.want > 0 && part.have > 0) {
-    const left = part.want - part.have;
-    return { at: 2, text: `📺 ${part.have} of ${part.want} episodes in Plex`, bits: [`looking for the other ${left}`], fill: Math.round((part.have / part.want) * 100) };
+  const r = part || {};
+  if (!p && r.state === "waiting") {
+    const when = r.release ? `Out to watch at home ${niceDate(r.release)}` : r.nextAiring ? `Next episode ${niceDate(r.nextAiring)}` : "Not released yet";
+    return { at: 2, text: `📅 ${when}`, bits: ["it'll download by itself when it's out"], fill: 0, wait: true };
+  }
+  if (!p && r.state === "finishing") return { at: 3, text: "📺 All there. Waiting for Plex to confirm", busy: true };
+  if (!p && r.want > 0 && r.have > 0) {
+    const left = r.want - r.have;
+    return { at: 2, text: `📺 ${r.have} of ${r.want} episodes in Plex`, bits: [`looking for the other ${left}`], fill: Math.round((r.have / r.want) * 100) };
   }
   if (!p) return { at: 2, text: "🔎 Looking for a copy to download", fill: 0 };
   const stage = p.stage || "Downloading";
@@ -461,6 +533,7 @@ function journeyState(status, p, part) {
   if (stage !== "Stuck" && stage !== "Failed") bits.push(`${p.percent}%`);
   if (p.timeLeft) bits.push(`${p.timeLeft} left`);
   if (p.speed) bits.push(p.speed);
+  if (p.blocked) return { at: 3, text: "🛠️ Downloaded, but needs a hand to import", bad: true, note: p.note };
   return { at: 2, text, bits, fill: p.percent, bad: stage === "Stuck" || stage === "Failed", note: p.note };
 }
 
@@ -610,28 +683,56 @@ function requestModal(type, d, s) {
 }
 
 // ---------- requests ----------
+const STATES = {
+  attention: { label: "⚠️ Needs a hand", tip: "Stuck, failed, or waiting for someone to confirm an import" },
+  pending: { label: "⏳ Waiting for approval", tip: "The owner hasn't said yes yet" },
+  downloading: { label: "⬇️ Downloading", tip: "Downloading right now" },
+  finishing: { label: "📦 Nearly there", tip: "Downloaded, being unpacked or added to Plex" },
+  searching: { label: "🔎 Looking for a copy", tip: "Radarr/Sonarr are looking. Encorr asks them to look again every 12 hours" },
+  waiting: { label: "📅 Not out yet", tip: "Not released yet. It'll download by itself when it comes out" },
+};
+const STATE_ORDER = ["attention", "pending", "downloading", "finishing", "searching", "waiting"];
+
 async function pageRequests(main, filter) {
   const admin = isAdmin();
   const tabs = admin
-    ? [["pending", "Waiting for approval"], ["active", "In progress"], ["completed", "Completed"], ["all", "All"]]
-    : [["active", "In progress"], ["completed", "Completed"], ["mine", "All mine"], ["all", "Everyone"]];
+    ? [["pending", "Waiting for approval", "To approve"], ["active", "In progress", "In progress"], ["completed", "Completed", "Done"], ["all", "All", "All"]]
+    : [["active", "In progress", "In progress"], ["completed", "Completed", "Done"], ["mine", "All mine", "Mine"], ["all", "Everyone", "Everyone"]];
   filter = filter || tabs[0][0];
   main.innerHTML = `
     <div class="page-head"><div><h1>Requests</h1><div class="muted">${admin ? "Approve, decline and keep an eye on downloads." : "What you've asked for, and where it's up to."}</div></div>
-      <div class="tabs">${tabs.map(([k, l]) => `<button data-f="${k}" class="${k === filter ? "on" : ""}">${esc(l)}</button>`).join("")}</div></div>
+      <div class="tabs">${tabs.map(([k, l, sh]) => `<button data-f="${k}" class="${k === filter ? "on" : ""}"><span class="long">${esc(l)}</span><span class="short">${esc(sh)}</span></button>`).join("")}</div></div>
+    ${filter === "active" ? `<div id="rsum" class="rsum"></div>` : ""}
     <div id="rlist" class="list">${Array.from({ length: 4 }, () => `<div class="skeleton" style="height:105px"></div>`).join("")}</div>`;
   qsa(".tabs button", main).forEach((b) => b.addEventListener("click", () => (location.hash = "#/requests?filter=" + b.dataset.f)));
+  let only = null; // state chip the user picked, if any
   const load = async () => {
     const box = qs("#rlist");
     if (!box) return;
     try {
       const r = await api("/requests?filter=" + filter);
       if (!r.results.length) {
-        const msg = { pending: "Nothing waiting for approval.", active: "Nothing on its way right now.", completed: "Nothing completed yet. Finished requests land here." }[filter] || "No requests here yet.";
+        const msg = { pending: "Nothing waiting for approval.", active: "Nothing on its way right now. 🎉", completed: "Nothing completed yet. Finished requests land here." }[filter] || "No requests here yet.";
         box.innerHTML = `<div class="empty"><div class="big">🎟️</div>${msg}<div style="margin-top:14px"><a class="btn primary" href="#/discover">Find something to request</a></div></div>`;
+        if (qs("#rsum")) qs("#rsum").innerHTML = "";
         return;
       }
-      box.innerHTML = r.results.map(reqRow).join("");
+      if (filter === "active") {
+        const counts = r.counts || {};
+        if (only && !counts[only]) only = null;
+        qs("#rsum").innerHTML = `<button class="chip ${only ? "" : "on"}" data-only="">All <b>${r.results.length}</b></button>` +
+          STATE_ORDER.filter((k) => counts[k]).map((k) => `<button class="chip st-${k} ${only === k ? "on" : ""}" data-only="${k}"${tip(STATES[k].tip)}>${STATES[k].label} <b>${counts[k]}</b></button>`).join("");
+        qsa("#rsum .chip").forEach((c) => c.addEventListener("click", () => { only = c.dataset.only || null; load(); }));
+        const list = only ? r.results.filter((x) => x.state === only) : r.results;
+        let html = "", last = "";
+        for (const x of list) {
+          if (x.state !== last) { last = x.state; html += `<h3 class="rgroup st-${esc(x.state)}">${esc((STATES[x.state] || {}).label || "")}</h3>`; }
+          html += reqRow(x);
+        }
+        box.innerHTML = html;
+      } else {
+        box.innerHTML = r.results.map(reqRow).join("");
+      }
       bindReqActions(box, load);
       // Quick refresh while something is downloading, slow otherwise.
       const fast = r.results.some((x) => x.progress);
@@ -647,27 +748,44 @@ async function pageRequests(main, filter) {
   await load();
 }
 
+// seasonBars: one small bar per season, so a big show's progress is clear.
+function seasonBars(list) {
+  if (!list || list.length < 2) return "";
+  return `<div class="seasons">${list.map((x) => {
+    const pc = x.want ? Math.round((x.have / x.want) * 100) : 0;
+    const done = x.want > 0 && x.have >= x.want;
+    const label = x.want === 0 ? "not out yet" : `${x.have} of ${x.want} episodes`;
+    return `<span class="sbar ${done ? "done" : x.want === 0 ? "future" : ""}"${tip(`Season ${x.season}: ${label}`)}><span class="sl">S${x.season}</span><span class="track"><span style="width:${pc}%"></span></span>${done ? I.check : ""}</span>`;
+  }).join("")}</div>`;
+}
+
 function reqRow(r) {
   const admin = isAdmin();
   const p = img(r.poster, "w185");
-  const prog = journeyHTML(r.status, r.progress, true, { have: r.have || 0, want: r.want || 0 });
+  const prog = journeyHTML(r.status, r.progress, true, r);
   let actions = "";
   if (admin && r.status === "pending") actions = `<button class="btn sm ok" data-act="approve" data-id="${r.id}"${tip("Say yes: it goes straight to Radarr/Sonarr to download")}>${I.check} Approve</button><button class="btn sm danger" data-act="decline" data-id="${r.id}"${tip("Say no: they'll see it was declined")}>Decline</button>`;
   else if (admin && r.status === "failed") actions = `<button class="btn sm" data-act="retry" data-id="${r.id}"${tip("Send it to Radarr/Sonarr again")}>🔁 Retry</button>`;
+  if (admin && r.progress && r.progress.blocked) actions += `<button class="btn sm ok" data-act="import" data-id="${r.id}"${tip("Radarr/Sonarr downloaded it but want someone to confirm the import (usually the file name doesn't quite match). This confirms it for you")}>🛠️ Import it</button>`;
+  if (admin && r.status === "approved" && ["searching", "attention"].includes(r.state)) actions += `<button class="btn sm" data-act="search" data-id="${r.id}"${tip("Ask Radarr/Sonarr to look for a copy right now")}>🔎 Search again</button>`;
   if (r.status === "pending" && (admin || r.requestedBy === state.user.id)) actions += `<button class="btn sm" data-act="delete" data-id="${r.id}">${admin ? "Delete" : "Cancel"}</button>`;
-  else if (admin && r.status !== "pending") actions += `<button class="btn sm" data-act="delete" data-id="${r.id}"${tip(r.source === "watchlist" ? "Remove from this list. Encorr won't add it again from your Plex watchlist" : "Remove from this list (doesn't delete anything from Plex)")}>Remove</button>`;
+  else if (admin && r.status !== "pending") actions += `<button class="btn sm ghost" data-act="delete" data-id="${r.id}"${tip(r.source === "watchlist" ? "Remove from this list. Encorr won't add it again from your Plex watchlist" : "Remove from this list (doesn't delete anything from Plex)")}>Remove</button>`;
   const src = { watchlist: "from Plex watchlist", app: "from the app", discord: "from Discord" }[r.source] || "";
-  return `<div class="glass req">
+  const extra = [];
+  if (r.type === "tv" && r.status === "approved" && r.want > 0) extra.push(`<span${tip("It moves to Completed once every episode that has aired is in Plex")}>📺 <b>${r.have || 0} of ${r.want}</b> episodes in Plex</span>`);
+  if (r.nextAiring && r.state !== "waiting") extra.push(`<span${tip("New episodes download by themselves")}>🗓️ Next episode ${esc(niceDate(r.nextAiring))}</span>`);
+  if (r.state === "searching") extra.push(r.lastSearch ? `<span${tip("Encorr asks Radarr/Sonarr to look again every 12 hours")}>🔁 Searched again ${when(r.lastSearch)}</span>` : `<span${tip("Encorr asks Radarr/Sonarr to look again every 12 hours")}>🔁 Encorr will search again automatically</span>`);
+  return `<div class="glass req st-${esc(r.state || "")}" data-state="${esc(r.state || "")}">
     <a href="#/title/${esc(r.type)}/${esc(r.tmdbId)}">${p ? `<img src="${esc(p)}" alt="">` : `<div class="ph"></div>`}</a>
     <div class="info">
       <a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}" style="color:inherit">${esc(r.title)} <span class="dim" style="font-weight:500">${esc(r.year || "")}</span></a>
       <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : "Film · "}${esc(r.user || "Someone")} · ${when(r.created)}${src ? " · " + esc(src) : ""}</div>
-      ${r.type === "tv" && r.status === "approved" && r.want > 0 ? `<div class="s"${tip("It moves to Completed once every episode that has aired is in Plex")}>📺 <b>${r.have || 0} of ${r.want}</b> episodes in Plex</div>` : ""}
+      ${extra.length ? `<div class="s extras">${extra.join("")}</div>` : ""}
       ${r.note ? `<div class="s">“${esc(r.note)}”</div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
     </div>
     <div class="right"><div class="row">${actions}</div></div>
-    <div class="track">${prog}</div>
+    <div class="track">${prog}${r.status === "approved" ? seasonBars(r.seasonProgress) : ""}</div>
   </div>`;
 }
 
@@ -677,6 +795,8 @@ function bindReqActions(box, reload) {
     try {
       if (act === "approve") { busy(b, true, "Approving…"); await api(`/requests/${id}/approve`, { method: "POST", body: {} }); toast("✅ Approved: sent to download", "ok"); }
       if (act === "retry") { busy(b, true, "Retrying…"); await api(`/requests/${id}/retry`, { method: "POST", body: {} }); toast("Sent again"); }
+      if (act === "search") { busy(b, true, "Asking…"); const r = await api(`/requests/${id}/search`, { method: "POST", body: {} }); toast("🔎 " + (r.message || "Searching now"), "ok"); }
+      if (act === "import") { busy(b, true, "Importing…"); const r = await api(`/requests/${id}/import`, { method: "POST", body: {} }); toast("🛠️ " + (r.message || "Importing now"), "ok"); }
       if (act === "decline") {
         const reason = window.prompt("Reason for declining (optional, shown to the requester):", "");
         if (reason === null) return;

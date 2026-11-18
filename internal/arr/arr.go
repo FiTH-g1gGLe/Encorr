@@ -231,7 +231,12 @@ type QueueItem struct {
 	Status                  string    `json:"status"`
 	TrackedDownloadState    string    `json:"trackedDownloadState"`
 	EstimatedCompletionTime time.Time `json:"estimatedCompletionTime"`
-	Episode                 *struct {
+	OutputPath              string    `json:"outputPath"`
+	StatusMessages          []struct {
+		Title    string   `json:"title"`
+		Messages []string `json:"messages"`
+	} `json:"statusMessages"`
+	Episode *struct {
 		SeasonNumber  int `json:"seasonNumber"`
 		EpisodeNumber int `json:"episodeNumber"`
 	} `json:"episode,omitempty"`

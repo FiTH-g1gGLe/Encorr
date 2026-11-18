@@ -42,6 +42,7 @@ func (a *App) setupJobs() {
 	add(&job{Name: "watchlists", Label: "Plex watchlist sync", Every: 10 * time.Minute, fn: a.jobWatchlists})
 	add(&job{Name: "cleanup", Label: "Tidy old sessions", Hour: 4, fn: a.jobCleanup})
 	add(&job{Name: "nudge", Label: "Search again for stalled requests", Every: 2 * time.Hour, fn: a.jobNudge})
+	add(&job{Name: "arr-info", Label: "Release dates from Radarr/Sonarr", Every: 20 * time.Minute, fn: a.jobArrInfo})
 }
 
 func (j *job) schedule() string {
@@ -164,7 +165,7 @@ func (a *App) Jobs() []JobView {
 			infos[k] = v
 		}
 	})
-	order := []string{"plex-recent", "plex-full", "downloads", "watchlists", "nudge", "cleanup"}
+	order := []string{"plex-recent", "plex-full", "downloads", "watchlists", "nudge", "arr-info", "cleanup"}
 	out := []JobView{}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -634,6 +635,9 @@ type Progress struct {
 	Live  bool   `json:"live"`            // numbers came straight from SABnzbd
 	Items int    `json:"items"`
 	Note  string `json:"note,omitempty"` // Radarr/Sonarr's warning, if any
+	// Blocked: downloaded, but Radarr/Sonarr want someone to confirm the
+	// import (an admin can do that from Encorr with "Import it").
+	Blocked bool `json:"blocked,omitempty"`
 }
 
 func fmtSpeed(kb float64) string {
@@ -742,9 +746,16 @@ func (a *App) progressFor(typ string, externalID int) *Progress {
 			default:
 				stage = "Downloading"
 			}
-			if strings.ToLower(it.TrackedDownloadState) == "importblocked" {
+			if it.Blocked() {
 				stage = "Stuck"
 			}
+		}
+		if it.Blocked() {
+			p.Blocked = true
+			stage = "Stuck"
+		}
+		if w := it.Warning(); w != "" && (stage == "Stuck" || stage == "Failed") && p.Note == "" {
+			p.Note = w
 		}
 		if stage == "Stuck" || stage == "Failed" {
 			if p.Note == "" {
@@ -973,6 +984,46 @@ func (a *App) jobNudge(ctx context.Context) (string, error) {
 		msg = fmt.Sprintf("asked for a fresh search: %s", strings.Join(asked, ", "))
 		a.logf("%s", msg)
 	}
+	if len(errs) > 0 {
+		return msg, errors.New(strings.Join(errs, "; "))
+	}
+	return msg, nil
+}
+
+// jobArrInfo keeps release dates (films) and next-episode dates (shows) from
+// Radarr/Sonarr, so In progress can say "out on 1 Dec" instead of "looking".
+func (a *App) jobArrInfo(ctx context.Context) (string, error) {
+	var msgs []string
+	var errs []string
+	if c := a.Radarr(); c != nil {
+		if list, err := c.Movies(ctx); err != nil {
+			errs = append(errs, "Radarr: "+err.Error())
+		} else {
+			m := make(map[int]arr.MovieInfo, len(list))
+			for _, x := range list {
+				m[x.ID] = x
+			}
+			a.mu.Lock()
+			a.movieInfo = m
+			a.mu.Unlock()
+			msgs = append(msgs, fmt.Sprintf("%d films", len(list)))
+		}
+	}
+	if c := a.Sonarr(); c != nil {
+		if list, err := c.AllSeries(ctx); err != nil {
+			errs = append(errs, "Sonarr: "+err.Error())
+		} else {
+			m := make(map[int]arr.SeriesInfo, len(list))
+			for _, x := range list {
+				m[x.ID] = x
+			}
+			a.mu.Lock()
+			a.showInfo = m
+			a.mu.Unlock()
+			msgs = append(msgs, fmt.Sprintf("%d shows", len(list)))
+		}
+	}
+	msg := "updated " + strings.Join(msgs, " and ")
 	if len(errs) > 0 {
 		return msg, errors.New(strings.Join(errs, "; "))
 	}

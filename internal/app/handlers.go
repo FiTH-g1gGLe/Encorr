@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
@@ -545,27 +548,53 @@ func (a *App) annotate(cards []tmdb.Card, userID int) []cardOut {
 
 func (a *App) hDiscover(w http.ResponseWriter, r *http.Request, u *store.User) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	cards, pages, err := a.TMDB().List(r.Context(), r.PathValue("kind"), page)
+	key := r.PathValue("kind")
+	cards, pages, err := a.TMDB().List(r.Context(), key, page)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": pages})
+	out := map[string]any{"results": a.annotate(cards, u.ID), "totalPages": pages}
+	if page <= 1 {
+		out["title"] = a.TMDB().RowTitle(r.Context(), key)
+	}
+	writeJSON(w, 200, out)
 }
 
+// hDiscoverRows lists today's home-screen rows (some rotate daily).
+func (a *App) hDiscoverRows(w http.ResponseWriter, r *http.Request, u *store.User) {
+	writeJSON(w, 200, map[string]any{"rows": a.TMDB().Rows(r.Context(), time.Now())})
+}
+
+// hSearch finds films and TV separately, so the page can show them apart.
 func (a *App) hSearch(w http.ResponseWriter, r *http.Request, u *store.User) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		writeJSON(w, 200, map[string]any{"results": []any{}})
+		writeJSON(w, 200, map[string]any{"movies": []any{}, "tv": []any{}, "results": []any{}})
 		return
 	}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	cards, pages, err := a.TMDB().Search(r.Context(), q, page)
-	if err != nil {
-		fail(w, err)
+	var movies, tv []tmdb.Card
+	var mErr, tErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); movies, _, mErr = a.TMDB().SearchType(r.Context(), "movie", q, page) }()
+	go func() { defer wg.Done(); tv, _, tErr = a.TMDB().SearchType(r.Context(), "tv", q, page) }()
+	wg.Wait()
+	if mErr != nil && tErr != nil {
+		fail(w, mErr)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": pages})
+	ma, ta := a.annotate(movies, u.ID), a.annotate(tv, u.ID)
+	writeJSON(w, 200, map[string]any{"movies": ma, "tv": ta, "results": append(append([]any{}, toAny(ma)...), toAny(ta)...)})
+}
+
+func toAny[T any](xs []T) []any {
+	out := make([]any, len(xs))
+	for i, x := range xs {
+		out[i] = x
+	}
+	return out
 }
 
 func (a *App) hTitle(w http.ResponseWriter, r *http.Request, u *store.User) {
@@ -635,9 +664,25 @@ type requestOut struct {
 	Progress *Progress `json:"progress,omitempty"`
 	Modifier string    `json:"modifiedByName,omitempty"`
 	// For TV still on its way: episodes of the requested seasons in Plex.
-	Have int `json:"have,omitempty"`
-	Want int `json:"want,omitempty"`
+	Have    int         `json:"have,omitempty"`
+	Want    int         `json:"want,omitempty"`
+	Seasons []seasonOut `json:"seasonProgress,omitempty"`
+	// State sums up where an open request is: attention, downloading,
+	// finishing, searching, waiting (not out yet) or pending.
+	State      string     `json:"state,omitempty"`
+	Release    *time.Time `json:"release,omitempty"`    // film: when it comes out to buy/stream
+	NextAiring *time.Time `json:"nextAiring,omitempty"` // show: next new episode
+	LastSearch *time.Time `json:"lastSearch,omitempty"` // when Encorr last asked for a fresh search
 }
+
+type seasonOut struct {
+	Season int `json:"season"`
+	Have   int `json:"have"`
+	Want   int `json:"want"`
+}
+
+// statePriority orders In progress: things that need a hand first.
+var statePriority = map[string]int{"attention": 0, "pending": 1, "downloading": 2, "finishing": 3, "searching": 4, "waiting": 5}
 
 func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 	filter := r.URL.Query().Get("filter")
@@ -671,29 +716,35 @@ func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 			if mu := d.UserByID(rq.ModifiedBy); mu != nil && rq.ModifiedBy != rq.RequestedBy {
 				ro.Modifier = mu.Username
 			}
-			if rq.Status == store.ReqApproved {
+			switch rq.Status {
+			case store.ReqApproved:
 				if m := d.MediaByID(rq.MediaID); m != nil {
-					ro.Progress = a.progressFor(rq.Type, m.ExternalID)
-					if rq.Type == store.TypeTV {
-						for _, s := range rq.Seasons {
-							want, have := m.SeasonEps[s], m.SeasonHave[s]
-							if have > want {
-								have = want
-							}
-							ro.Want += want
-							ro.Have += have
-						}
-					}
+					a.describeOpen(&ro, m)
 				}
+			case store.ReqFailed:
+				ro.State = "attention"
+			case store.ReqPending:
+				ro.State = "pending"
 			}
 			out = append(out, ro)
 		}
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
+	sort.Slice(out, func(i, j int) bool {
+		if filter == "active" && out[i].State != out[j].State {
+			return statePriority[out[i].State] < statePriority[out[j].State]
+		}
+		return out[i].Created.After(out[j].Created)
+	})
 	if out == nil {
 		out = []requestOut{}
 	}
-	writeJSON(w, 200, map[string]any{"results": out})
+	counts := map[string]int{}
+	for _, ro := range out {
+		if ro.State != "" {
+			counts[ro.State]++
+		}
+	}
+	writeJSON(w, 200, map[string]any{"results": out, "counts": counts})
 }
 
 func (a *App) hCreateRequest(w http.ResponseWriter, r *http.Request, u *store.User) {
@@ -1350,4 +1401,133 @@ func (a *App) hCompleteSetup(w http.ResponseWriter, r *http.Request, u *store.Us
 	_ = a.RunJob("plex-full")
 	_ = a.RunJob("downloads")
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// describeOpen fills in the live picture for an approved request: download
+// progress, episodes per season, release dates and an overall state.
+func (a *App) describeOpen(ro *requestOut, m *store.Media) {
+	ro.Progress = a.progressFor(ro.Type, m.ExternalID)
+	svc := "radarr"
+	if ro.Type == store.TypeTV {
+		svc = "sonarr"
+		for _, s := range ro.Request.Seasons {
+			want, have := m.SeasonEps[s], m.SeasonHave[s]
+			if have > want {
+				have = want
+			}
+			ro.Want += want
+			ro.Have += have
+			ro.Seasons = append(ro.Seasons, seasonOut{Season: s, Have: have, Want: want})
+		}
+	}
+	a.mu.Lock()
+	if t, ok := a.nudged[svc+":"+strconv.Itoa(m.ExternalID)]; ok {
+		ro.LastSearch = &t
+	}
+	mi, hasMovie := a.movieInfo[m.ExternalID]
+	si, hasShow := a.showInfo[m.ExternalID]
+	a.mu.Unlock()
+	notOut := hasMovie && !mi.IsAvailable && !mi.HasFile && mi.Status != "" && mi.Status != "released"
+	if ro.Type == store.TypeMovie && notOut {
+		for _, t := range []time.Time{mi.DigitalRelease, mi.PhysicalRelease} {
+			if !t.IsZero() && (ro.Release == nil || t.Before(*ro.Release)) {
+				tt := t
+				ro.Release = &tt
+			}
+		}
+	}
+	if ro.Type == store.TypeTV && hasShow && !si.NextAiring.IsZero() {
+		t := si.NextAiring
+		ro.NextAiring = &t
+	}
+	p := ro.Progress
+	switch {
+	case p != nil && (p.Stage == "Stuck" || p.Stage == "Failed"):
+		ro.State = "attention"
+	case p != nil && (p.Stage == "Unpacking" || p.Stage == "Importing" || p.Stage == "Waiting for Plex"):
+		ro.State = "finishing"
+	case p != nil:
+		ro.State = "downloading"
+	case ro.Type == store.TypeMovie && notOut:
+		ro.State = "waiting"
+	case ro.Type == store.TypeTV && ro.Want == 0:
+		ro.State = "waiting" // nothing has aired yet
+	case ro.Type == store.TypeTV && ro.Have >= ro.Want:
+		ro.State = "finishing" // everything's there; Encorr is just confirming with Plex
+	default:
+		ro.State = "searching"
+	}
+}
+
+// hSearchNow asks Radarr/Sonarr to search for a request straight away.
+func (a *App) hSearchNow(w http.ResponseWriter, r *http.Request, u *store.User) {
+	svc, c, id, err := a.arrFor(pathInt(r, "id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	kind := "movie"
+	if svc == "sonarr" {
+		kind = "tv"
+	}
+	if err := c.Search(r.Context(), kind, id); err != nil {
+		fail(w, err)
+		return
+	}
+	a.mu.Lock()
+	if a.nudged == nil {
+		a.nudged = map[string]time.Time{}
+	}
+	a.nudged[svc+":"+strconv.Itoa(id)] = time.Now()
+	a.mu.Unlock()
+	writeJSON(w, 200, map[string]any{"ok": true, "message": c.Name + " is searching now"})
+}
+
+// hImportNow confirms the imports Radarr/Sonarr were waiting on.
+func (a *App) hImportNow(w http.ResponseWriter, r *http.Request, u *store.User) {
+	svc, c, id, err := a.arrFor(pathInt(r, "id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	kind := "movie"
+	if svc == "sonarr" {
+		kind = "tv"
+	}
+	n, err := c.ImportBlocked(r.Context(), kind, id)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	_ = a.RunJob("downloads")
+	writeJSON(w, 200, map[string]any{"ok": true, "files": n, "message": fmt.Sprintf("Importing %d file(s) now", n)})
+}
+
+// arrFor finds the Radarr/Sonarr item behind a request.
+func (a *App) arrFor(reqID int) (svc string, c *arr.Client, id int, err error) {
+	var typ string
+	a.Store.Read(func(d *store.Data) {
+		for _, rq := range d.Requests {
+			if rq.ID == reqID {
+				typ = rq.Type
+				if m := d.MediaByID(rq.MediaID); m != nil {
+					id = m.ExternalID
+				}
+			}
+		}
+	})
+	if typ == "" {
+		return "", nil, 0, userErr("Request not found.")
+	}
+	if id == 0 {
+		return "", nil, 0, userErr("This request hasn't been sent to Radarr/Sonarr yet.")
+	}
+	svc, c = "radarr", a.Radarr()
+	if typ == store.TypeTV {
+		svc, c = "sonarr", a.Sonarr()
+	}
+	if c == nil {
+		return "", nil, 0, errors.New(map[string]string{"radarr": "Radarr", "sonarr": "Sonarr"}[svc] + " isn't set up")
+	}
+	return svc, c, id, nil
 }
