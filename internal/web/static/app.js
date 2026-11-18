@@ -662,6 +662,7 @@ function reqRow(r) {
     <div class="info">
       <a class="t" href="#/title/${esc(r.type)}/${esc(r.tmdbId)}" style="color:inherit">${esc(r.title)} <span class="dim" style="font-weight:500">${esc(r.year || "")}</span></a>
       <div class="s">${r.type === "tv" ? esc(seasonsText(r.seasons)) + " · " : "Film · "}${esc(r.user || "Someone")} · ${when(r.created)}${src ? " · " + esc(src) : ""}</div>
+      ${r.type === "tv" && r.status === "approved" && r.want > 0 ? `<div class="s"${tip("It moves to Completed once every episode that has aired is in Plex")}>📺 <b>${r.have || 0} of ${r.want}</b> episodes in Plex</div>` : ""}
       ${r.note ? `<div class="s">“${esc(r.note)}”</div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
     </div>
