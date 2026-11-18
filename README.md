@@ -8,14 +8,14 @@
   <a href="https://github.com/FiTH-g1gGLe/Encorr/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/FiTH-g1gGLe/Encorr/total?color=34d399"></a>
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/github/license/FiTH-g1gGLe/Encorr?color=60a5fa"></a>
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/FiTH-g1gGLe/Encorr?logo=go&logoColor=white">
-  <img alt="Windows and Linux" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux-121a3f">
-  <img alt="No Docker needed" src="https://img.shields.io/badge/Docker-not%20needed-121a3f">
+  <img alt="Windows and Linux" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux-18181d">
+  <img alt="No Docker needed" src="https://img.shields.io/badge/Docker-not%20needed-18181d">
   <img alt="Works with Plex, Radarr, Sonarr, SABnzbd" src="https://img.shields.io/badge/works%20with-Plex%20%C2%B7%20Radarr%20%C2%B7%20Sonarr%20%C2%B7%20SABnzbd-e5a00d">
 </p>
 
 <p align="center"><a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip"><b>⬇️ Download Encorr for Windows</b></a> &nbsp;·&nbsp; <a href="TESTING.md">🧪 Testing guide</a> &nbsp;·&nbsp; <a href="https://github.com/FiTH-g1gGLe/Encorr/releases">📝 What's new</a></p>
 
-<p align="center"><img src="docs/screenshots/home.png" width="860" alt="Encorr home page: a greeting, a big search box, a three-step guide and trending films"></p>
+<p align="center"><img src="docs/screenshots/home.png" width="860" alt="Encorr home page: a greeting, a big search box, a rotating banner of trending films and rows of posters"></p>
 
 ## What is it? 🍿
 
@@ -30,34 +30,69 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 
 ## Features ✨
 
+### Finding something to watch
+
 | | |
 | --- | --- |
-| 🗺️ **Request journey** | Every request shows four steps: Requested → Approved → Downloading → In Plex. The line fills as it downloads, and the last step lights up when it's ready. |
-| ⬇️ **Live downloads** | Percentage, speed and time left come straight from SABnzbd, refreshed every few seconds, with plain stages like "📦 Unpacking" and "🚚 Moving it into your library". |
-| ⚡ **Instant "ready"** | When a download finishes, Encorr asks Plex to scan just that folder and checks within seconds, so requests turn green almost straight away. |
-| 👥 **Accounts for friends** | Make accounts with a username and password, or let people sign in with Plex. Owner, Trusted (no approval needed) and Friend (needs approval, with weekly limits). |
-| 🔎 **Discover and search** | Trending, popular films and TV, and coming soon to UK cinemas. Posters show what's already in Plex or already requested. |
-| 📺 **Proper TV handling** | Pick seasons; only those are monitored. Part-arrived shows say "18 of 24 episodes in Plex". |
-| 🔁 **Clever hand-off** | Handles titles Radarr/Sonarr already have (unmonitored, monitored or downloaded) without duplicates. |
-| 👀 **Plex watchlists** | Add something to your Plex watchlist and Encorr requests it for you. |
-| 💬 **Discord** | Rich messages for new requests, approvals, failures and "Your encore is ready", with @mentions. |
-| ❤️ **Health page** | Plain-English checks for Plex, TMDB, Radarr, Sonarr (including free disk space), SABnzbd, Discord and the data folder. |
-| 🌍 **Reach it from anywhere** | Works behind a Cloudflare Tunnel or any reverse proxy, with secure cookies and the visitor's real address used for rate limits. |
-| 📱 **Phone-friendly** | Works in any phone browser, with a bottom menu; "Add to Home screen" gives you an app icon. |
-| 🎨 **Looks the part** | Navy frosted glass with a violet or coral accent, tooltips on everything, and a `/` shortcut to search. |
+| 🎠 **Rotating banner** | The top 5 trending films and shows, with backdrop, rating and a one-tap Request. |
+| 🧭 **Rows that change daily** | Trending, Just added to Plex, popular films and TV, coming soon, plus a fresh mix every day: studios (Marvel, Disney, Pixar, Ghibli…), Netflix, HBO and Apple TV+ originals, genres, decades, hidden gems, top rated, and an actor spotlight. |
+| 🖼️ **See all** | Tap any row heading for a full poster page that keeps loading as you scroll. |
+| 🔎 **Search on the home screen** | Results split into **Films** and **TV shows**. Posters show what's already in Plex or already requested. |
+| ✨ **Poster peeks** | Hover a poster for its title, year, rating and a short description. |
+
+### Film and show pages
+
+| | |
+| --- | --- |
+| 🎬 **Rich details** | Crew (director, writers, creator, producers, music), cast with photos, tags, release dates (cinema, digital, disc), budget, revenue, language, country and studio. |
+| ⭐ **Ratings** | TMDB for everything, plus IMDb and Rotten Tomatoes (critics and audience) from Plex for things in your library. |
+| ▶️ **Play on Plex** | Opens it straight in Plex, and shows the quality you have (e.g. 4K HDR10, 5.1). |
+| 📡 **Where it's streaming** | UK streaming services with their logos, plus links to TMDB, IMDb, Trakt, Letterboxd and TheTVDB. |
+| 📚 **Collections** | "Part of the Harry Potter Collection": see the whole series and request every film you haven't got in one go. |
+| 📺 **Season picker** | A table of seasons with switches, episode counts and what's already in Plex or on its way. |
+
+### Requests and downloads
+
+| | |
+| --- | --- |
+| 🗺️ **Request journey** | Requested → Approved → Downloading → In Plex, with live percentage, speed and time left from SABnzbd. |
+| 🚦 **In progress, sorted** | Grouped into Needs a hand, Downloading, Nearly there, Looking for a copy and Not out yet, with a bar per season, release dates for films not out yet, and when the next episode airs. |
+| 🛠️ **One-tap fixes** | **Search again** asks Radarr/Sonarr to look now. **Import it** confirms downloads Radarr/Sonarr were stuck waiting on. |
+| 🔁 **Never forgotten** | Encorr asks Radarr/Sonarr to search again every few hours for anything with nothing downloading. |
+| ⚡ **Instant "ready"** | When a download finishes, Encorr asks Plex to scan just that folder, so requests turn green within seconds. |
+| ⚠️ **Stuck download warning** | If SABnzbd's unpacking freezes on a broken file, the Health page goes red and Discord gets a message. |
+| 👀 **Plex watchlists** | Add something to your Plex watchlist and Encorr requests it. Remove the request and it stays removed. |
+
+### Running it
+
+| | |
+| --- | --- |
+| 👥 **Accounts for friends** | Username and password, or Plex sign-in. Owner, Trusted (no approval needed) and Friend (needs approval, with limits). |
+| 📚 **Knows your library** | Reads your whole Plex library the moment it's connected, then keeps up every few minutes. |
+| 💬 **Discord** | New requests, approvals, problems and "Your encore is ready", with @mentions. |
+| ❤️ **Health page** | Plain-English checks for Plex, TMDB, Radarr, Sonarr, SABnzbd, Discord and disk space. |
+| 🌍 **Reach it from anywhere** | Works behind a Cloudflare Tunnel or reverse proxy. [Step-by-step guide](docs/REMOTE-ACCESS.md). |
+| 📱 **Phone-friendly** | Works in any phone browser with a bottom menu; "Add to Home screen" gives you an app icon. |
+| 🎨 **Your colours** | Black frosted glass (or the original navy) with 8 accent colours: violet, blue, teal, green, yellow, orange, red and pink. |
 
 ## Screenshots 📸
 
 | | |
 | --- | --- |
-| <img src="docs/screenshots/title-downloading.png" alt="A film's page with the journey tracker showing live download progress"> | <img src="docs/screenshots/requests.png" alt="The requests list with a journey tracker on every request"> |
-| **Live progress** on a film's page | **Every request**, and where it's up to |
-| <img src="docs/screenshots/people.png" alt="The People page with accounts and roles"> | <img src="docs/screenshots/account-created.png" alt="A new account's details ready to copy and send"> |
-| **People:** accounts and what each person can do | **New account:** details ready to send to a friend |
-| <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard having found Radarr automatically"> | <img src="docs/screenshots/health.png" alt="The health page with plain-English checks"> |
-| **Setup wizard:** finds Radarr and Sonarr for you | **Health:** what's working, and how to fix what isn't |
+| <img src="docs/screenshots/title.png" alt="A film's page with crew, tags, ratings and a facts panel"> | <img src="docs/screenshots/requests.png" alt="In progress, grouped by what's happening"> |
+| **Film page:** crew, ratings, release dates, streaming and more | **In progress:** what's happening with every request |
+| <img src="docs/screenshots/posters.png" alt="A poster showing its title, rating and description on hover"> | <img src="docs/screenshots/collection.png" alt="A film collection with a button to request the missing films"> |
+| **Poster peeks** and the "Just added to Plex" row | **Collections:** request the films you haven't got |
+| <img src="docs/screenshots/search.png" alt="Search results split into films and TV shows"> | <img src="docs/screenshots/request-seasons.png" alt="The season picker with switches and status"> |
+| **Search:** films and TV shows apart | **Season picker** |
+| <img src="docs/screenshots/see-all.png" alt="A see-all page for one row"> | <img src="docs/screenshots/title-downloading.png" alt="A film downloading, with the journey tracker"> |
+| **See all** for any row | **Live progress** on a film's page |
+| <img src="docs/screenshots/people.png" alt="The People page with accounts and roles"> | <img src="docs/screenshots/settings-look.png" alt="Settings with 8 accent colours and two backgrounds"> |
+| **People:** accounts and what each person can do | **Your colours:** 8 accents, black or navy |
+| <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard connected to Radarr"> | <img src="docs/screenshots/health.png" alt="The health page with plain-English checks"> |
+| **Setup wizard** | **Health:** what's working, and how to fix what isn't |
 
-<p align="center"><img src="docs/screenshots/phone-home.png" width="260" alt="Encorr's home page on a phone"> &nbsp; <img src="docs/screenshots/phone-requests.png" width="260" alt="The requests list on a phone"></p>
+<p align="center"><img src="docs/screenshots/phone-home.png" width="240" alt="Encorr's home page on a phone"> &nbsp; <img src="docs/screenshots/phone-title.png" width="240" alt="A film's page on a phone"> &nbsp; <img src="docs/screenshots/phone-requests.png" width="240" alt="In progress on a phone"></p>
 
 ## Get started (Windows) 🚀
 
@@ -112,24 +147,28 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 ## What's been built so far ✅
 
 - [x] Setup wizard with Plex sign-in, auto-detected Radarr, Sonarr and SABnzbd, and a built-in TMDB key
-- [x] Discover, search, title pages, trailers, seasons and "more like this"
-- [x] Requests with approval, quotas, notes, retry and cancel
-- [x] Journey tracker, live SABnzbd progress and a Completed tab
-- [x] Instant Plex scan and fast "ready" detection (works with old and new Plex agents)
+- [x] Home screen with a rotating banner, daily-changing rows, "see all" pages and split film/TV search
+- [x] Rich film and show pages: crew, cast, tags, ratings, release dates, streaming services and "Play on Plex"
+- [x] Collections, season picker, trailers and "more like this"
+- [x] Requests with approval, limits, notes, retry and cancel
+- [x] Journey tracker, live SABnzbd progress, a sorted In progress page and a Completed tab
+- [x] Search again, Import it, and automatic re-searching for stalled requests
+- [x] Instant Plex scan and fast "ready" detection (old and new Plex agents)
 - [x] Encorr accounts (username + password) alongside Plex sign-in
 - [x] Discord notifications and Plex watchlist requests
-- [x] Health page and background jobs
+- [x] Health page with a stuck-download warning, and background jobs
 - [x] Windows background service with one-click on/off and double-click updates
-- [x] Friendly redesign: labelled menu, home page guide, tooltips and emojis
+- [x] Black or navy frosted glass with 8 accent colours
 - [x] Tested end to end against simulated Plex, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server
 
 ## Coming next 🛣️
 
+- [ ] "Report a problem" with a title, so friends can flag a bad file
+- [ ] Messages to friends when their request is ready
+- [ ] IMDb and Rotten Tomatoes ratings for everything (optional OMDb key)
 - [ ] Android app (request, approve and get notified on your phone)
 - [ ] Discord bot (request from Discord)
-- [ ] Invite links and "report a problem" with a title
-- [ ] Tray icon and code-signed builds
-- [ ] Mac support
+- [ ] Tray icon, code-signed builds and Mac support
 
 ## Building from source 🛠️
 
