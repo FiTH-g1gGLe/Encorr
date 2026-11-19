@@ -841,7 +841,20 @@ async function updateBox() {
   if (!box || !isAdmin()) return;
   let u;
   try { u = await api("/update"); } catch { return; }
-  if (!u.available) return;
+  if (!u.available) {
+    const line = qs(".page-head .small.dim");
+    if (line && !qs("#updCheck")) {
+      line.insertAdjacentHTML("beforeend", ` · <a href="#" id="updCheck">${u.error ? "Couldn't check for updates, try again" : "Up to date, check again"}</a>`);
+      qs("#updCheck").addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.currentTarget.textContent = "Checking…";
+        try { await api("/update?check=1"); } catch { /* shown below */ }
+        qs("#updCheck").remove();
+        updateBox();
+      });
+    }
+    return;
+  }
   const notes = (u.notes || "").split("\n").filter((l) => l.trim() && !l.startsWith("**") && !l.startsWith("## ")).slice(0, 4).map((l) => esc(l.replace(/^- /, ""))).join("<br>");
   if (u.how === "docker") {
     box.innerHTML = `<div class="updpill glass"><span class="updic">${I.up}</span><div><strong>Version ${esc(u.latest)} is out</strong><span class="small dim">In Portainer, open the Encorr container and press Recreate with "Re-pull image" on.</span></div><a class="btn sm" href="${esc(u.url)}" target="_blank" rel="noopener">What's new</a></div>`;

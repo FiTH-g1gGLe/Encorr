@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -171,13 +172,27 @@ func (a *App) Jobs() []JobView {
 			infos[k] = v
 		}
 	})
-	order := []string{"plex-recent", "plex-full", "jellyfin-recent", "jellyfin-full", "downloads", "watchlists", "nudge", "arr-info", "cleanup"}
+	order := []string{"plex-recent", "plex-full", "jellyfin-recent", "jellyfin-full", "downloads", "watchlists", "nudge", "arr-info", "autofix", "subscriptions", "update-check", "cleanup"}
 	out := []JobView{}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	listed := map[string]bool{}
+	add := func(n string) {
+		if j, ok := a.jobs[n]; ok && !listed[n] {
+			listed[n] = true
+			out = append(out, JobView{Name: j.Name, Label: j.Label, Schedule: j.schedule(), Info: infos[n], Running: j.running})
+		}
+	}
 	for _, n := range order {
-		j := a.jobs[n]
-		out = append(out, JobView{Name: j.Name, Label: j.Label, Schedule: j.schedule(), Info: infos[n], Running: j.running})
+		add(n)
+	}
+	rest := []string{}
+	for n := range a.jobs {
+		rest = append(rest, n)
+	}
+	sort.Strings(rest)
+	for _, n := range rest {
+		add(n) // anything added later still shows up
 	}
 	return out
 }
