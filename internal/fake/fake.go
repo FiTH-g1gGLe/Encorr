@@ -127,7 +127,8 @@ func New() *Stack {
 			"fail_hopeless_jobs": 1, "fast_fail": 1, "safe_postproc": 1, "ignore_unrar_dates": 0, "deobfuscate_final_filenames": 1,
 			"enable_par_cleanup": 1, "cache_limit": "450M", "bandwidth_max": "", "host": "127.0.0.1", "api_key": "secret",
 			"pause_on_post_processing": 0, "propagation_delay": 0, "complete_dir": `D:\complete`},
-		SABServers:  []map[string]any{{"name": "news.example.com", "displayname": "Example News", "enable": 1, "priority": 0, "connections": 60, "pipelining_requests": 1, "ssl": 1, "ssl_ciphers": "", "password": "*****"}},
+		SABServers: []map[string]any{{"name": "news.example.com", "displayname": "Example News", "enable": 1, "priority": 0, "connections": 60, "pipelining_requests": 1, "ssl": 1, "ssl_ciphers": "", "password": "*****"},
+			{"name": "block.example.net", "displayname": "Example Block", "enable": 1, "priority": 1, "connections": 20, "quota": "2T", "usage_at_start": 1e11, "expire_date": "", "ssl": 1}},
 		ProwlarrVIP: time.Now().AddDate(0, 0, 10).Format("2006-01-02"),
 		nextID:      100,
 	}
@@ -980,7 +981,8 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 	case "server_stats":
 		day := time.Now().Format("2006-01-02")
 		writeJSON(w, map[string]any{"total": 1, "servers": map[string]any{"news.example.com": map[string]any{
-			"articles_tried": map[string]any{day: 200000}, "articles_success": map[string]any{day: 120000}}}})
+			"total": 5e12, "articles_tried": map[string]any{day: 200000}, "articles_success": map[string]any{day: 120000}},
+			"block.example.net": map[string]any{"total": 1.7e12}}})
 	case "status":
 		if q.Get("calculate_performance") == "1" {
 			writeJSON(w, map[string]any{"status": map[string]any{"pystone": 250000, "downloaddirspeed": 60.5, "completedirspeed": 300.0, "internetbandwidth": 120.0, "downloaddir": `D:\incomplete`, "completedir": `D:\complete`}})
@@ -1055,7 +1057,8 @@ func (s *Stack) prowlarr(w http.ResponseWriter, r *http.Request, p string) {
 	case "/applications":
 		writeJSON(w, []any{map[string]any{"name": "Radarr", "syncLevel": "fullSync"}, map[string]any{"name": "Sonarr", "syncLevel": "addOnly"}})
 	case "/indexer":
-		writeJSON(w, []any{map[string]any{"id": 1, "name": "GeekFake", "enable": true, "fields": []any{map[string]any{"name": "vipExpiration", "value": s.ProwlarrVIP}}}})
+		writeJSON(w, []any{map[string]any{"id": 1, "name": "GeekFake", "enable": true, "protocol": "usenet", "fields": []any{map[string]any{"name": "vipExpiration", "value": s.ProwlarrVIP}}},
+			map[string]any{"id": 2, "name": "NinjaFake", "enable": true, "protocol": "usenet", "fields": []any{map[string]any{"name": "vipExpiration", "value": "2135-01-01"}}}})
 	case "/indexerstatus":
 		writeJSON(w, []any{map[string]any{"indexerId": 1, "disabledTill": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)}})
 	default:

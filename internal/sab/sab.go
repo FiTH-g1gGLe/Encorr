@@ -466,3 +466,8 @@ func (c *Client) ArticleSuccess(ctx context.Context, days int) ([]ServerHealth, 
 	}
 	return res, nil
 }
+
+// CallRaw runs any read-only API mode and decodes the answer.
+func (c *Client) CallRaw(ctx context.Context, mode string, out any) error {
+	return c.call(ctx, mode, nil, out)
+}

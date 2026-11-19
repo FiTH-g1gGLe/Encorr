@@ -54,6 +54,27 @@ type Data struct {
 	TuneChanges []TuneChange `json:"tuneChanges,omitempty"`
 	// SpeedTests are saved speed test results, newest last, capped at 50.
 	SpeedTests []SpeedTest `json:"speedTests,omitempty"`
+	// Subscriptions are things the owner pays for: entries they added, and
+	// extra details (cost, plan) for ones Encorr finds itself.
+	Subscriptions []Subscription `json:"subscriptions,omitempty"`
+	// SubReminders remembers which expiry/usage reminders were already sent.
+	SubReminders map[string]bool `json:"subReminders,omitempty"`
+}
+
+// Subscription is one paid service: a news server, an indexer, a VPN...
+// Key links it to something Encorr detects ("prowlarr:NZBgeek",
+// "sab:news.example.com"); empty for entries added by hand.
+type Subscription struct {
+	ID       int        `json:"id"`
+	Key      string     `json:"key,omitempty"`
+	Name     string     `json:"name"`
+	Kind     string     `json:"kind"` // provider | indexer | other
+	Plan     string     `json:"plan"` // monthly | yearly | lifetime | block | other
+	Cost     float64    `json:"cost,omitempty"`
+	Currency string     `json:"currency,omitempty"` // GBP | USD | EUR
+	Renews   *time.Time `json:"renews,omitempty"`   // expiry or renewal date
+	URL      string     `json:"url,omitempty"`
+	Notes    string     `json:"notes,omitempty"`
 }
 
 // TuneChange is one setting Tune-up changed in another app.

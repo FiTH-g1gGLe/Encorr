@@ -154,6 +154,9 @@ func (a *App) RunSpeedTest(ctx context.Context) (*store.SpeedTest, error) {
 		}
 		if hs, err := c.ArticleSuccess(ctx, 14); err == nil {
 			for _, h := range hs {
+				if h.Tried == 0 {
+					continue // an idle backup or block server tells us nothing
+				}
 				res.Servers = append(res.Servers, store.ServerResult{Name: h.Name, Connections: conns[h.Name], Tried: h.Tried, Rate: h.Rate})
 			}
 		}

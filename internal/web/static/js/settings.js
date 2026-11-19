@@ -256,7 +256,7 @@ async function renderWizard(stepName) {
 }
 
 // ---------- settings pages ----------
-const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["jobs", "Jobs & backup"]];
+const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["subscriptions", "Subscriptions"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
   main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener">What's new ↗</a></div></div></div>
@@ -526,6 +526,100 @@ async function pageSettings(main, section) {
     };
     load();
   }
+  if (section === "subscriptions") {
+    const CUR = { GBP: "£", USD: "$", EUR: "€" };
+    const PLAN = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime", block: "Block", other: "One-off" };
+    const KIND = { provider: "News server", indexer: "Indexer", other: "Other" };
+    const ST = { urgent: "Renew now", soon: "Renewing soon", expired: "Expired", ok: "Active", lifetime: "Lifetime", unknown: "No date yet", off: "Turned off" };
+    const money = (v, c) => `${CUR[c] || ""}${Number(v).toFixed(v % 1 ? 2 : 0)}${CUR[c] ? "" : " " + esc(c || "")}`;
+    const bytes = (b) => (b >= 1e12 ? (b / 1e12).toFixed(b >= 1e13 ? 0 : 1) + " TB" : b >= 1e9 ? Math.round(b / 1e9) + " GB" : Math.round(b / 1e6) + " MB");
+    const ring = (frac, inner, sub) => {
+      const r = 34, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac));
+      return `<div class="subring"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="${r}" class="trk"/><circle cx="40" cy="40" r="${r}" class="val" stroke-dasharray="${(c * f).toFixed(1)} ${c.toFixed(1)}"/></svg><div><b>${inner}</b><i>${sub}</i></div></div>`;
+    };
+    const gauge = (v) => {
+      if (v.plan === "block" && v.blockSize) {
+        const left = Math.max(0, v.blockSize - (v.blockUsed || 0));
+        return ring(left / v.blockSize, bytes(left).replace(" ", "<small>") + "</small>", "left");
+      }
+      if (v.status === "lifetime") return ring(1, "∞", "forever");
+      if (v.daysLeft != null) {
+        const span = v.plan === "monthly" ? 31 : 365;
+        const d = v.daysLeft;
+        return ring(d < 0 ? 0 : d / span, d < 0 ? "0" : d > 999 ? "999+" : String(d), d === 1 ? "day left" : "days left");
+      }
+      return ring(0, "?", "add date");
+    };
+    const card = (v, i) => {
+      const renews = v.renews && v.status !== "lifetime" ? new Date(v.renews).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+      const used = v.plan === "block" && v.blockSize ? Math.round(((v.blockUsed || 0) / v.blockSize) * 100) : null;
+      return `<article class="subcard s-${esc(v.status)}" style="--i:${i}">
+        <div class="subtop"><span class="subsrc src-${esc(v.source.toLowerCase())}"${tip(v.source === "You" ? "Added by you" : "Found automatically in " + v.source)}>${esc(v.source === "You" ? "Added by you" : v.source)}</span><span class="substate">${esc(ST[v.status] || v.status)}</span></div>
+        <div class="submid">${gauge(v)}<div class="subname"><h3>${esc(v.name)}</h3><div class="small dim">${esc(KIND[v.kind] || v.kind)} · ${esc(PLAN[v.plan] || (v.source === "Prowlarr" && v.renews ? "VIP account" : "Plan not set"))}</div>
+          ${v.cost ? `<div class="subcost">${money(v.cost, v.currency)}<span>${v.plan === "monthly" ? "/month" : v.plan === "yearly" ? "/year" : ""}</span></div>` : ""}</div></div>
+        ${used != null ? `<div class="subbar"${tip(bytes(v.blockUsed || 0) + " of " + bytes(v.blockSize) + " used")}><span style="width:${Math.min(100, used)}%"></span></div><div class="small dim">${used}% used of ${bytes(v.blockSize)}</div>` : ""}
+        <div class="submeta">${renews ? `<span>${I.calendar} ${v.status === "expired" ? "Ended" : v.plan === "monthly" || v.plan === "yearly" ? "Renews" : "Ends"} ${esc(renews)}</span>` : ""}${v.note ? `<span>${I.warn} ${esc(v.note)}</span>` : ""}${v.notes ? `<span class="subnotes">${esc(v.notes)}</span>` : ""}</div>
+        <div class="subact"><button class="btn sm" data-edit="${i}">${v.id ? "Edit" : "Add details"}</button>${v.url ? `<a class="btn sm" href="${esc(v.url)}" target="_blank" rel="noopener">Open account ↗</a>` : ""}${v.source === "You" ? `<button class="btn sm sq" data-del="${v.id}" aria-label="Remove"${tip("Remove")}>${I.trash}</button>` : ""}</div>
+      </article>`;
+    };
+    const editor = (v, done) => {
+      const date = v.renews ? v.renews.slice(0, 10) : "";
+      const auto = v.source !== "You" && v.source;
+      const m = modal(`<h2 style="margin-top:0">${v.name ? esc(v.name) : "Add a subscription"}</h2>
+        ${auto ? `<p class="small dim" style="margin-top:-6px">Found in ${esc(auto)}. Anything you fill in here is added on top; dates and block sizes from ${esc(auto)} still update by themselves.</p>` : ""}
+        <div class="subform">
+          <label class="field wide"><span>Name</span><input type="text" data-s="name" value="${esc(v.name || "")}" placeholder="e.g. Plex Pass"></label>
+          <label class="field"><span>Type</span><select data-s="kind">${Object.entries(KIND).map(([k, l]) => `<option value="${k}" ${v.kind === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="field"><span>Plan</span><select data-s="plan"><option value="">Not set</option>${Object.entries(PLAN).map(([k, l]) => `<option value="${k}" ${v.plan === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="field"><span>Cost</span><input data-s="cost" type="number" min="0" step="0.01" inputmode="decimal" value="${v.cost || ""}" placeholder="0.00"></label>
+          <label class="field"><span>Currency</span><select data-s="currency">${["GBP", "USD", "EUR"].map((c) => `<option ${(v.currency || "GBP") === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+          <label class="field wide"><span>Renews or ends on</span><input data-s="renews" type="date" value="${esc(date)}"></label>
+          <label class="field wide"><span>Account page</span><input data-s="url" type="url" value="${esc(v.url || "")}" placeholder="https://…"></label>
+          <label class="field wide"><span>Notes</span><input type="text" data-s="notes" value="${esc(v.notes || "")}" placeholder="Anything worth remembering"></label>
+        </div>
+        <div class="row" style="margin-top:20px;justify-content:flex-end"><button class="btn" data-close>Cancel</button><button class="btn primary" id="subSave">Save</button></div>`);
+      qs("#subSave", m.el).addEventListener("click", async (e) => {
+        const val = (k) => qs(`[data-s="${k}"]`, m.el).value.trim();
+        const body = { key: v.key || "", name: val("name"), kind: val("kind"), plan: val("plan"), cost: parseFloat(val("cost")) || 0, currency: val("currency"), renews: val("renews"), url: val("url"), notes: val("notes") };
+        if (!body.name) { toast("Give it a name", "error"); return; }
+        busy(e.currentTarget, true, "Saving…");
+        try {
+          await api(v.id ? `/subscriptions/${v.id}` : "/subscriptions", { method: v.id ? "PUT" : "POST", body });
+          m.close(); toast("Saved", "ok"); done();
+        } catch (err) { toast(err.message, "error"); busy(e.currentTarget, false); }
+      });
+    };
+    const load = async () => {
+      let d;
+      try { d = await api("/subscriptions"); } catch (e) { panel.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; return; }
+      const items = d.items || [];
+      const due = items.filter((v) => v.status === "urgent" || v.status === "soon" || v.status === "expired").length;
+      const life = items.filter((v) => v.status === "lifetime").length;
+      const yearly = Object.entries(d.yearly || {}).filter(([, v]) => v > 0);
+      const next = items.filter((v) => v.daysLeft != null && v.daysLeft >= 0 && v.status !== "lifetime").sort((a, b) => a.daysLeft - b.daysLeft)[0];
+      panel.innerHTML = `<div class="row between"><h2 style="margin:0">Subscriptions</h2><button class="btn sm primary" id="subAdd">${I.plus} Add subscription</button></div>
+        <p class="lead" style="margin-top:8px">Your news servers, indexers and blocks in one place. Dates and data left are read from Prowlarr and SABnzbd; add costs and anything else yourself. You'll get a reminder 14, 7 and 1 days before something runs out, and when a block is 75% and 90% used.</p>
+        <div class="subsum">
+          <div class="subtile nxt"><span>Next up</span><b>${next ? esc(next.name) : "Nothing due"}</b><i>${next ? (next.daysLeft === 0 ? "runs out today" : `in ${next.daysLeft} day${next.daysLeft === 1 ? "" : "s"}`) : "you're all set"}</i></div>
+          <div class="subtile"><span>Every year</span><b>${yearly.length ? yearly.map(([c, v]) => money(v, c)).join(" + ") : "–"}</b><i>${yearly.length ? "monthly and yearly plans" : "add costs to see a total"}</i></div>
+          <div class="subtile ${due ? "warn" : ""}"><span>Needs attention</span><b>${due}</b><i>${due ? "within 30 days" : "nothing soon"}</i></div>
+          <div class="subtile"><span>Lifetime</span><b>${life}</b><i>never renew</i></div>
+        </div>
+        ${!d.prowlarr ? `<div class="notice subhint">${I.spark} Connect Prowlarr in <a href="#/settings/tune">Tune-up</a> and your indexers' VIP dates show up here by themselves.</div>` : ""}
+        ${!d.sabnzbd ? `<div class="notice subhint">${I.spark} Connect <a href="#/settings/sabnzbd">SABnzbd</a> to see your news servers and how much of each block is left.</div>` : `<div class="small dim subtipline">${I.hand} Tip: set a server's expiry date and block size (Quota) in SABnzbd → Config → Servers and they appear here automatically.</div>`}
+        <div class="subgrid">${items.length ? items.map(card).join("") : `<div class="subempty">${I.calendar}<strong>No subscriptions yet</strong><span class="small dim">Connect Prowlarr or SABnzbd, or add one yourself.</span></div>`}</div>`;
+      qs("#subAdd").addEventListener("click", () => editor({ source: "You", kind: "indexer", plan: "yearly", currency: "GBP" }, load));
+      qsa("[data-edit]", panel).forEach((b) => b.addEventListener("click", () => editor(items[+b.dataset.edit], load)));
+      qsa("[data-del]", panel).forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm("Remove this subscription?")) return;
+        try { await api(`/subscriptions/${b.dataset.del}`, { method: "DELETE" }); toast("Removed", "ok"); load(); } catch (e) { toast(e.message, "error"); }
+      }));
+    };
+    panel.innerHTML = `<div class="rwait"><span class="spinner"></span> Reading your accounts…</div>`;
+    load();
+    return;
+  }
+
   if (section === "jobs") {
     const load = async () => {
       const r = await api("/jobs");

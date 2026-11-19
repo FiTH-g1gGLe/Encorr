@@ -85,6 +85,7 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | 📚 **Knows your library** | Reads your whole Plex library the moment it's connected, then keeps up every few minutes. |
 | 💬 **Discord** | New requests, approvals, problems and "Your encore is ready", with @mentions. |
 | ❤️ **Health page** | Plain-English checks for Plex, TMDB, Radarr, Sonarr, SABnzbd, indexers, Discord and disk space, with fix buttons (resume or restart SABnzbd, clear leftovers, search for everything missing) and a log of everything Encorr fixed. |
+| 🗓️ **Subscriptions** | Your news servers, indexers and blocks in one place: VIP dates read from Prowlarr, expiry dates and data left on each block read from SABnzbd, plus anything you add yourself (Plex Pass, say) with costs and a yearly total. Reminders on Discord 14, 7 and 1 days before something runs out, and when a block is 75% and 90% used. |
 | 🌍 **Reach it from anywhere** | Works behind a Cloudflare Tunnel or reverse proxy. [Step-by-step guide](docs/REMOTE-ACCESS.md). |
 | 📱 **Phone-friendly** | Works in any phone browser with a bottom menu; "Add to Home screen" gives you an app icon. |
 | 🎨 **Your colours** | Midnight navy or graphite, with 8 accent colours: lavender, blue, teal, green, yellow, orange, red and pink. |
@@ -109,6 +110,8 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | **People:** accounts and what each person can do | **Your colours:** 8 accents, black or navy |
 | <img src="docs/screenshots/tune-speed.png" alt="Tune-up with speed test results and the slowest part named"> | <img src="docs/screenshots/tune.png" alt="Tune-up recommendations with Apply buttons"> |
 | **Tune-up:** speed test and what's slowing you down | **Tune-up:** recommendations you can apply and undo |
+| <img src="docs/screenshots/subscriptions.png" alt="Subscriptions with countdown rings, block usage and a yearly total"> | <img src="docs/screenshots/subscriptions-edit.png" alt="Adding cost and renewal details to a subscription"> |
+| **Subscriptions:** what renews when, and what's left on each block | **Add details:** cost, plan and account link |
 | <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard connected to Radarr"> | <img src="docs/screenshots/health.png" alt="The health page with plain-English checks"> |
 | **Setup wizard** | **Health:** what's working, fix buttons, and what auto-fix did |
 
@@ -181,6 +184,7 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 - [x] Discord notifications and Plex watchlist requests
 - [x] Health page with fix buttons, Radarr/Sonarr warnings, a stuck-download warning and background jobs
 - [x] Tune-up: settings check for SABnzbd, Radarr, Sonarr, Prowlarr and Plex with apply and undo, a speed test, and fixers
+- [x] Subscriptions page: indexer VIP dates from Prowlarr, server expiry and block usage from SABnzbd, your own entries with costs, and reminders
 - [x] Windows background service with one-click on/off and double-click updates
 - [x] Midnight or graphite themes with 8 accent colours
 - [x] Tested end to end against simulated Plex, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server

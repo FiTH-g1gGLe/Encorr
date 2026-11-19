@@ -1280,7 +1280,68 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("undo should restore -10000: %v", fk.QProfiles["radarr"][1])
 	}
 
-	// 42. Owners only.
+	// 42. Subscriptions: detected from Prowlarr and SABnzbd, plus your own.
+	type subResp struct {
+		Items  []SubView
+		Yearly map[string]float64
+		OneOff map[string]float64
+	}
+	var subR subResp
+	owner.ok("GET", "/subscriptions", nil, &subR)
+	subs := map[string]SubView{}
+	for _, v := range subR.Items {
+		subs[v.Key] = v
+	}
+	if v := subs["prowlarr:GeekFake"]; v.Status != "soon" || v.DaysLeft == nil || *v.DaysLeft != 10 || v.Source != "Prowlarr" {
+		t.Fatalf("VIP in 10 days: %+v", v)
+	}
+	if v := subs["prowlarr:NinjaFake"]; v.Plan != "lifetime" || v.Status != "lifetime" {
+		t.Fatalf("lifetime VIP: %+v", v)
+	}
+	if v := subs["sab:block.example.net"]; v.Plan != "block" || v.BlockSize != 2e12 || v.BlockUsed != 1.6e12 || v.Status != "soon" {
+		t.Fatalf("block 80%% used: %+v", v)
+	}
+	if v := subs["sab:news.example.com"]; v.Status != "unknown" {
+		t.Fatalf("a monthly plan without a date: %+v", v)
+	}
+	owner.ok("POST", "/subscriptions", map[string]any{"key": "sab:news.example.com", "plan": "monthly", "cost": 5.5, "currency": "gbp", "renews": time.Now().AddDate(0, 0, 40).Format("2006-01-02")}, nil)
+	owner.ok("POST", "/subscriptions", map[string]any{"name": "Plex Pass", "kind": "other", "plan": "yearly", "cost": 30, "currency": "GBP", "renews": time.Now().AddDate(0, 0, 1).Format("2006-01-02")}, nil)
+	if code, _ := owner.call("POST", "/subscriptions", map[string]any{"name": "Bad", "renews": "next week"}, nil); code != 400 {
+		t.Fatal("bad dates are rejected")
+	}
+	owner.ok("GET", "/subscriptions", nil, &subR)
+	subs = map[string]SubView{}
+	var plexPass SubView
+	for _, v := range subR.Items {
+		subs[v.Key] = v
+		if v.Name == "Plex Pass" {
+			plexPass = v
+		}
+	}
+	if v := subs["sab:news.example.com"]; v.Plan != "monthly" || v.Cost != 5.5 || v.Status != "ok" || v.Name != "Example News" {
+		t.Fatalf("details added to a detected server: %+v", v)
+	}
+	if plexPass.Status != "urgent" || plexPass.Source != "You" || subR.Items[0].Name != "Plex Pass" {
+		t.Fatalf("your own entry, renewing tomorrow, first: %+v (first %s)", plexPass, subR.Items[0].Name)
+	}
+	if subR.Yearly["GBP"] != 5.5*12+30 {
+		t.Fatalf("yearly total: %v", subR.Yearly)
+	}
+	// Reminders go out once per milestone.
+	before = len(fk.Discord)
+	if msg, _ := a.jobSubscriptions(ctx); msg != "3 reminder(s)" {
+		t.Fatalf("Plex Pass tomorrow, GeekFake in 10 days and the block at 80%% should each remind: %s", msg)
+	}
+	waitFor(t, "subscription reminders on Discord", func() bool { return len(fk.Discord)-before >= 3 })
+	if msg, _ := a.jobSubscriptions(ctx); msg != "nothing due" {
+		t.Fatalf("no repeats: %s", msg)
+	}
+	owner.ok("DELETE", "/subscriptions/"+itoa(plexPass.ID), nil, nil)
+	if code, _ := friend.call("GET", "/subscriptions", nil, nil); code != 403 {
+		t.Fatal("owners only")
+	}
+
+	// 43. Owners only.
 	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
 		t.Fatalf("friends can't see Tune-up: %d", code)
 	}
