@@ -301,6 +301,6 @@ There's also a [testing guide](TESTING.md).
 
 ## 🙏 Thanks
 
-Encorr's request flow follows ideas proven in [Seerr](https://github.com/seerr-team/seerr) (MIT), with ideas from Ombi, Watchlistarr, Requestrr, Doplarr, Reiverr and MediaManager. No code from GPL or AGPL projects is included. Settings advice comes from the [TRaSH Guides](https://trash-guides.info), SABnzbd's guide and the Servarr wiki. Film and TV data comes from [TMDB](https://www.themoviedb.org); Encorr uses the TMDB API but is not endorsed or certified by TMDB.
+Encorr's request flow follows ideas proven in [Seerr](https://github.com/seerr-team/seerr) (MIT), with ideas from Ombi, Watchlistarr, Requestrr, Doplarr, Reiverr and MediaManager. No code from GPL or AGPL projects is included. Settings advice comes from the [TRaSH Guides](https://trash-guides.info), SABnzbd's guide and the Servarr wiki. Film and TV data comes from [TMDB](https://www.themoviedb.org); Encorr uses the TMDB API but is not endorsed or certified by TMDB. Service logos (Plex, Jellyfin, Radarr, Sonarr, Prowlarr, SABnzbd, Discord, TMDB, IMDb, Rotten Tomatoes) belong to their owners and are only used to show what Encorr works with.
 
 <p align="center"><sub>MIT © 2026 g1gGLe · <a href="LICENSE">Licence</a></sub></p>
