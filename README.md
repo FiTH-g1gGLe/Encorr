@@ -93,7 +93,7 @@ Works on normal PCs and servers, and on ARM boards like a Raspberry Pi.
 3. Press **Deploy the stack**.
 4. Open **`http://YOUR-SERVER-IP:5150`** in your browser (for example `http://192.168.1.50:5150`) and follow the setup wizard.
 
-### With plain Docker
+### <img src="internal/web/static/icons/docker.svg" width="20" alt=""> With plain Docker
 
 ```bash
 docker run -d --name encorr -p 5150:5150 -v encorr-data:/config --restart unless-stopped ghcr.io/fith-g1ggle/encorr:latest

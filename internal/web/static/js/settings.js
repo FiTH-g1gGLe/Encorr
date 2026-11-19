@@ -342,7 +342,7 @@ async function renderWizard(stepName) {
 const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["jellyfin", "Jellyfin"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["subscriptions", "Subscriptions"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
-  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener">What's new ↗</a></div></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener" class="ghlink"><img src="/icons/github.png" alt="" width="13" height="13">What's new ↗</a></div></div></div>
     <div class="settings"><nav class="glass menu">${SETTINGS_MENU.map(([k, l]) => `<a href="#/settings/${k}" class="${k === section ? "on" : ""}">${esc(l)}</a>`).join("")}</nav>
     <section class="glass panel" id="panel"><span class="spinner"></span></section></div>`;
   const panel = qs("#panel");

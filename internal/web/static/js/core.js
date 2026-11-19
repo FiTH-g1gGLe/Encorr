@@ -121,7 +121,7 @@ const APP_BRAND = {
   "rotten-tomatoes": ["Rotten Tomatoes", "#FA320A", true], sabnzbd: ["SABnzbd", "#F5B800"],
   sonarr: ["Sonarr", "#35C5F4"], tmdb: ["TMDB", "#01B4E4"],
   trakt: ["Trakt", "#9F42C6"], letterboxd: ["Letterboxd", "#40BCF4"], tvdb: ["TheTVDB", "#6CD591"],
-  emby: ["Emby", "#52B54B"], "microsoft-windows": ["Windows", "#0078D4"], linux: ["Linux", "#F5C021"],
+  docker: ["Docker", "#2396ED"], emby: ["Emby", "#52B54B"], "microsoft-windows": ["Windows", "#0078D4"], linux: ["Linux", "#F5C021"],
 };
 const appKey = (name) => {
   const n = String(name || "").toLowerCase().trim();
@@ -159,7 +159,7 @@ function addrHints(root) {
       pill.classList.toggle("bad", bad);
       pill.innerHTML = bad
         ? `${I.warn}<span><b>Not localhost.</b> Encorr runs in Docker, where localhost means Encorr itself. Use your server's address (${esc(serverHost())}) or the app's container name.</span>`
-        : `<span class="dk">Docker</span><span>Use your server's address or the app's container name, not localhost.</span>`;
+        : `<span class="dk"><img src="/icons/docker.svg" alt="" width="14" height="14">Docker</span><span>Use your server's address or the app's container name, not localhost.</span>`;
     };
     draw();
     inp.addEventListener("input", () => { delete inp.dataset.auto; draw(); });
