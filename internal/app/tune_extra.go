@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,20 +148,41 @@ func (a *App) RunSpeedTest(ctx context.Context) (*store.SpeedTest, error) {
 				res.Internet, res.InternetBy = p.Internet, "SABnzbd"
 			}
 		}
-		conns := map[string]int{}
+		type srvInfo struct {
+			label    string
+			conns    int
+			priority int
+		}
+		info := map[string]srvInfo{}
+		top := -1
 		if cfg, err := c.GetConfig(ctx); err == nil {
 			for _, s := range cfg.Servers {
-				if n, ok := s["name"].(string); ok {
-					conns[n] = int(num(s["connections"]))
+				n, _ := s["name"].(string)
+				if v, has := s["enable"]; n == "" || isStraySABServer(s) || (has && num(v) == 0) {
+					continue
+				}
+				label, _ := s["displayname"].(string)
+				if label == "" {
+					label = n
+				}
+				pr := int(num(s["priority"]))
+				info[n] = srvInfo{label, int(num(s["connections"])), pr}
+				if top < 0 || pr < top {
+					top = pr
 				}
 			}
 		}
 		if hs, err := c.ArticleSuccess(ctx, 14); err == nil {
+			sort.Slice(hs, func(i, j int) bool { return info[hs[i].Name].priority < info[hs[j].Name].priority })
 			for _, h := range hs {
-				if h.Tried == 0 {
-					continue // an idle backup or block server tells us nothing
+				si, ok := info[h.Name]
+				// Skip servers that were removed or turned off, and ones with
+				// too few tries to mean anything yet.
+				if !ok || h.Tried < 1000 {
+					continue
 				}
-				res.Servers = append(res.Servers, store.ServerResult{Name: h.Name, Connections: conns[h.Name], Tried: h.Tried, Rate: h.Rate})
+				res.Servers = append(res.Servers, store.ServerResult{Name: h.Name, Label: si.label, Connections: si.conns,
+					Tried: h.Tried, Rate: h.Rate, Backup: si.priority > top})
 			}
 		}
 	}
@@ -189,7 +211,9 @@ func diagnose(t *store.SpeedTest) (string, []string) {
 	var adv []string
 	worst := 100.0
 	for _, s := range t.Servers {
-		if s.Tried > 50000 && s.Rate < worst {
+		// A backup server is only asked for what the main one is missing,
+		// so a low hit rate there is normal.
+		if !s.Backup && s.Tried > 50000 && s.Rate < worst {
 			worst = s.Rate
 		}
 	}

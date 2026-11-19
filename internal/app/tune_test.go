@@ -32,6 +32,7 @@ func TestDiagnose(t *testing.T) {
 		{store.SpeedTest{Internet: 200, CPU: 300000, DownloadDir: 50}, "disk"},
 		{store.SpeedTest{Internet: 200, CPU: 300000, DownloadDir: 400, Servers: []store.ServerResult{{Tried: 100000, Rate: 40}}}, "provider"},
 		{store.SpeedTest{Internet: 200, CPU: 300000, DownloadDir: 400, Servers: []store.ServerResult{{Tried: 100, Rate: 10}}}, "settings"},
+		{store.SpeedTest{Internet: 200, CPU: 300000, DownloadDir: 400, Servers: []store.ServerResult{{Tried: 100000, Rate: 99}, {Tried: 100000, Rate: 5, Backup: true}}}, "settings"},
 	}
 	for _, c := range cases {
 		if got, adv := diagnose(&c.t); got != c.want || len(adv) == 0 {

@@ -114,6 +114,8 @@ type ServerResult struct {
 	Connections int     `json:"connections"`
 	Tried       int64   `json:"tried"`
 	Rate        float64 `json:"rate"`
+	Label       string  `json:"label,omitempty"`  // the name shown in SABnzbd
+	Backup      bool    `json:"backup,omitempty"` // lower priority: only asked for what the main server lacks
 }
 
 // SkipKey is the WatchlistSkip key for one user's title.

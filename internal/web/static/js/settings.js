@@ -568,7 +568,7 @@ async function pageSettings(main, section) {
           ${tile("Download folder", mbs(t.downloadDirMBs), "writing speed", t.bottleneck === "disk")}
           ${tile("Complete folder", mbs(t.completeDirMBs), "writing speed", t.completeDirMBs && t.completeDirMBs < 60)}
           ${tile("CPU score", t.cpu ? Math.round(t.cpu).toLocaleString() : "–", "100,000+ is ideal", t.bottleneck === "cpu")}
-          ${srv.map((x) => tile("News server", `${Math.round(x.rate)}%`, "of articles found", x.rate < 80 && x.tried > 50000)).join("")}
+          ${srv.map((x) => tile(esc(x.label || x.name), `${Math.round(x.rate)}%`, x.backup ? "found · backup, only fills gaps" : "of articles found", !x.backup && x.rate < 80 && x.tried > 50000)).join("")}
         </div>
         <div class="tsverdict b-${esc(t.bottleneck)}"><span class="ri-ic">${t.bottleneck === "settings" ? I.check : "!"}</span><div><strong>Slowest part: ${esc(BOTTLE[t.bottleneck] || t.bottleneck)}</strong>${(t.advice || []).map((a) => `<span>${esc(a)}</span>`).join("")}</div></div>
       </div>`;

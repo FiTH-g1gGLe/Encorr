@@ -842,7 +842,7 @@ func checkSABServers(e *tuneEnv) []TuneFinding {
 	}
 	if e.speed != nil {
 		for _, s := range e.speed.Servers {
-			if s.Tried > 50000 && s.Rate < 80 {
+			if !s.Backup && s.Tried > 50000 && s.Rate < 80 {
 				out = append(out, TuneFinding{ID: "sab-completion:" + s.Name, App: "sabnzbd", Area: "Speed", Level: "warn", Status: "notice",
 					Title: fmt.Sprintf("Your news server only had %.0f%% of what was asked for", s.Rate), Current: fmt.Sprintf("%.0f%% over the last two weeks", s.Rate),
 					Why: "When a provider is missing articles, downloads crawl and fail. Older shows are often the worst. A backup \"block\" account on a different backbone fills the gaps cheaply.",
