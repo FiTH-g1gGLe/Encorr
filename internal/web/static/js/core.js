@@ -113,6 +113,36 @@ const LIB = () => (state.status && state.status.libraryName) || "Plex";
 const BOTH = () => LIB() === "your library";
 const IN_LIB = () => (BOTH() ? "In your library" : "In " + LIB());
 const YOUR_LIB = () => (BOTH() ? "your library" : "your " + LIB());
+// ---------- address boxes in Docker ----------
+// Inside Docker, "localhost" is Encorr itself, so address boxes (marked
+// data-addr="port") get the server's real address, a note, and a warning
+// the moment someone types localhost.
+const isLoop = (h) => !h || h === "localhost" || h.startsWith("127.") || h === "::1" || h === "[::1]";
+const serverHost = () => (isLoop(location.hostname) ? "192.168.1.50" : location.hostname);
+function addrHints(root) {
+  if (!state.status || !state.status.docker) return;
+  qsa("input[data-addr]:not([data-dh])", root || document).forEach((inp) => {
+    inp.dataset.dh = "1";
+    const guess = `http://${serverHost()}:${inp.dataset.addr}${inp.dataset.path || ""}`;
+    inp.placeholder = guess;
+    if (!inp.value && !isLoop(location.hostname)) { inp.value = guess; inp.dataset.auto = "1"; }
+    const pill = document.createElement("div");
+    pill.className = "addrpill";
+    pill.setAttribute("role", "status");
+    const draw = () => {
+      const bad = /\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(inp.value);
+      pill.classList.toggle("bad", bad);
+      pill.innerHTML = bad
+        ? `${I.warn}<span><b>Not localhost.</b> Encorr runs in Docker, where localhost means Encorr itself. Use your server's address (${esc(serverHost())}) or the app's container name.</span>`
+        : `<span class="dk">Docker</span><span>Use your server's address or the app's container name, not localhost.</span>`;
+    };
+    draw();
+    inp.addEventListener("input", () => { delete inp.dataset.auto; draw(); });
+    (inp.closest(".field") || inp).insertAdjacentElement("afterend", pill);
+  });
+}
+new MutationObserver(() => addrHints()).observe(document.documentElement, { childList: true, subtree: true });
+
 const isAdmin = () => state.user && state.user.role === "admin";
 const seasonsText = (s) => (!s || !s.length ? "" : s.length === 1 ? `Season ${s[0]}` : `Seasons ${s.join(", ")}`);
 

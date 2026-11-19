@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
+	"github.com/FiTH-g1gGLe/encorr/internal/netfind"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
 )
 
@@ -65,9 +66,10 @@ func (a *App) autoDetectProwlarr(ctx context.Context) {
 	if !d.Found {
 		return
 	}
-	c := &arr.Client{Name: "Prowlarr", URL: d.URL, APIKey: d.APIKey, APIVersion: "v1"}
-	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
+	d.URL = findReachable(cctx, netfind.Prowlarr, d.URL, "") // in Docker, not localhost
+	c := &arr.Client{Name: "Prowlarr", URL: d.URL, APIKey: d.APIKey, APIVersion: "v1"}
 	var st map[string]any
 	if err := c.GetJSON(cctx, "/system/status", &st); err != nil {
 		return

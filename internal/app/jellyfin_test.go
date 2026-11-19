@@ -125,6 +125,27 @@ func TestJellyfinOnly(t *testing.T) {
 		t.Fatalf("quick connect off: %d %v", code, m)
 	}
 
+	// Finding apps. Outside Docker nothing is at the usual ports here.
+	if r := owner.ok("GET", "/find/jellyfin", nil, nil); r["found"] != false {
+		t.Fatalf("nothing at localhost:8096: %v", r)
+	}
+	if code, _ := f.call("GET", "/find/jellyfin", nil, nil); code != 403 {
+		t.Fatal("once set up, only the owner can look")
+	}
+	// Inside Docker, Encorr says so and never suggests localhost.
+	t.Setenv("ENCORR_DOCKER", "1")
+	if s := owner.ok("GET", "/status", nil, nil); s["docker"] != true {
+		t.Fatalf("docker flag: %v", s["docker"])
+	}
+	det := owner.ok("GET", "/settings/detect/radarr", nil, nil)
+	if det["found"] == true || strings.Contains(fmt.Sprint(det["url"]), "localhost") || !strings.Contains(fmt.Sprint(det["note"]), "not localhost") {
+		t.Fatalf("docker detect: %v", det)
+	}
+	if det := owner.ok("GET", "/settings/detect/prowlarr", nil, nil); !strings.Contains(fmt.Sprint(det["note"]), "Prowlarr") {
+		t.Fatalf("prowlarr detect: %v", det)
+	}
+	t.Setenv("ENCORR_DOCKER", "0")
+
 	// Later, the owner adds Plex: it links to them rather than making a new person.
 	var pin struct{ ID int }
 	owner.ok("POST", "/auth/plex/pin", map[string]any{}, &pin)

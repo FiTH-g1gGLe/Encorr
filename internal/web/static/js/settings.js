@@ -11,7 +11,7 @@ function arrForm(app, saved) {
     <div class="row between"><div><strong>Use ${name}</strong><div class="small muted">${isR ? "Approved film requests are sent here." : "Approved TV requests are sent here."}</div></div>
       <label class="switch"><input type="checkbox" data-f="enabled" ${s.enabled || fresh ? "checked" : ""}><span class="slider"></span></label></div>
     <div class="row" style="margin-top:14px"><button class="btn sm" data-a="detect">Find ${name} automatically</button><span class="small dim" data-out="detect"></span></div>
-    <label class="field"><span>Address</span><input type="url" data-f="url" value="${esc(s.url || "")}" placeholder="http://localhost:${isR ? 7878 : 8989}"></label>
+    <label class="field"><span>Address</span><input type="url" data-f="url" data-addr="${isR ? 7878 : 8989}" value="${esc(s.url || "")}" placeholder="http://localhost:${isR ? 7878 : 8989}"></label>
     <label class="field"><span>API key</span><input type="password" data-f="apiKey" value="" placeholder="${s.hasKey ? "Saved (" + esc(s.apiKeyHint) + "). Leave blank to keep it." : "Paste the API key"}" autocomplete="off">
       <small>In ${name}: Settings → General → Security → API Key.</small></label>
     <div class="row"><button class="btn" data-a="test">Test connection</button><span data-out="test" class="small"></span></div>
@@ -66,14 +66,14 @@ function bindArrForm(root, app, saved, onSaved) {
     try {
       const d = await api(`/settings/detect/${app}`);
       if (d.found) {
-        f("url").value = d.url;
+        f("url").value = d.url; delete f("url").dataset.auto; f("url").dispatchEvent(new Event("input"));
         f("apiKey").value = d.apiKey;
         out("detect").textContent = d.note || `Found it (${d.configPath}).`;
         busy(btn, false);
         await test(qs('[data-a="test"]', root));
         return;
       }
-      if (!f("url").value) f("url").value = d.url || "";
+      if (d.url && (!f("url").value || f("url").dataset.auto)) { f("url").value = d.url; delete f("url").dataset.auto; f("url").dispatchEvent(new Event("input")); }
       out("detect").textContent = d.note || "Not found.";
     } catch (err) { out("detect").textContent = err.message; }
     busy(btn, false);
@@ -137,7 +137,7 @@ async function serverPicker(root, onPicked) {
     if (!owned.length) { root.innerHTML = `<div class="notice warn">No servers you own were found on this Plex account. Sign in with the account that owns the server.</div>`; return; }
     root.innerHTML = `<div class="list">${owned.map((s) => `<button class="glass lib" style="cursor:pointer;text-align:left;border:1px solid var(--glass-border)" data-mid="${esc(s.machineId)}"><span><strong>${esc(s.name)}</strong><div class="small dim">${s.local ? "On your network" : "Remote"}</div></span><span class="btn sm primary">Use this</span></button>`).join("")}</div>
       <details style="margin-top:14px"><summary class="small muted" style="cursor:pointer">Enter the address yourself</summary>
-        <label class="field"><span>Plex address</span><input type="url" id="manualUrl" placeholder="http://localhost:32400"></label><small class="hint">Then press “Use this” on your server above.</small></details>
+        <label class="field"><span>Plex address</span><input type="url" id="manualUrl" data-addr="32400" placeholder="http://localhost:32400"></label><small class="hint">Then press “Use this” on your server above.</small></details>
       <div id="pickOut"></div>`;
     qsa("[data-mid]", root).forEach((b) => b.addEventListener("click", async () => {
       const lbl = qs(".btn", b);
@@ -167,7 +167,7 @@ const saveJfLibraries = (root) => api("/settings/jellyfin/libraries", { method: 
 // The password is used once, to make Encorr its own API key, and not kept.
 function jellyfinForm(j = {}) {
   return `<div class="jfform">
-    <label class="field"><span>Jellyfin address</span><input type="url" id="jfUrl" value="${esc(j.url || "")}" placeholder="http://localhost:8096" autocomplete="off"></label>
+    <label class="field"><span>Jellyfin address</span><input type="url" id="jfUrl" data-addr="8096" value="${esc(j.url || "")}" placeholder="http://localhost:8096" autocomplete="off"></label>
     <div class="grid2">
       <label class="field"><span>Administrator username</span><input type="text" id="jfUser" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
       <label class="field"><span>Password</span><input type="password" id="jfPass" autocomplete="current-password"></label>
@@ -175,6 +175,20 @@ function jellyfinForm(j = {}) {
     <small class="hint">Used once to give Encorr its own API key (you'll see it as “Encorr” under Dashboard → API Keys). Your password isn't saved.</small>
     <div id="jfOut"></div>
   </div>`;
+}
+const jfDefault = () => ({ url: state.status && state.status.docker ? "" : "http://localhost:8096" });
+// findJellyfin fills the address box when Encorr can see Jellyfin (its
+// container name inside Docker, or this machine), unless someone typed one.
+async function findJellyfin(root) {
+  const inp = qs("#jfUrl", root);
+  if (!inp) return;
+  try {
+    const r = await api("/find/jellyfin", { allow401: true });
+    if (r && r.found && (inp.dataset.auto || !inp.value || inp.value === "http://localhost:8096")) {
+      inp.value = r.url; delete inp.dataset.auto; inp.dispatchEvent(new Event("input"));
+      const out = qs("#jfOut", root); if (out) out.innerHTML = `<div class="small dim" style="margin-top:6px">Found Jellyfin at ${esc(r.url)}.</div>`;
+    }
+  } catch { /* not found: the box keeps its guess */ }
 }
 const jfFormBody = (root) => ({ url: qs("#jfUrl", root).value.trim(), username: qs("#jfUser", root).value.trim(), password: qs("#jfPass", root).value });
 
@@ -223,9 +237,9 @@ async function renderWizard(stepName) {
         <button class="glass srvopt" id="signin"><span class="srvic plex">${I.plex}</span><span><strong>Plex</strong><span class="small dim">Sign in with the Plex account that owns your server</span></span></button>
         <button class="glass srvopt" id="usejf"><span class="srvic jf">${I.play}</span><span><strong>Jellyfin</strong><span class="small dim">Sign in as a Jellyfin administrator</span></span></button>
       </div>
-      <div id="jfsetup" hidden style="margin-top:18px">${jellyfinForm({ url: "http://localhost:8096" })}<button class="btn jf" id="jfConnect" style="margin-top:14px">Connect Jellyfin</button></div>`, { back: false, next: "" });
+      <div id="jfsetup" hidden style="margin-top:18px">${jellyfinForm(jfDefault())}<button class="btn jf" id="jfConnect" style="margin-top:14px">Connect Jellyfin</button></div>`, { back: false, next: "" });
     qs("#signin").addEventListener("click", (e) => plexSignIn(e.currentTarget, async () => { state.status = await api("/status"); state.user = state.status.user; go("server"); }));
-    qs("#usejf").addEventListener("click", () => { qs("#jfsetup", body).hidden = false; qs("#usejf").classList.add("on"); qs("#jfUser", body).focus(); });
+    qs("#usejf").addEventListener("click", () => { qs("#jfsetup", body).hidden = false; qs("#usejf").classList.add("on"); qs("#jfUser", body).focus(); findJellyfin(body); });
     qs("#jfConnect", body).addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       busy(btn, true, "Connecting…");
@@ -268,7 +282,8 @@ async function renderWizard(stepName) {
   }
   if (step === "jellyfin") {
     const body = shell("Also use Jellyfin?", "Optional. If you run Jellyfin as well as Plex, connect it and friends can sign in with either. Encorr checks both to see what you already have.",
-      jellyfinForm({ url: "http://localhost:8096" }), { skip: true, next: "Connect Jellyfin" });
+      jellyfinForm(jfDefault()), { skip: true, next: "Connect Jellyfin" });
+    findJellyfin(body);
     onNext(async () => {
       qs("#jfOut", body).innerHTML = "";
       try {
@@ -397,8 +412,9 @@ async function pageSettings(main, section) {
     if (!j.connected) {
       panel.innerHTML = `<h2>Jellyfin <span class="dim small" style="font-weight:500">optional</span></h2>
         <p class="lead">${s.plex.url ? "Run Jellyfin as well as Plex? Connect it and friends can sign in with either, and Encorr checks both to see what you already have." : "Connect your Jellyfin server."}</p>
-        ${jellyfinForm({ url: "http://localhost:8096" })}
+        ${jellyfinForm(jfDefault())}
         <div class="row" style="margin-top:16px"><button class="btn jf" id="jfConnect">Connect Jellyfin</button></div>`;
+      findJellyfin(panel);
       qs("#jfConnect").addEventListener("click", async (e) => {
         busy(e.currentTarget, true, "Connecting…");
         qs("#jfOut").innerHTML = "";
@@ -459,7 +475,7 @@ async function pageSettings(main, section) {
       ${z.detected ? `<div class="notice ok">Encorr found SABnzbd on this machine and connected it for you.</div>` : ""}
       <div class="row between"><div><strong>Live progress from SABnzbd</strong></div>
         <label class="switch"><input type="checkbox" id="zOn" ${z.enabled ? "checked" : ""}><span class="slider"></span></label></div>
-      <label class="field"><span>Address</span><input type="url" id="zUrl" value="${esc(z.url || "")}" placeholder="http://localhost:8080/sabnzbd"></label>
+      <label class="field"><span>Address</span><input type="url" id="zUrl" data-addr="8080" data-path="/sabnzbd" value="${esc(z.url || "")}" placeholder="http://localhost:8080/sabnzbd"></label>
       <label class="field"><span>API key</span><input type="text" id="zKey" autocomplete="off" placeholder="${z.hasKey ? "Saved (" + esc(z.keyHint) + "). Leave blank to keep it." : "SABnzbd → Config → General → API Key"}"></label>
       <div class="row"><button class="btn" id="zDetect">Find it automatically</button><button class="btn" id="zTest">Test</button></div>
       <div id="zMsg" style="margin-top:12px"></div>${saveBar()}`;
@@ -576,7 +592,7 @@ async function pageSettings(main, section) {
       const appsHtml = r.apps.map((a) => `<span class="tappchip ${a.connected ? "on" : a.error ? "bad" : ""}"${tip(a.error || (a.connected ? "Connected" : "Not connected"))}><i></i>${esc(APPS[a.app])}${a.version ? ` <em>${esc(a.version)}</em>` : ""}</span>`).join("");
       const prow = r.apps.find((a) => a.app === "prowlarr");
       const prowForm = prow && !prow.connected ? `<details class="glass tprow"><summary><strong>Connect Prowlarr</strong> <span class="small dim">to check your indexers too (optional)</span></summary>
-        <div class="grid2"><label class="field"><span>Address</span><input id="pUrl" type="url" placeholder="http://localhost:9696" value="${esc((s.prowlarr || {}).url || "")}"></label>
+        <div class="grid2"><label class="field"><span>Address</span><input id="pUrl" type="url" data-addr="9696" placeholder="http://localhost:9696" value="${esc((s.prowlarr || {}).url || "")}"></label>
         <label class="field"><span>API key</span><input id="pKey" type="password" placeholder="${(s.prowlarr || {}).hasKey ? "Saved" : "Prowlarr → Settings → General"}"></label></div>
         <button class="btn" id="pSave">Connect</button></details>` : "";
       const section = (title, list, extra = "") => list.length ? `<h3 class="tsec">${title}${extra}</h3><div class="tlist2">${list.map(row).join("")}</div>` : "";
@@ -644,6 +660,17 @@ async function pageSettings(main, section) {
       if (sr) sr.addEventListener("click", async () => {
         busy(sr, true, "Testing… about 20 seconds");
         try { await api("/tune/speedtest", { method: "POST", body: {} }); toast("Speed test done", "ok"); load(); } catch (e) { toast(e.message, "error"); busy(sr, false); }
+      });
+      const pd = qs(".tprow", panel);
+      if (pd) pd.addEventListener("toggle", async () => {
+        if (!pd.open || pd.dataset.looked) return;
+        pd.dataset.looked = "1";
+        const u = qs("#pUrl", panel), k = qs("#pKey", panel);
+        try {
+          const d = await api("/settings/detect/prowlarr");
+          if (d.url && (!u.value || u.dataset.auto)) { u.value = d.url; delete u.dataset.auto; u.dispatchEvent(new Event("input")); }
+          if (d.found && d.apiKey && !k.value) k.value = d.apiKey;
+        } catch { /* type it in */ }
       });
       const ps = qs("#pSave", panel);
       if (ps) ps.addEventListener("click", async () => {

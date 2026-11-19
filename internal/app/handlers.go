@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
+	"github.com/FiTH-g1gGLe/encorr/internal/netfind"
 	"github.com/FiTH-g1gGLe/encorr/internal/notify"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
 	"github.com/FiTH-g1gGLe/encorr/internal/sab"
@@ -57,6 +58,7 @@ func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
 		// Which sign-in buttons to show, and what the library is called.
 		"plex": s.Plex.URL != "" || !s.Jellyfin.Ready(), "jellyfin": s.Jellyfin.Ready(),
 		"jellyfinName": s.Jellyfin.ServerName, "libraryName": a.libName(),
+		"docker": netfind.InDocker(),
 	}
 	if s.Jellyfin.Ready() && s.SetupComplete {
 		out["quickConnect"] = a.jfQuickEnabled(r.Context())
@@ -1403,34 +1405,76 @@ func appName(r *http.Request) (string, bool) {
 }
 
 func (a *App) hDetect(w http.ResponseWriter, r *http.Request, u *store.User) {
-	if r.PathValue("app") == "sabnzbd" {
+	hint := netfind.HostOnly(r.Host) // the address the browser used to reach Encorr
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	switch strings.ToLower(r.PathValue("app")) {
+	case "sabnzbd":
 		det := sab.Detect()
 		if det.Found {
-			ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-			defer cancel()
+			det.URL = findReachable(ctx, netfind.SABnzbd, det.URL, hint)
 			if _, err := (&sab.Client{URL: det.URL, APIKey: det.APIKey}).Test(ctx); err != nil {
 				det.Note = "Found SABnzbd's settings, but it didn't answer: " + err.Error()
 			}
+		} else if u := netfind.Find(ctx, netfind.SABnzbd, 0, hint); u != "" {
+			det.URL, det.Note = u, "Found SABnzbd at "+u+". Now paste its API key: SABnzbd → Config → General → API Key."
+		} else if netfind.InDocker() {
+			det.Note = dockerNotFound("SABnzbd", 8080, hint)
 		}
 		writeJSON(w, 200, det)
 		return
 	}
 	name, ok := appName(r)
+	if strings.EqualFold(r.PathValue("app"), "prowlarr") {
+		name, ok = "Prowlarr", true
+	}
 	if !ok {
 		writeErr(w, 404, "Unknown app.")
 		return
 	}
+	app, _ := netfind.ByName(name)
 	det := arr.Detect(name)
 	if det.Found {
+		det.URL = findReachable(ctx, app, det.URL, hint)
 		// Prove it before suggesting it.
 		cl := &arr.Client{Name: name, URL: det.URL, APIKey: det.APIKey}
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
+		if name == "Prowlarr" {
+			cl.APIVersion = "v1"
+		}
 		if _, err := cl.Status(ctx); err != nil {
 			det.Note = "Found " + name + "'s settings, but it didn't answer: " + err.Error()
 		}
+	} else if u := netfind.Find(ctx, app, 0, hint); u != "" {
+		det.URL, det.Note = u, "Found "+name+" at "+u+". Now paste its API key: "+name+" → Settings → General → API Key."
+	} else if netfind.InDocker() {
+		det.URL, det.Note = "", dockerNotFound(name, app.Port, hint)
 	}
 	writeJSON(w, 200, det)
+}
+
+// findReachable swaps the "localhost" from a settings file for an address
+// Encorr can actually reach (inside Docker, localhost is Encorr itself).
+func findReachable(ctx context.Context, app netfind.App, found, hint string) string {
+	if !netfind.InDocker() {
+		return found
+	}
+	pu, err := url.Parse(found)
+	if err != nil {
+		return found
+	}
+	port, _ := strconv.Atoi(pu.Port())
+	if u := netfind.FindAt(ctx, app, port, pu.Path, hint); u != "" {
+		return netfind.SwapHost(found, u)
+	}
+	return found
+}
+
+func dockerNotFound(name string, port int, hint string) string {
+	host := hint
+	if host == "" || host == "localhost" || strings.HasPrefix(host, "127.") {
+		host = "192.168.1.50"
+	}
+	return fmt.Sprintf("Encorr is running in Docker and couldn't find %s on the Docker network or this server. Type its address, like http://%s:%d (not localhost: inside Docker that's Encorr itself).", name, host, port)
 }
 
 func (a *App) hTestArr(w http.ResponseWriter, r *http.Request, u *store.User) {

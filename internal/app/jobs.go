@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
+	"github.com/FiTH-g1gGLe/encorr/internal/netfind"
 	"github.com/FiTH-g1gGLe/encorr/internal/notify"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
 	"github.com/FiTH-g1gGLe/encorr/internal/sab"
@@ -476,9 +477,10 @@ func (a *App) autoDetectSAB() {
 	if !d.Found {
 		return
 	}
-	c := &sab.Client{URL: d.URL, APIKey: d.APIKey}
-	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 12*time.Second)
 	defer cancel()
+	d.URL = findReachable(ctx, netfind.SABnzbd, d.URL, "") // in Docker, not localhost
+	c := &sab.Client{URL: d.URL, APIKey: d.APIKey}
 	if _, err := c.Test(ctx); err != nil {
 		a.logf("found SABnzbd settings at %s but couldn't connect: %v", d.ConfigPath, err)
 		return

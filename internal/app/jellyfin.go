@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/jellyfin"
+	"github.com/FiTH-g1gGLe/encorr/internal/netfind"
 	"github.com/FiTH-g1gGLe/encorr/internal/store"
 )
 
@@ -522,4 +523,26 @@ func (a *App) jellyfinDetails(ctx context.Context, itemID string, isShow bool) *
 	}
 	info.Quality = strings.TrimSpace(info.Quality)
 	return info
+}
+
+// hFindJellyfin looks for Jellyfin for the connect form: its container name
+// inside Docker, this machine, or the address the browser used. Allowed
+// during first-run setup (before anyone owns Encorr) and for the owner. It
+// only ever knocks on Jellyfin's public info page at those few addresses.
+func (a *App) hFindJellyfin(w http.ResponseWriter, r *http.Request) {
+	hasAdmin := false
+	a.Store.Read(func(d *store.Data) { hasAdmin = d.HasAdmin() })
+	if hasAdmin {
+		if u := a.currentUser(r); u == nil || u.Role != store.RoleAdmin {
+			writeErr(w, http.StatusForbidden, "Only admins can do that.")
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	out := map[string]any{"found": false}
+	if u := netfind.Find(ctx, netfind.Jellyfin, 0, netfind.HostOnly(r.Host)); u != "" {
+		out["found"], out["url"] = true, u
+	}
+	writeJSON(w, 200, out)
 }

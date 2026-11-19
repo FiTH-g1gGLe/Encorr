@@ -28,7 +28,7 @@ RUN apk add --no-cache ca-certificates tzdata \
  && mkdir -p /config && chown 1000:1000 /config
 COPY --from=build /out/encorr /usr/local/bin/encorr
 # Set TZ (e.g. Europe/London) so schedules and dates use your time.
-ENV ENCORR_CONFIG=/config
+ENV ENCORR_CONFIG=/config ENCORR_DOCKER=1
 VOLUME /config
 EXPOSE 5150
 # Runs as user 1000 (the first user on most Linux systems). To use another,

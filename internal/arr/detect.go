@@ -58,6 +58,8 @@ func ConfigCandidates(app string) []string {
 			filepath.Join("/var/lib", lower, "config.xml"),
 			filepath.Join("/var/lib", lower, ".config", app, "config.xml"),
 			filepath.Join("/config", "config.xml"),
+			// Docker: Radarr's config folder mounted read-only at /radarr.
+			filepath.Join("/", lower, "config.xml"),
 		)
 	}
 	return c

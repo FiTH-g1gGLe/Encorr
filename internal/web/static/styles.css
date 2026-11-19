@@ -1506,3 +1506,12 @@ input[type=date] { color-scheme: dark; }
   .jfform .grid2 { grid-template-columns: 1fr; }
   .jfcode span:not(.spinner) { width: 38px; height: 50px; font-size: 26px; }
 }
+
+/* Address boxes inside Docker */
+.addrpill { display: flex; gap: 8px; align-items: flex-start; margin: -4px 0 12px; padding: 8px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.4;
+  color: var(--text-2); background: color-mix(in srgb, var(--hi, #5fd3ee) 8%, transparent); border: 1px solid color-mix(in srgb, var(--hi, #5fd3ee) 22%, transparent); }
+.addrpill .dk { flex: none; font-weight: 800; font-size: 11px; padding: 2px 8px; border-radius: 99px; background: color-mix(in srgb, var(--hi, #5fd3ee) 20%, transparent); color: var(--hi, #5fd3ee); }
+.addrpill svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.addrpill.bad { color: var(--text); background: color-mix(in srgb, var(--bad) 12%, transparent); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.addrpill.bad svg { color: var(--bad); }
+.addrpill b { color: var(--bad); }

@@ -191,7 +191,8 @@ func ConfigCandidates() []string {
 		if home, err := os.UserHomeDir(); err == nil {
 			c = append(c, filepath.Join(home, ".sabnzbd", "sabnzbd.ini"), filepath.Join(home, ".config", "sabnzbd", "sabnzbd.ini"))
 		}
-		c = append(c, "/var/lib/sabnzbd/sabnzbd.ini", "/config/sabnzbd.ini")
+		c = append(c, "/var/lib/sabnzbd/sabnzbd.ini", "/config/sabnzbd.ini",
+			"/sabnzbd/sabnzbd.ini") // Docker: SABnzbd's config folder mounted read-only at /sabnzbd
 	}
 	return c
 }

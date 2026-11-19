@@ -99,6 +99,7 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("PUT /api/v1/settings/jellyfin/public", a.setup(a.hJellyfinSavePublic))
 	api("DELETE /api/v1/settings/jellyfin", a.admin(a.hJellyfinDisconnect))
 	api("GET /api/v1/settings/detect/{app}", a.setup(a.hDetect))
+	api("GET /api/v1/find/jellyfin", a.limited(a.hFindJellyfin))
 	api("POST /api/v1/settings/{app}/test", a.setup(a.hTestArr))
 	api("PUT /api/v1/settings/arr/{app}", a.setup(a.hSaveArr))
 	api("PUT /api/v1/settings/sabnzbd", a.setup(a.hSaveSAB))

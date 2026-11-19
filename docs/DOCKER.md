@@ -43,21 +43,34 @@ Plain Docker: `docker compose pull && docker compose up -d`.
 
 ## Connecting to Jellyfin, Plex, Radarr, Sonarr and SABnzbd
 
-Inside a container, `localhost` means the Encorr container itself, not your server. So when the wizard asks for an address:
+Inside a container, `localhost` means the Encorr container itself, not your server. Encorr knows it's in Docker, so:
 
-- **Use your server's address on your network**, for example `http://192.168.1.50:8096` for Jellyfin, `http://192.168.1.50:7878` for Radarr, `http://192.168.1.50:8989` for Sonarr, `http://192.168.1.50:8080` for SABnzbd. This always works.
-- **Or, if your apps are on a Docker network together**, put Encorr on the same network and use their container names, such as `http://jellyfin:8096` or `http://radarr:7878`. Add this to the stack (change `media` to your network's name):
+- **Address boxes come pre-filled** with your server's address (the one you opened Encorr on) and the app's usual port, with a note underneath. If you type `localhost`, the note turns red and says why it won't work.
+- **"Find automatically" looks on the Docker network and your server:** it tries the app's usual container name (`radarr`, `sonarr`, `prowlarr`, `sabnzbd`, `jellyfin`), then your server's address, and only picks an address where the app answers as itself. Then paste the API key (each app's **Settings → General**).
 
-  ```yaml
-      networks:
-        - media
+If you'd rather type them: use your server's address on your network, such as `http://192.168.1.50:8096` for Jellyfin, `:7878` Radarr, `:8989` Sonarr, `:9696` Prowlarr, `:8080` SABnzbd. Or, if your apps share a Docker network, put Encorr on it and use container names such as `http://jellyfin:8096`. Add this to the stack (change `media` to your network's name):
 
-  networks:
-    media:
-      external: true
-  ```
+```yaml
+    networks:
+      - media
 
-Encorr's "find it for me" buttons look on the machine Encorr runs on, which in Docker is the container. They won't find your other apps, so type the addresses in.
+networks:
+  media:
+    external: true
+```
+
+**Want the API keys filled in for you too?** Let Encorr read the other apps' settings by adding their config folders, read-only (`:ro`), using the paths from your own stack:
+
+```yaml
+    volumes:
+      - encorr-data:/config
+      - /path/to/radarr/config:/radarr:ro
+      - /path/to/sonarr/config:/sonarr:ro
+      - /path/to/prowlarr/config:/prowlarr:ro
+      - /path/to/sabnzbd/config:/sabnzbd:ro
+```
+
+**SABnzbd by container name:** SABnzbd only answers names it trusts. If you use `http://sabnzbd:8080`, add `sabnzbd` under SABnzbd → Config → Special → **host_whitelist**. Addresses like `192.168.1.50` always work.
 
 **Instant scans after a download** work when Radarr/Sonarr and Jellyfin (or Plex) see your media at the same paths, which is the usual Docker setup (for example everything mounts your media at `/media` or `/data`). If the paths differ, nothing breaks: new files still appear when Jellyfin or Plex next notices them.
 

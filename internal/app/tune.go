@@ -158,7 +158,9 @@ func (a *App) readTune(ctx context.Context, only ...string) *tuneEnv {
 			return
 		}
 		ta := &TuneApp{App: app, Name: tuneAppNames[app]}
+		e.mu.Lock() // apps already started read this map
 		e.apps[app] = ta
+		e.mu.Unlock()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
