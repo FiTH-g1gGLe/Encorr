@@ -70,6 +70,8 @@ type Stack struct {
 	Removed      []map[string]any            // queue items removed (DELETE /queue/{id})
 	Grabbed      []map[string]any            // releases picked by hand
 	History      map[string][]map[string]any // Radarr/Sonarr history
+	Failed       []string                    // "radarr:12": history records marked as failed (blocklisted)
+	DeletedFiles []string                    // "radarr:moviefile:5"
 	ArrHealth    map[string][]map[string]any
 	SABCalls     []string // SABnzbd control calls: "pause:nzo", "switch:nzo"...
 	SABOrphans   []string
@@ -767,6 +769,14 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 	case p == "/release" && r.Method == http.MethodPost:
 		s.Grabbed = append(s.Grabbed, readBody(r))
 		writeJSON(w, map[string]any{})
+	case strings.HasPrefix(p, "/history/failed/") && r.Method == http.MethodPost:
+		s.Failed = append(s.Failed, app+":"+strings.TrimPrefix(p, "/history/failed/"))
+		w.WriteHeader(200)
+	case p == "/moviefile" && r.Method == http.MethodGet:
+		writeJSON(w, []any{map[string]any{"id": 500 + atoiQ(r, "movieId")}})
+	case (strings.HasPrefix(p, "/moviefile/") || strings.HasPrefix(p, "/episodefile/")) && r.Method == http.MethodDelete:
+		s.DeletedFiles = append(s.DeletedFiles, app+":"+strings.TrimPrefix(p, "/"))
+		w.WriteHeader(200)
 	default:
 		return false
 	}
@@ -1146,4 +1156,9 @@ func (s *Stack) prowlarr(w http.ResponseWriter, r *http.Request, p string) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func atoiQ(r *http.Request, k string) int {
+	n, _ := strconv.Atoi(r.URL.Query().Get(k))
+	return n
 }

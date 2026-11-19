@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1764,6 +1765,67 @@ func TestEndToEnd(t *testing.T) {
 			if f.ID == "sonarr-freespace" && (f.Status == "change" || f.Failed != "") {
 				t.Fatalf("after it works, the card clears: %+v", f)
 			}
+		}
+	}
+
+	// 46. "Something's wrong" reports, and getting a new copy.
+	{
+		var tm, arrID int
+		for id, m := range fk.RadarrMovies {
+			tm, arrID = int(m["tmdbId"].(float64)), id
+			break
+		}
+		a.markAvailable(srcPlex, store.TypeMovie, tm, "pk-issue", nil)
+		fk.History["radarr"] = []map[string]any{{"id": 77, "eventType": "grabbed", "date": time.Now().UTC().Format(time.RFC3339), "sourceTitle": "Bad.Copy"}}
+		var is store.Issue
+		friend.ok("POST", "/issues", map[string]any{"type": "movie", "tmdbId": tm, "kind": "play", "note": "stops after 10 minutes"}, &is)
+		if is.ID == 0 || is.Status != store.IssueOpen {
+			t.Fatalf("report: %+v", is)
+		}
+		if code, _ := friend.call("POST", "/issues", map[string]any{"type": "movie", "tmdbId": tm, "kind": "audio"}, nil); code != 400 {
+			t.Fatalf("a second report of the same thing should be refused: %d", code)
+		}
+		if code, _ := friend.call("POST", "/issues", map[string]any{"type": "movie", "tmdbId": 999, "kind": "play"}, nil); code != 400 {
+			t.Fatalf("only things in the library can be reported: %d", code)
+		}
+		if code, _ := friend.call("POST", "/issues", map[string]any{"type": "movie", "tmdbId": tm, "kind": "nonsense"}, nil); code != 400 {
+			t.Fatalf("unknown kind accepted: %d", code)
+		}
+		var il struct {
+			Results []issueOut
+			Open    int
+		}
+		friend.ok("GET", "/issues", nil, &il)
+		if len(il.Results) != 1 || !il.Results[0].Mine || il.Results[0].CanReplace || il.Results[0].KindName != "Won't play" {
+			t.Fatalf("friend's issues: %+v", il)
+		}
+		il.Results = nil
+		owner.ok("GET", "/issues", nil, &il)
+		if il.Open < 1 || !il.Results[0].CanReplace || il.Results[0].Reporter == "" {
+			t.Fatalf("owner's issues: %+v", il)
+		}
+		if code, _ := friend.call("POST", "/issues/"+itoa(is.ID)+"/replace", map[string]any{}, nil); code != 403 {
+			t.Fatalf("friends can't replace files: %d", code)
+		}
+		cmds := len(fk.Commands)
+		owner.ok("POST", "/issues/"+itoa(is.ID)+"/replace", map[string]any{}, nil)
+		if !slices.Contains(fk.Failed, "radarr:77") || !slices.Contains(fk.DeletedFiles, "radarr:moviefile/"+itoa(500+arrID)) || len(fk.Commands) <= cmds || fk.Commands[len(fk.Commands)-1]["name"] != "MoviesSearch" {
+			t.Fatalf("replace: failed=%v deleted=%v cmds=%v", fk.Failed, fk.DeletedFiles, fk.Commands[cmds:])
+		}
+		if code, _ := owner.call("POST", "/issues/"+itoa(is.ID)+"/replace", map[string]any{}, nil); code != 400 {
+			t.Fatalf("replacing twice should be refused: %d", code)
+		}
+		a.issuesArrived("radarr", arrID)
+		il.Results = nil
+		friend.ok("GET", "/issues", nil, &il)
+		if il.Results[0].Status != store.IssueResolved || il.Open != 0 {
+			t.Fatalf("the new copy arriving should close it: %+v", il.Results[0])
+		}
+		var is2 store.Issue
+		friend.ok("POST", "/issues", map[string]any{"type": "movie", "tmdbId": tm, "kind": "subtitles"}, &is2)
+		friend.ok("POST", "/issues/"+itoa(is2.ID)+"/resolve", map[string]any{"reply": "found them in the menu"}, nil)
+		if code, _ := friend.call("POST", "/issues/"+itoa(is2.ID)+"/resolve", map[string]any{}, nil); code != 400 {
+			t.Fatalf("resolving twice: %d", code)
 		}
 	}
 

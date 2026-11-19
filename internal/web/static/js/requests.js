@@ -164,6 +164,7 @@ async function pageRequests(main, filter) {
     <div class="page-head"><div><h1>${admin ? "Requests" : "My requests"}</h1><div class="muted">${admin ? "What needs you, what's on its way and what's arrived." : "What you've asked for, and where it's up to."}</div></div>
       <div class="row"><button class="btn sm ghost" data-f="${admin ? "all" : "mine"}">${admin ? "Show everything" : "All mine"}</button>${admin ? "" : `<button class="btn sm ghost" data-f="all">Everyone's</button>`}</div></div>
     <div class="rstats g${groups.length}" id="rstats">${groups.map(([k, l]) => `<button class="rstat ${k}" data-f="${k}"><span class="k"><i></i>${esc(l)}</span><div class="n">–</div><div class="d"></div></button>`).join("")}</div>
+    <div id="issues"></div>
     <div id="rlist" class="list">${Array.from({ length: 3 }, () => `<div class="skeleton" style="height:180px;border-radius:24px"></div>`).join("")}</div>`;
   qsa("[data-f]", main).forEach((b) => b.addEventListener("click", () => (location.hash = "#/requests?filter=" + b.dataset.f)));
 
@@ -181,6 +182,7 @@ async function pageRequests(main, filter) {
     qsa(".page-head [data-f]", main).forEach((b) => b.classList.toggle("on", b.dataset.f === chosen));
   };
 
+  const issuesReady = loadIssues();
   const load = async () => {
     const box = qs("#rlist");
     if (!box) return;
@@ -195,6 +197,12 @@ async function pageRequests(main, filter) {
         }
       }
       paint(r);
+      const openIssues = await issuesReady;
+      if (admin && openIssues) {
+        const t = qs(".rstat.needs .n", main);
+        if (t) { t.textContent = (r.groups.needs || 0) + openIssues; qs(".rstat.needs", main).classList.remove("zero"); }
+      }
+      if (!r.results.length && admin && openIssues && chosen === "needs") { box.innerHTML = ""; return; }
       if (!r.results.length) {
         box.innerHTML = `<div class="empty">${esc(GROUP_EMPTY[chosen] || "Nothing here.")}<div style="margin-top:14px"><a class="btn primary" href="#/discover">Find something to request</a></div></div>`;
         return;
@@ -355,4 +363,54 @@ async function releasesModal(reqID, r, reload) {
   };
   qsa("[data-rs]", m.el).forEach((b) => b.addEventListener("click", () => { season = Number(b.dataset.rs); qsa("[data-rs]", m.el).forEach((c) => c.classList.toggle("on", c === b)); load(); }));
   load();
+}
+
+// ---------- problem reports ----------
+async function loadIssues() {
+  const box = qs("#issues");
+  if (!box) return;
+  let r;
+  try { r = await api("/issues"); } catch { return 0; }
+  if (!r.results.length) { box.innerHTML = ""; return 0; }
+  const admin = isAdmin();
+  const STATUS = { open: ["Waiting for the owner", "open"], replacing: ["Getting a new copy", "replacing"], resolved: ["Sorted", "resolved"] };
+  const scope = (i) => i.type !== "tv" || !i.season ? "" : i.episode ? `S${String(i.season).padStart(2, "0")}E${String(i.episode).padStart(2, "0")}` : `Season ${i.season}`;
+  box.innerHTML = `<section class="glass issues">
+    <div class="ihead"><h2>${I.flag} ${admin ? "Problems reported" : "Problems you reported"}</h2><span class="small dim">${r.open ? `${r.open} waiting` : "All sorted"}</span></div>
+    ${r.results.map((i) => {
+      const [label, cls] = STATUS[i.status] || [i.status, ""];
+      const last = (i.events || []).slice(-1)[0];
+      const acts = i.status === "resolved" ? "" : `<div class="row iacts">
+        ${i.canReplace ? `<button class="btn sm primary" data-irep="${i.id}"${tip("Deletes this copy, blocklists it and downloads a different one")}>${I.refresh} Get a new copy</button>` : ""}
+        ${admin || i.mine ? `<button class="btn sm" data-ires="${i.id}" data-mine="${i.mine && !admin ? 1 : ""}">${I.check} ${admin ? "Mark as sorted" : "It's fine now"}</button>` : ""}
+      </div>`;
+      return `<div class="issue ${cls}">
+        <a href="#/title/${i.type === "tv" ? "tv" : "movie"}/${i.tmdbId}" class="ipost">${i.poster ? `<img src="${esc(img(i.poster, "w92"))}" alt="">` : ""}</a>
+        <div class="ibody">
+          <div class="ititle"><a href="#/title/${i.type === "tv" ? "tv" : "movie"}/${i.tmdbId}">${esc(i.title)}</a>${scope(i) ? ` <span class="dim">${esc(scope(i))}</span>` : ""}</div>
+          <div class="imeta"><span class="ikindpill">${esc(i.kindName)}</span><span class="istat ${cls}">${esc(label)}</span><span class="small dim">${admin ? `${esc(i.reporter || "Someone")}, ` : ""}${when(i.created)}</span></div>
+          ${i.note ? `<div class="inote">"${esc(i.note)}"</div>` : ""}
+          ${i.status !== "open" && last ? `<div class="small dim ilast">${esc(last.text)}</div>` : ""}
+        </div>
+        ${acts}
+      </div>`;
+    }).join("")}
+  </section>`;
+  qsa("[data-irep]", box).forEach((b) => b.addEventListener("click", async () => {
+    if (!confirmBox("Delete this copy and download a different one? It'll be missing from your library until the new one arrives, usually a few minutes.")) return;
+    busy(b, true, "Asking…");
+    try { const res = await api(`/issues/${b.dataset.irep}/replace`, { method: "POST", body: {} }); toast(res.message || "Getting a new copy", "ok"); loadIssues(); refreshPending(); }
+    catch (e) { toast(e.message, "error"); busy(b, false); }
+  }));
+  qsa("[data-ires]", box).forEach((b) => b.addEventListener("click", async () => {
+    let reply = "";
+    if (!b.dataset.mine) {
+      reply = window.prompt("Add a note for them? (optional, e.g. \"Turn on subtitles in the player\")", "");
+      if (reply === null) return;
+    }
+    busy(b, true, "Saving…");
+    try { await api(`/issues/${b.dataset.ires}/resolve`, { method: "POST", body: { reply } }); toast("Marked as sorted", "ok"); loadIssues(); refreshPending(); }
+    catch (e) { toast(e.message, "error"); busy(b, false); }
+  }));
+  return r.open || 0;
 }

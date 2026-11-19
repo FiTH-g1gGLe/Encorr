@@ -472,14 +472,14 @@ table.users select { width: auto; padding: 6px 10px; }
 
 /* ---------- people ---------- */
 .people { display: flex; flex-direction: column; gap: 10px; }
-.person { display: grid; grid-template-columns: 44px 1fr auto auto; gap: 14px; align-items: center; padding: 14px 16px; }
+.people > .person { display: grid; grid-template-columns: 44px 1fr auto auto; gap: 14px; align-items: center; padding: 14px 16px; }
 .person .pic { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--bg-2); border: 1px solid var(--glass-border); }
 .person .pic.initial { display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; }
 .person .who { min-width: 0; }
 .person .who strong { font-size: 15.5px; }
 .person select { width: auto; padding: 8px 12px; }
 .person .acts { gap: 8px; flex-wrap: nowrap; }
-@media (max-width: 760px) { .person { grid-template-columns: 44px 1fr; } .person .rolepick, .person .acts { grid-column: 1 / -1; } .person .rolepick select { width: 100%; } .person .acts { justify-content: flex-end; } }
+@media (max-width: 760px) { .people > .person { grid-template-columns: 44px 1fr; } .person .rolepick, .person .acts { grid-column: 1 / -1; } .person .rolepick select { width: 100%; } .person .acts { justify-content: flex-end; } }
 .roles { margin-top: 18px; padding: 14px 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .roles strong { display: block; font-size: 14px; }
 .roles span { font-size: 13px; color: var(--text-2); }
@@ -1585,3 +1585,30 @@ input[type=text], input[type=url], input[type=password], input[type=number], inp
 .quotaline { display: flex; align-items: center; gap: 8px; margin: -6px 0 14px; font-size: .9rem; color: var(--text-2); }
 .quotaline svg { width: 15px; height: 15px; flex: none; }
 .quotaline.out { color: var(--warn); }
+
+/* ---------- problem reports ---------- */
+.ikinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.ikind { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px; cursor: pointer; }
+.ikind:has(input:checked) { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, transparent); }
+.ikind input { margin-top: 3px; accent-color: var(--bad); }
+.ikind > span { display: grid; gap: 1px; }
+@media (max-width: 520px) { .ikinds { grid-template-columns: 1fr; } }
+.issues { padding: 18px 20px; margin-bottom: 18px; border-color: color-mix(in srgb, var(--bad) 28%, var(--line)); }
+.issues .ihead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.issues .ihead h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.05rem; }
+.issues .ihead h2 svg { width: 18px; height: 18px; color: var(--bad); }
+.issue { display: grid; grid-template-columns: 46px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.issue:first-of-type { border-top: 0; }
+.issue.resolved { opacity: .6; }
+.issue .ipost img { width: 46px; height: 69px; object-fit: cover; border-radius: 8px; display: block; }
+.issue .ititle { font-weight: 650; }
+.issue .ititle a { color: inherit; text-decoration: none; }
+.issue .imeta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.ikindpill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; color: var(--bad-2); background: color-mix(in srgb, var(--bad) 15%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.istat { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.istat.replacing { color: var(--accent); }
+.istat.resolved { color: var(--ok); }
+.issue .inote { margin-top: 6px; color: var(--text-2); font-style: italic; }
+.issue .ilast { margin-top: 4px; }
+.issue .iacts { gap: 8px; justify-content: flex-end; }
+@media (max-width: 760px) { .issue { grid-template-columns: 46px 1fr; } .issue .iacts { grid-column: 1 / -1; } }

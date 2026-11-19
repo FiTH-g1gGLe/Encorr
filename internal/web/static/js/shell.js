@@ -105,7 +105,9 @@ async function refreshPending() {
   try {
     const r = await api("/requests?filter=upcoming");
     const g = r.groups || {};
-    const n = isAdmin() ? g.needs || 0 : r.newReady || 0;
+    let issues = 0;
+    if (isAdmin()) { try { issues = (await api("/issues")).open || 0; } catch { /* ignore */ } }
+    const n = isAdmin() ? (g.needs || 0) + issues : r.newReady || 0;
     const b = qs("#pendingBadge");
     if (b) { b.hidden = n === 0; b.textContent = n; b.title = isAdmin() ? "Needs you" : "Ready since you last looked"; b.classList.toggle("good", !isAdmin()); }
   } catch { /* ignore */ }

@@ -162,6 +162,7 @@ async function pageTitle(main, type, id) {
           ${requestable ? `<button class="btn primary cta" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
           ${d.trailer ? `<button class="btn" id="trailer"${tip("Watch the trailer here")}>Trailer</button>` : ""}
           ${cancelBtn}
+          ${["available", "partial"].includes(s.status) ? `<button class="btn ghost" id="issueBtn"${tip("Tell the owner something's wrong with this copy")}>${I.flag} Report a problem</button>` : ""}
         </div>
       </div>
     </div>
@@ -191,6 +192,8 @@ async function pageTitle(main, type, id) {
   }).join("")}</div>` : ""}
   ${data.recommended && data.recommended.length ? `<h2>More like this</h2><div class="scroller">${data.recommended.map(card).join("")}</div>` : ""}`;
 
+  const issueBtn = qs("#issueBtn");
+  if (issueBtn) issueBtn.addEventListener("click", () => issueModal(type, d, s));
   const reqBtn = qs("#reqBtn");
   if (reqBtn) reqBtn.addEventListener("click", () => requestModal(type, d, s));
   if (state.autoReq) { state.autoReq = false; if (reqBtn) requestModal(type, d, s); }
@@ -291,5 +294,41 @@ function requestModal(type, d, s) {
       toast(err.message, "error");
       busy(e.currentTarget, false);
     }
+  });
+}
+
+// ---------- problem reports ----------
+const ISSUE_KINDS = [
+  ["play", "Won't play", "Stops, freezes or won't start"],
+  ["video", "Poor picture", "Blurry, blocky or the wrong size"],
+  ["audio", "Sound problem", "Out of sync, missing or the wrong language"],
+  ["subtitles", "Subtitles", "Missing, wrong language or out of sync"],
+  ["wrong", "Wrong one", "A different film or episode"],
+  ["other", "Something else", "Say what in the note"],
+];
+
+function issueModal(type, d, s) {
+  const have = (d.seasons || []).filter((x) => x.season_number > 0 && ["available", "partial"].includes((s.seasons || {})[x.season_number]));
+  const tvPick = type === "tv" ? `
+    <div class="row" style="margin-bottom:12px">
+      <label class="field grow" style="margin:0"><span>Season</span><select id="isS">${have.map((x) => `<option value="${x.season_number}">${esc(x.name)}</option>`).join("")}<option value="0">More than one season</option></select></label>
+      <label class="field grow" style="margin:0"><span>Episode</span><input type="number" min="0" id="isE" placeholder="All of them"></label>
+    </div>` : "";
+  const m = modal(`
+    <div class="mhead">${d.poster ? `<img src="${esc(img(d.poster, "w185"))}" alt="">` : ""}<div><div class="eyebrow">Report a problem</div><h2>${esc(d.title)} ${d.year ? `<span class="dim" style="font-weight:500">(${esc(d.year)})</span>` : ""}</h2></div></div>
+    <p class="muted" style="margin:0 0 12px">The owner gets told straight away and can swap it for a different copy.</p>
+    <div class="ikinds" role="radiogroup" aria-label="What's wrong">${ISSUE_KINDS.map(([k, l, h], i) => `<label class="ikind"><input type="radio" name="ik" value="${k}" ${i === 0 ? "checked" : ""}><span><strong>${esc(l)}</strong><span class="small dim">${esc(h)}</span></span></label>`).join("")}</div>
+    ${tvPick}
+    <label class="field"><span>Note (optional)</span><input type="text" id="isN" maxlength="500" placeholder="e.g. freezes about 40 minutes in"></label>
+    <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="isGo">${I.flag} Send report</button></div>`);
+  const sSel = qs("#isS", m.el), eIn = qs("#isE", m.el);
+  if (sSel && eIn) sSel.addEventListener("change", () => { eIn.disabled = sSel.value === "0"; if (eIn.disabled) eIn.value = ""; });
+  qs("#isGo", m.el).addEventListener("click", async (e) => {
+    const body = { type, tmdbId: d.id, kind: qs("input[name=ik]:checked", m.el).value, note: qs("#isN", m.el).value.trim() };
+    if (body.kind === "other" && !body.note) { toast("Say what's wrong in the note.", "error"); qs("#isN", m.el).focus(); return; }
+    if (sSel) { body.season = Number(sSel.value) || 0; body.episode = Number(eIn.value) || 0; }
+    busy(e.currentTarget, true, "Sending…");
+    try { await api("/issues", { method: "POST", body }); m.close(); toast("Thanks, the owner has been told", "ok"); refreshPending(); }
+    catch (err) { toast(err.message, "error"); busy(e.currentTarget, false); }
   });
 }

@@ -46,6 +46,7 @@ func (c *Client) EpisodeFiles(ctx context.Context, seriesID int) ([]EpisodeFile,
 
 // HistoryItem is one line of Radarr/Sonarr's history for an item.
 type HistoryItem struct {
+	ID          int               `json:"id"`
 	Date        time.Time         `json:"date"`
 	EventType   string            `json:"eventType"`
 	SourceTitle string            `json:"sourceTitle"`

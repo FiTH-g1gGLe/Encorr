@@ -145,9 +145,10 @@ The **[Docker guide](docs/DOCKER.md)** covers:
 - Friends sign in with Plex, Jellyfin, a **Quick Connect** code from their Jellyfin app, or a username and password.
 - Encorr checks both libraries, so nothing gets downloaded twice.
 - Plex watchlists turn into requests automatically.
+- **Report a problem:** friends can flag a film or episode that won't play, has bad sound or is missing subtitles. One click swaps it for a different copy, and they're told when it's fixed.
 
 ### 🔧 Tune-up
-- Checks the settings of SABnzbd, Radarr, Sonarr, Prowlarr, Plex and Jellyfin against trusted guides, and explains each one simply.
+- Checks the settings of SABnzbd, Radarr, Sonarr, Prowlarr, Plex and Jellyfin against trusted guides, and explains each one simply, including Plex hardware transcoding.
 - Apply the safe ones in one go, and **undo** anything later.
 - A **speed test** that finds what's slowing your downloads down.
 - It never touches passwords, addresses or remote access.
@@ -158,7 +159,8 @@ The **[Docker guide](docs/DOCKER.md)** covers:
 - Discord reminders before anything runs out, and when a block is nearly used up.
 
 ### 🎨 And the rest
-- Accounts with roles: **Owner**, **Trusted** (no approval needed) and **Friend** (with limits).
+- Accounts with roles: **Owner**, **Trusted** (no approval needed) and **Friend**.
+- **Request limits**, like 10 films a week, for everyone or set per person. People can see how many they have left.
 - Discord messages for requests, approvals, problems and "your encore is ready".
 - Midnight or graphite themes with 8 accent colours.
 - Works on Windows, Linux and Docker.

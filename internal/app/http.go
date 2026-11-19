@@ -36,6 +36,10 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	// Signed-in users
 	api("GET /api/v1/me", a.user(a.hMe))
 	api("GET /api/v1/me/quota", a.user(a.hMyQuota))
+	api("GET /api/v1/issues", a.user(a.hIssues))
+	api("POST /api/v1/issues", a.user(a.hReportIssue))
+	api("POST /api/v1/issues/{id}/replace", a.admin(a.hReplaceIssue))
+	api("POST /api/v1/issues/{id}/resolve", a.user(a.hResolveIssue))
 	api("PATCH /api/v1/me", a.user(a.hUpdateMe))
 	api("POST /api/v1/me/password", a.user(a.hChangeMyPassword))
 	api("GET /api/v1/discover/{kind}", a.user(a.hDiscover))

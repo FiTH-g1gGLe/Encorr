@@ -455,6 +455,7 @@ func (a *App) jobDownloads(ctx context.Context) (string, error) {
 		}
 		a.logf("%s finished downloading item %d; checking %s for it", svc, id, a.libName())
 		go a.checkPlexSoon(typ, id)
+		go a.issuesArrived(svc, id)
 	}
 	if len(errs) > 0 {
 		return "", errors.New(strings.Join(errs, "; "))

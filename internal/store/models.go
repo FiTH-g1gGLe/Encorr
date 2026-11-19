@@ -59,6 +59,46 @@ type Data struct {
 	Subscriptions []Subscription `json:"subscriptions,omitempty"`
 	// SubReminders remembers which expiry/usage reminders were already sent.
 	SubReminders map[string]bool `json:"subReminders,omitempty"`
+	// Issues are problems people reported with something in the library.
+	Issues []*Issue `json:"issues,omitempty"`
+}
+
+// Issue statuses.
+const (
+	IssueOpen      = "open"
+	IssueReplacing = "replacing" // a new copy has been asked for
+	IssueResolved  = "resolved"
+)
+
+// Issue is a problem someone reported with a film or show in the library:
+// it won't play, the wrong audio, missing subtitles...
+type Issue struct {
+	ID         int       `json:"id"`
+	Type       string    `json:"type"`
+	TMDBID     int       `json:"tmdbId"`
+	TVDBID     int       `json:"tvdbId,omitempty"`
+	Title      string    `json:"title"`
+	Year       int       `json:"year,omitempty"`
+	Poster     string    `json:"poster,omitempty"`
+	Season     int       `json:"season,omitempty"`  // TV: 0 = the whole show
+	Episode    int       `json:"episode,omitempty"` // 0 = the whole season
+	Kind       string    `json:"kind"`              // play | video | audio | subtitles | wrong | other
+	Note       string    `json:"note,omitempty"`
+	Status     string    `json:"status"`
+	ReportedBy int       `json:"reportedBy"`
+	Created    time.Time `json:"created"`
+	Updated    time.Time `json:"updated"`
+	// ArrApp and ArrID say which Radarr film or Sonarr show is being
+	// replaced, so the issue closes itself when the new copy arrives.
+	ArrApp string  `json:"arrApp,omitempty"`
+	ArrID  int     `json:"arrId,omitempty"`
+	Events []Event `json:"events,omitempty"`
+}
+
+// Log adds a line to the issue's story.
+func (i *Issue) Log(kind, text string) {
+	i.Events = append(i.Events, Event{At: time.Now(), Kind: kind, Text: text})
+	i.Updated = time.Now()
 }
 
 // Subscription is one paid service: a news server, an indexer, a VPN...

@@ -23,8 +23,10 @@ const (
 	EventDeclined  Event = "declined"
 	EventFailed    Event = "failed"
 	EventTest      Event = "test"
-	EventFixed     Event = "fixed"   // Encorr sorted a download out by itself
-	EventAttention Event = "warning" // something needs the owner
+	EventFixed     Event = "fixed"    // Encorr sorted a download out by itself
+	EventAttention Event = "warning"  // something needs the owner
+	EventReported  Event = "reported" // someone reported a problem with a title
+	EventResolved  Event = "resolved" // a reported problem was sorted
 )
 
 type Message struct {
@@ -74,6 +76,10 @@ func heading(e Event) (string, int) {
 		return "Encorr fixed a download", 0x38BDF8
 	case EventAttention:
 		return "Needs a hand", colorPending
+	case EventReported:
+		return "Problem reported", colorBad
+	case EventResolved:
+		return "Problem sorted", colorAvailable
 	default:
 		return "Encorr test message", colorApproved
 	}
@@ -114,7 +120,7 @@ func Discord(ctx context.Context, webhook string, m Message) error {
 		desc = "Encorr couldn't send this to Radarr/Sonarr."
 	case EventTest:
 		desc = "If you can read this, Discord notifications are working."
-	case EventFixed, EventAttention:
+	case EventFixed, EventAttention, EventReported, EventResolved:
 		desc, m.Detail = m.Detail, ""
 	}
 	fields := []map[string]any{}
