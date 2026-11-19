@@ -105,10 +105,10 @@ async function pageTitle(main, type, id) {
 
   // Ratings: TMDB always, plus IMDb / Rotten Tomatoes from Plex for things you have.
   const ratings = [];
-  if (d.rating) ratings.push(`<span class="rt tmdb"${tip(`TMDB users${d.voteCount ? ` (${d.voteCount.toLocaleString()} votes)` : ""}`)}><b>TMDB</b> ${Math.round(d.rating * 10)}%</span>`);
+  if (d.rating) ratings.push(`<span class="rt tmdb"${tip(`TMDB users${d.voteCount ? ` (${d.voteCount.toLocaleString()} votes)` : ""}`)}>${appIcon("tmdb", 18)}<span class="sr-only">TMDB</span> ${Math.round(d.rating * 10)}%</span>`);
   for (const r of (P && P.ratings) || []) {
     if (r.source === "tmdb") continue;
-    const ic = r.source === "imdb" ? `<b class="imdb">IMDb</b>` : r.source === "rt-critic" ? `<b class="rtb ${r.fresh ? "fresh" : "rotten"}">RT</b>` : `<b class="rtb aud ${r.fresh ? "fresh" : "rotten"}">Audience</b>`;
+    const ic = r.source === "imdb" ? `${appIcon("imdb", 18)}<span class="sr-only">IMDb</span>` : r.source === "rt-critic" ? `${appIcon("rotten-tomatoes", 18)}<span class="sr-only">Rotten Tomatoes</span>` : `${appIcon("rotten-tomatoes", 18)}<b class="rtb aud ${r.fresh ? "fresh" : "rotten"}">Audience</b>`;
     ratings.push(`<span class="rt ${esc(r.source)}"${tip(r.label)}>${ic} ${esc(r.value)}</span>`);
   }
 

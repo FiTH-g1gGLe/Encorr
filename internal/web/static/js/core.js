@@ -113,6 +113,27 @@ const LIB = () => (state.status && state.status.libraryName) || "Plex";
 const BOTH = () => LIB() === "your library";
 const IN_LIB = () => (BOTH() ? "In your library" : "In " + LIB());
 const YOUR_LIB = () => (BOTH() ? "your library" : "your " + LIB());
+// ---------- app badges ----------
+// Each app's logo (from /icons) and brand colour, for badges and icons.
+const APP_BRAND = {
+  discord: ["Discord", "#5865F2", true], imdb: ["IMDb", "#F5C518"], jellyfin: ["Jellyfin", "#00A4DC"],
+  plex: ["Plex", "#E5A00D"], prowlarr: ["Prowlarr", "#E6522C"], radarr: ["Radarr", "#FFC230"],
+  "rotten-tomatoes": ["Rotten Tomatoes", "#FA320A", true], sabnzbd: ["SABnzbd", "#F5B800"],
+  sonarr: ["Sonarr", "#35C5F4"], tmdb: ["TMDB", "#01B4E4"],
+};
+const appKey = (name) => {
+  const n = String(name || "").toLowerCase().trim();
+  if (n.startsWith("rotten") || n === "rt" || n.startsWith("rt-")) return "rotten-tomatoes";
+  return Object.keys(APP_BRAND).find((k) => n === k || n.startsWith(k)) || "";
+};
+// appIcon is just the logo; appBadge is logo + name on a tinted pill.
+const appIcon = (app, size = 14) => { const k = appKey(app); return k ? `<img class="aicon" src="/icons/${k}.svg" alt="" width="${size}" height="${size}" loading="lazy">` : ""; };
+function appBadge(app, label) {
+  const k = appKey(app), b = APP_BRAND[k];
+  if (!b) return `<span class="abadge plain">${esc(label || app)}</span>`;
+  return `<span class="abadge${b[2] ? " light" : ""}${k === "jellyfin" ? " jf" : ""}" style="--b:${b[1]}">${appIcon(k)}${esc(label || b[0])}</span>`;
+}
+
 // ---------- address boxes in Docker ----------
 // Inside Docker, "localhost" is Encorr itself, so address boxes (marked
 // data-addr="port") get the server's real address, a note, and a warning

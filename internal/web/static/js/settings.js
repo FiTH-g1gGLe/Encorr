@@ -534,7 +534,7 @@ async function pageSettings(main, section) {
         const bad = r.checks.filter((c) => c.status === "error").length;
         const warn = r.checks.filter((c) => c.status === "warn").length;
         qs(".lead", panel).textContent = bad ? `${bad} thing${bad > 1 ? "s need" : " needs"} attention.` : warn ? `Working, with ${warn} thing${warn > 1 ? "s" : ""} to keep an eye on.` : "Everything's looking good.";
-        qs(".checks", panel).innerHTML = r.checks.map((c) => `<div class="glass checkrow ${c.status}"><div class="ic ${c.status}">${sym[c.status] || "?"}</div><div class="cbody"><strong>${esc(c.name)}</strong><div class="small">${esc(c.message)}</div>${c.fix && c.status !== "ok" ? `<div class="fix">${esc(c.fix)}</div>` : ""}${(c.actions || []).length ? `<div class="cacts">${c.actions.map((a) => ACTIONS[a] ? `<button class="btn sm" data-hact="${a}">${I[ACTIONS[a][1]]} ${ACTIONS[a][0]}</button>` : "").join("")}</div>` : ""}</div></div>`).join("");
+        qs(".checks", panel).innerHTML = r.checks.map((c) => `<div class="glass checkrow ${c.status}"><div class="ic ${c.status}">${sym[c.status] || "?"}</div><div class="cbody"><strong class="cname">${appIcon(c.name.replace(/^Indexers?\b.*/i, "prowlarr"), 18)}${esc(c.name)}</strong><div class="small">${esc(c.message)}</div>${c.fix && c.status !== "ok" ? `<div class="fix">${esc(c.fix)}</div>` : ""}${(c.actions || []).length ? `<div class="cacts">${c.actions.map((a) => ACTIONS[a] ? `<button class="btn sm" data-hact="${a}">${I[ACTIONS[a][1]]} ${ACTIONS[a][0]}</button>` : "").join("")}</div>` : ""}</div></div>`).join("");
         bindActs(qs(".checks", panel));
       } catch (e) { qs(".checks", panel).innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
       try {
@@ -569,7 +569,7 @@ async function pageSettings(main, section) {
       const [lv, lvTip] = LEVEL[f.level] || ["", ""];
       const change = f.status === "change";
       return `<div class="tfind ${esc(f.status)} l-${esc(f.level)}">
-        <div class="tfmain"><div class="tftop"><span class="tapp">${esc(APPS[f.app] || f.app)}</span><strong>${esc(f.title)}</strong>${change || f.level === "warn" ? `<span class="tlv l-${esc(f.level)}"${lvTip ? tip(lvTip) : ""}>${lv}</span>` : ""}</div>
+        <div class="tfmain"><div class="tftop">${appBadge(f.app, APPS[f.app])}<strong>${esc(f.title)}</strong>${change || f.level === "warn" ? `<span class="tlv l-${esc(f.level)}"${lvTip ? tip(lvTip) : ""}>${lv}</span>` : ""}</div>
           <div class="tfwhy">${esc(f.why)}</div>
           ${f.current || f.recommended ? `<div class="tfvals">${f.current ? `<span class="cur">${esc(f.current)}</span>` : ""}${f.recommended ? `<span class="arrow">→</span><span class="rec">${esc(f.recommended)}</span>` : ""}</div>` : ""}
           ${f.fix ? `<div class="tffix">${I.hand} ${esc(f.fix)}</div>` : ""}
@@ -590,7 +590,7 @@ async function pageSettings(main, section) {
       const warn = fs.filter((f) => f.level === "warn");
       const advice = fs.filter((f) => f.status === "notice" && f.level !== "warn");
       const good = fs.filter((f) => f.status === "ok");
-      const appsHtml = r.apps.map((a) => `<span class="tappchip ${a.connected ? "on" : a.error ? "bad" : ""}"${tip(a.error || (a.connected ? "Connected" : "Not connected"))}><i></i>${esc(APPS[a.app])}${a.version ? ` <em>${esc(a.version)}</em>` : ""}</span>`).join("");
+      const appsHtml = r.apps.map((a) => `<span class="tappchip ${a.connected ? "on" : a.error ? "bad" : ""}"${tip(a.error || (a.connected ? "Connected" : "Not connected"))}><i></i>${appIcon(a.app)}${esc(APPS[a.app])}${a.version ? ` <em>${esc(a.version)}</em>` : ""}</span>`).join("");
       const prow = r.apps.find((a) => a.app === "prowlarr");
       const prowForm = prow && !prow.connected ? `<details class="glass tprow"><summary><strong>Connect Prowlarr</strong> <span class="small dim">to check your indexers too (optional)</span></summary>
         <div class="grid2"><label class="field"><span>Address</span><input id="pUrl" type="url" data-addr="9696" placeholder="http://localhost:9696" value="${esc((s.prowlarr || {}).url || "")}"></label>
@@ -610,7 +610,7 @@ async function pageSettings(main, section) {
         ${section("Recommended", todo.filter((f) => f.level !== "warn"))}
         ${section("Advice", advice)}
         ${good.length ? `<details class="tgood"><summary>${good.length} setting${good.length === 1 ? " is" : "s are"} already as recommended</summary><div class="tlist2">${good.map(row).join("")}</div></details>` : ""}
-        ${changes.length ? `<h3 class="tsec">Changes made by Tune-up</h3><div class="tlist2">${changes.map((c) => `<div class="tfind chg ${c.undone ? "undone" : ""}"><div class="tfmain"><div class="tftop"><span class="tapp">${esc(APPS[c.app] || c.app)}</span><strong>${esc(c.title)}</strong></div><div class="tfwhy">${esc(exact(c.at))} by ${esc(c.by || "someone")}${c.undone ? " · undone" : ""}</div></div>${c.canUndo && !c.undone ? `<button class="btn sm" data-undo="${c.id}">${I.refresh} Undo</button>` : ""}</div>`).join("")}</div>` : ""}`;
+        ${changes.length ? `<h3 class="tsec">Changes made by Tune-up</h3><div class="tlist2">${changes.map((c) => `<div class="tfind chg ${c.undone ? "undone" : ""}"><div class="tfmain"><div class="tftop">${appBadge(c.app, APPS[c.app])}<strong>${esc(c.title)}</strong></div><div class="tfwhy">${esc(exact(c.at))} by ${esc(c.by || "someone")}${c.undone ? " · undone" : ""}</div></div>${c.canUndo && !c.undone ? `<button class="btn sm" data-undo="${c.id}">${I.refresh} Undo</button>` : ""}</div>`).join("")}</div>` : ""}`;
       const apply = async (ids, btn) => {
         busy(btn, true, "Applying…");
         try {
@@ -715,12 +715,12 @@ async function pageSettings(main, section) {
     };
     const card = (v, i) => {
       const planTxt = PLAN[v.plan] || (v.source === "Prowlarr" && v.renews ? "VIP account" : "");
-      const bits = [esc(KIND[v.kind] || v.kind), planTxt ? esc(planTxt) : "", v.source !== "You" ? `from ${esc(v.source)}` : ""].filter(Boolean).join(" · ");
+      const bits = [esc(KIND[v.kind] || v.kind), planTxt ? esc(planTxt) : ""].filter(Boolean).join(" · ");
       const cost = v.cost ? ` · <b class="scost">${money(v.cost, v.currency)}</b>${v.plan === "monthly" ? "/month" : v.plan === "yearly" ? "/year" : ""}` : "";
       return `<article class="subrow s-${esc(v.status)}" style="--i:${i}">
         <div class="sico"${tip(ST[v.status] || "")}>${KICON[v.kind] || KICON.other}</div>
         <div class="sbody">
-          <div class="sname"><b>${esc(v.name)}</b>${v.source === "You" ? `<span class="schip">Added by you</span>` : ""}<span class="sstate">${esc(ST[v.status] || v.status)}</span></div>
+          <div class="sname"><b>${esc(v.name)}</b>${v.source === "You" ? `<span class="schip">Added by you</span>` : appBadge(v.source)}<span class="sstate">${esc(ST[v.status] || v.status)}</span></div>
           <div class="ssub">${bits}${cost}</div>
           ${v.note ? `<div class="snote">${I.warn} ${esc(v.note)}</div>` : ""}${v.notes ? `<div class="snotes">${esc(v.notes)}</div>` : ""}
         </div>
