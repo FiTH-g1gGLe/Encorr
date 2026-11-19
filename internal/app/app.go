@@ -39,6 +39,11 @@ type App struct {
 	movieInfo map[int]arr.MovieInfo              // Radarr id -> release dates etc.
 	showInfo  map[int]arr.SeriesInfo             // Sonarr id -> next episode etc.
 	recent    recentCache                        // "Just added to Plex" row
+	fixes     map[string]*fixState               // auto-fix memory per download
+	// orphansCleared is when auto-fix last cleared SABnzbd's leftover folders.
+	orphansCleared time.Time
+	lastProgress   time.Time // when any download last moved (auto-fix)
+	stallWarned    time.Time
 
 	sabTried bool
 	// Background is set by main: runs Encorr as a Windows service.

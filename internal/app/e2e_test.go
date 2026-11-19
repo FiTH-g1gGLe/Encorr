@@ -828,7 +828,7 @@ func TestEndToEnd(t *testing.T) {
 	if _, err := a.jobDownloads(ctx); err != nil {
 		t.Fatal(err)
 	}
-	owner.ok("GET", "/requests?filter=active", nil, &prog)
+	owner.ok("GET", "/requests?filter=needs", nil, &prog)
 	blocked := false
 	for _, r := range prog.Results {
 		if r.ID == reqID {
@@ -855,6 +855,149 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("should import the main file for the right film: %+v", files)
 	}
 	_ = reqType
+
+	// 27. Requests are grouped (Needs you / Active / Coming soon / Ready)
+	// with counts, whatever the filter.
+	var grouped struct {
+		Results []requestOut
+		Groups  map[string]int
+	}
+	owner.ok("GET", "/requests?filter=ready", nil, &grouped)
+	if grouped.Groups["all"] == 0 {
+		t.Fatalf("expected group counts: %+v", grouped.Groups)
+	}
+	for _, r := range grouped.Results {
+		if r.Group != "ready" || r.Arrived == nil {
+			t.Fatalf("ready list should only hold arrived requests: %+v", r)
+		}
+	}
+
+	// 28. The timeline merges Encorr's own events with Radarr's history.
+	fk.History["radarr"] = []map[string]any{
+		{"date": time.Now().Add(-time.Hour).Format(time.RFC3339), "eventType": "grabbed", "sourceTitle": "Some.Film.2020.1080p", "data": map[string]any{"indexer": "NZBgeek"}},
+		{"date": time.Now().Add(-30 * time.Minute).Format(time.RFC3339), "eventType": "downloadFailed", "sourceTitle": "Some.Film.2020.1080p", "data": map[string]any{"message": "Missing articles"}},
+	}
+	var tl struct{ Items []timelineItem }
+	owner.ok("GET", "/requests/"+itoa(reqID)+"/timeline", nil, &tl)
+	var sawGrab, sawFail, sawSearch bool
+	for _, it := range tl.Items {
+		sawGrab = sawGrab || it.Kind == "grabbed" && strings.Contains(it.Detail, "NZBgeek")
+		sawFail = sawFail || it.Kind == "failed" && strings.Contains(it.Detail, "Missing articles")
+		sawSearch = sawSearch || it.Kind == "search"
+	}
+	if !sawGrab || !sawFail || !sawSearch {
+		t.Fatalf("timeline is missing lines: %+v", tl.Items)
+	}
+
+	// 29. Download controls: move to front, pause, then swap for another copy.
+	fk.Queue["radarr"] = []map[string]any{{"id": 501, "movieId": movieExt, "title": "Some.Film.2020.1080p", "size": 4e9, "sizeleft": 2e9,
+		"status": "downloading", "trackedDownloadState": "downloading", "downloadId": "nzo_live"}}
+	if _, err := a.jobDownloads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner.ok("POST", "/requests/"+itoa(reqID)+"/download/top", map[string]any{}, nil)
+	owner.ok("POST", "/requests/"+itoa(reqID)+"/download/pause", map[string]any{}, nil)
+	if strings.Join(fk.SABCalls, ",") != "switch:nzo_live,pause:nzo_live" {
+		t.Fatalf("SABnzbd calls: %v", fk.SABCalls)
+	}
+	owner.ok("POST", "/requests/"+itoa(reqID)+"/download/retry", map[string]any{}, nil)
+	if len(fk.Removed) != 1 || fk.Removed[0]["blocklist"] != "true" || fk.Removed[0]["skipRedownload"] != "false" {
+		t.Fatalf("retry should remove, blocklist and re-search: %+v", fk.Removed)
+	}
+	if code, _ := owner.call("POST", "/requests/"+itoa(reqID)+"/download/nope", map[string]any{}, nil); code != 400 {
+		t.Fatalf("unknown action: %d", code)
+	}
+
+	// 30. Pick a copy by hand.
+	var rel struct{ Releases []releaseOut }
+	owner.ok("GET", "/requests/"+itoa(reqID)+"/releases", nil, &rel)
+	if len(rel.Releases) != 2 || !rel.Releases[0].Approved || rel.Releases[1].Approved || len(rel.Releases[1].Rejections) != 1 {
+		t.Fatalf("releases: %+v", rel.Releases)
+	}
+	owner.ok("POST", "/requests/"+itoa(reqID)+"/releases", map[string]any{"guid": "g1", "indexerId": 1, "title": "Good.Copy.1080p.WEB-DL"}, nil)
+	if len(fk.Grabbed) != 1 || fk.Grabbed[0]["guid"] != "g1" {
+		t.Fatalf("grab: %+v", fk.Grabbed)
+	}
+
+	// 31. Episodes for a show: one row per episode of the requested seasons.
+	var tvReq int
+	a.Store.Read(func(d *store.Data) {
+		for _, r := range d.Requests {
+			if m := d.MediaByID(r.MediaID); m != nil && m.ExternalID != 0 && r.Type == store.TypeTV && r.TMDBID == 202 {
+				tvReq = r.ID
+			}
+		}
+	})
+	if tvReq == 0 {
+		t.Fatal("no Low Orbit request linked to Sonarr")
+	}
+	var eps struct{ Seasons []seasonEpisodes }
+	owner.ok("GET", "/requests/"+itoa(tvReq)+"/episodes", nil, &eps)
+	if len(eps.Seasons) != 2 || eps.Seasons[0].Total != 10 || len(eps.Seasons[0].Episodes) != 10 {
+		t.Fatalf("episodes: %+v", eps.Seasons)
+	}
+	if e := eps.Seasons[0].Episodes[0]; e.Number != 1 || e.Title != "Episode 1" || e.Status == "" {
+		t.Fatalf("first episode: %+v", e)
+	}
+	before = len(fk.Commands)
+	owner.ok("POST", "/requests/"+itoa(tvReq)+"/search", map[string]any{"season": 2}, nil)
+	if c := fk.Commands[before]; c["name"] != "SeasonSearch" || c["seasonNumber"].(float64) != 2 {
+		t.Fatalf("season search: %+v", c)
+	}
+	if code, _ := friend.call("GET", "/requests/"+itoa(tvReq)+"/episodes", nil, nil); code != 404 {
+		t.Fatalf("friends can't see someone else's request details: %d", code)
+	}
+
+	// 32. Auto-fix swaps a failed download and a stalled one for new copies.
+	fk.Removed = nil
+	fk.Queue["radarr"] = []map[string]any{
+		{"id": 601, "movieId": movieExt, "title": "Broken.Copy", "size": 4e9, "sizeleft": 1e9, "status": "failed", "trackedDownloadState": "failedPending", "downloadId": "nzo_failed"},
+	}
+	if _, err := a.jobDownloads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := a.autoFix(ctx, true); n != 0 {
+		t.Fatal("a fresh failure gets a few minutes before Encorr steps in")
+	}
+	a.mu.Lock()
+	a.fixes["radarr:nzo_failed"].seen = time.Now().Add(-time.Hour)
+	a.mu.Unlock()
+	if n, _ := a.autoFix(ctx, true); n != 1 || len(fk.Removed) != 1 || fk.Removed[0]["id"] != 601 || fk.Removed[0]["blocklist"] != "true" {
+		t.Fatalf("failed download should be swapped: %d %+v", n, fk.Removed)
+	}
+	fk.Queue["radarr"] = []map[string]any{
+		{"id": 602, "movieId": movieExt, "title": "Slow.Copy", "size": 4e9, "sizeleft": 1e9, "status": "downloading", "trackedDownloadState": "downloading", "downloadId": "nzo_slow"},
+	}
+	_, _ = a.jobDownloads(ctx)
+	_, _ = a.autoFix(ctx, true)
+	a.mu.Lock()
+	a.fixes["radarr:nzo_slow"].moved = time.Now().Add(-2 * time.Hour)
+	a.lastProgress = time.Now().Add(-2 * time.Hour)
+	a.mu.Unlock()
+	if n, _ := a.autoFix(ctx, true); n != 0 || len(fk.Removed) != 1 {
+		t.Fatalf("when nothing at all is moving it's the connection, not the copy: %d %+v", n, fk.Removed)
+	}
+	a.mu.Lock()
+	a.lastProgress = time.Now() // other downloads are moving fine
+	a.mu.Unlock()
+	if n, _ := a.autoFix(ctx, true); n != 1 || len(fk.Removed) != 2 || fk.Removed[1]["id"] != 602 {
+		t.Fatalf("stalled download should be swapped: %d %+v", n, fk.Removed)
+	}
+	var actLog struct{ Items []store.Activity }
+	owner.ok("GET", "/activity", nil, &actLog)
+	if len(actLog.Items) < 3 || !strings.Contains(actLog.Items[0].Title, "stalled") || !strings.Contains(actLog.Items[1].Title, "Nothing has downloaded") || !strings.Contains(actLog.Items[2].Title, "failed") {
+		t.Fatalf("activity log: %+v", actLog.Items)
+	}
+
+	// 33. Health fix buttons.
+	fk.SABOrphans = []string{"Old.Job"}
+	owner.ok("POST", "/health/sab-orphans", map[string]any{}, nil)
+	if fk.SABCalls[len(fk.SABCalls)-1] != "orphans" || fk.SABOrphans != nil {
+		t.Fatalf("orphans should be cleared: %v", fk.SABCalls)
+	}
+	if code, _ := friend.call("POST", "/health/sab-restart", map[string]any{}, nil); code != 403 {
+		t.Fatalf("friends can't use fix buttons: %d", code)
+	}
 }
 
 func ownerID(st *store.Store) int {

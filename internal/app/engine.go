@@ -198,9 +198,12 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 			Status: store.ReqPending, RequestedBy: u.ID, Source: nr.Source, Note: nr.Note,
 			Created: now, Updated: now,
 		}
+		via := map[string]string{"watchlist": " from their Plex watchlist", "app": " from the app", "discord": " from Discord"}[nr.Source]
+		req.Log("requested", "Requested by "+u.Username+via)
 		if autoApproves(u.Role) {
 			req.Status = store.ReqApproved
 			req.ModifiedBy = u.ID
+			req.Log("approved", "Approved automatically ("+map[string]string{store.RoleAdmin: "owner", store.RoleTrusted: "trusted"}[u.Role]+")")
 			if m.Status != store.MediaPartial {
 				m.Status = store.MediaProcessing
 			}
@@ -272,14 +275,24 @@ func (a *App) SetStatus(reqID, adminID int, approve bool, reason string) (*store
 		r.ModifiedBy = adminID
 		r.Updated = time.Now()
 		m := d.MediaByID(r.MediaID)
+		who := "the owner"
+		if au := d.UserByID(adminID); au != nil {
+			who = au.Username
+		}
 		if approve {
 			r.Status = store.ReqApproved
+			r.Log("approved", "Approved by "+who)
 			if m != nil && m.Status != store.MediaAvailable && m.Status != store.MediaPartial {
 				m.Status = store.MediaProcessing
 			}
 		} else {
 			r.Status = store.ReqDeclined
 			r.Error = strings.TrimSpace(reason)
+			if r.Error != "" {
+				r.Log("declined", "Declined by "+who+": "+r.Error)
+			} else {
+				r.Log("declined", "Declined by "+who)
+			}
 			if m != nil && m.Status == store.MediaPending && !hasActive(d, m.ID) {
 				m.Status = store.MediaUnknown
 			}
@@ -326,6 +339,7 @@ func (a *App) Retry(reqID int) error {
 			return userErr("Only failed requests can be retried.")
 		}
 		r.Status, r.Error, r.Updated = store.ReqApproved, "", time.Now()
+		r.Log("retry", "Sent again after it failed")
 		return nil
 	})
 	if err == nil {
@@ -452,12 +466,15 @@ func (a *App) SendToArr(ctx context.Context, reqID int) error {
 			return nil
 		}
 		rr.Updated = time.Now()
+		app := map[string]string{store.TypeMovie: "Radarr", store.TypeTV: "Sonarr"}[r.Type]
 		if sendErr != nil {
 			rr.Status = store.ReqFailed
 			rr.Error = sendErr.Error()
+			rr.Log("failed", "Couldn't send it to "+app+": "+sendErr.Error())
 			return nil
 		}
 		rr.Error = ""
+		rr.Log("sent", "Sent to "+app+", which starts looking for a copy")
 		if mm != nil && externalID > 0 {
 			mm.ExternalID = externalID
 		}
@@ -546,6 +563,8 @@ func (a *App) markAvailable(typ string, tmdbID int, plexKey string, seasons map[
 			if done {
 				r.Status = store.ReqCompleted
 				r.Updated = now
+				r.DoneAt = &now
+				r.Log("ready", "In Plex and ready to watch")
 				p := ping{r: *r}
 				if u := d.UserByID(r.RequestedBy); u != nil {
 					p.u = *u

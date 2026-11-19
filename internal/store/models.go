@@ -48,6 +48,8 @@ type Data struct {
 	// WatchlistSkip lists watchlist titles someone removed from Encorr, so the
 	// watchlist sync doesn't keep adding them back: "userID:movie:603".
 	WatchlistSkip map[string]bool `json:"watchlistSkip,omitempty"`
+	// Activity is the auto-fix log, newest last, capped at 200.
+	Activity []Activity `json:"activity,omitempty"`
 }
 
 // SkipKey is the WatchlistSkip key for one user's title.
@@ -77,7 +79,12 @@ type Settings struct {
 	Discord       DiscordSetting `json:"discord"`
 	SABnzbd       SabSettings    `json:"sabnzbd"`
 	Quotas        QuotaSettings  `json:"quotas"`
+	// AutoFix lets Encorr sort out stuck downloads by itself. nil means on.
+	AutoFix *bool `json:"autoFix,omitempty"`
 }
+
+// AutoFixOn reports whether self-healing is switched on (the default).
+func (s Settings) AutoFixOn() bool { return s.AutoFix == nil || *s.AutoFix }
 
 type PlexSettings struct {
 	ServerName string        `json:"serverName"`
@@ -145,6 +152,9 @@ type User struct {
 	WatchlistSync      bool      `json:"watchlistSync"`
 	Created            time.Time `json:"created"`
 	LastSeen           time.Time `json:"lastSeen"`
+	// ReadySeen is when they last looked at their ready requests, for the
+	// "new" badge.
+	ReadySeen time.Time `json:"readySeen,omitempty"`
 }
 
 type Media struct {
@@ -184,6 +194,36 @@ type Request struct {
 	Error       string    `json:"error,omitempty"`
 	Created     time.Time `json:"created"`
 	Updated     time.Time `json:"updated"`
+	// DoneAt is when everything asked for reached Plex.
+	DoneAt *time.Time `json:"doneAt,omitempty"`
+	// Events is the request's own story: requested, approved, sent, fixed...
+	// Radarr/Sonarr's history is merged in when the timeline is shown.
+	Events []Event `json:"events,omitempty"`
+}
+
+// Event is one line in a request's timeline.
+type Event struct {
+	At   time.Time `json:"at"`
+	Kind string    `json:"kind"` // requested | approved | declined | sent | failed | ready | retry | search | fix | action
+	Text string    `json:"text"`
+}
+
+// Log adds a line to the request's timeline (kept to the last 60).
+func (r *Request) Log(kind, text string) {
+	r.Events = append(r.Events, Event{At: time.Now(), Kind: kind, Text: text})
+	if len(r.Events) > 60 {
+		r.Events = r.Events[len(r.Events)-60:]
+	}
+}
+
+// Activity is one thing Encorr did by itself (or an admin did through it)
+// to keep downloads moving. Shown on the Health page.
+type Activity struct {
+	At        time.Time `json:"at"`
+	Kind      string    `json:"kind"` // fix | warn | action
+	Title     string    `json:"title"`
+	Detail    string    `json:"detail,omitempty"`
+	RequestID int       `json:"requestId,omitempty"`
 }
 
 type Session struct {

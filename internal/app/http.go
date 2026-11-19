@@ -42,6 +42,8 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("GET /api/v1/requests", a.user(a.hRequests))
 	api("POST /api/v1/requests", a.user(a.hCreateRequest))
 	api("DELETE /api/v1/requests/{id}", a.user(a.hDeleteRequest))
+	api("GET /api/v1/requests/{id}/episodes", a.user(a.hEpisodes))
+	api("GET /api/v1/requests/{id}/timeline", a.user(a.hTimeline))
 
 	// Admins
 	api("POST /api/v1/requests/{id}/approve", a.admin(a.hApprove))
@@ -49,6 +51,11 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("POST /api/v1/requests/{id}/retry", a.admin(a.hRetry))
 	api("POST /api/v1/requests/{id}/search", a.admin(a.hSearchNow))
 	api("POST /api/v1/requests/{id}/import", a.admin(a.hImportNow))
+	api("POST /api/v1/requests/{id}/download/{action}", a.admin(a.hDownload))
+	api("GET /api/v1/requests/{id}/releases", a.admin(a.hReleases))
+	api("POST /api/v1/requests/{id}/releases", a.admin(a.hGrab))
+	api("POST /api/v1/health/{action}", a.admin(a.hHealthAction))
+	api("GET /api/v1/activity", a.admin(a.hActivity))
 	api("GET /api/v1/users", a.admin(a.hUsers))
 	api("PATCH /api/v1/users/{id}", a.admin(a.hUpdateUser))
 	api("POST /api/v1/users/import", a.admin(a.hImportUsers))

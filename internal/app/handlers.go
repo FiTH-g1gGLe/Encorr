@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -716,78 +717,221 @@ type requestOut struct {
 	Release    *time.Time `json:"release,omitempty"`    // film: when it comes out to buy/stream
 	NextAiring *time.Time `json:"nextAiring,omitempty"` // show: next new episode
 	LastSearch *time.Time `json:"lastSearch,omitempty"` // when Encorr last asked for a fresh search
+	// Group is the filter it lives under: needs | active | upcoming | ready | declined.
+	Group      string     `json:"group"`
+	NextSearch *time.Time `json:"nextSearch,omitempty"` // when Encorr will look again by itself
+	Problem    string     `json:"problem,omitempty"`    // why it needs a hand
+	Arrived    *time.Time `json:"arrived,omitempty"`    // when it reached Plex
+	PlexURL    string     `json:"plexUrl,omitempty"`
+	New        bool       `json:"new,omitempty"`     // ready since the requester last looked
+	Managed    bool       `json:"managed,omitempty"` // has a live download an admin can control
 }
 
 type seasonOut struct {
-	Season int `json:"season"`
-	Have   int `json:"have"`
-	Want   int `json:"want"`
+	Season      int `json:"season"`
+	Have        int `json:"have"`
+	Want        int `json:"want"`
+	Downloading int `json:"downloading,omitempty"`
 }
 
 // statePriority orders In progress: things that need a hand first.
 var statePriority = map[string]int{"attention": 0, "pending": 1, "downloading": 2, "finishing": 3, "searching": 4, "waiting": 5}
 
+// readyFor is how long finished requests stay on the Ready list.
+const readyFor = 30 * 24 * time.Hour
+
+// groupOf files a request under one of the request filters.
+func groupOf(ro *requestOut, admin bool) string {
+	switch ro.Status {
+	case store.ReqPending:
+		if admin {
+			return "needs"
+		}
+		return "active"
+	case store.ReqFailed:
+		return "needs"
+	case store.ReqDeclined:
+		return "declined"
+	case store.ReqCompleted:
+		return "ready"
+	}
+	switch ro.State {
+	case "attention":
+		return "needs"
+	case "waiting":
+		return "upcoming"
+	}
+	return "active"
+}
+
+// plexURL opens a library item in Plex's web app.
+func (a *App) plexURL(ratingKey string) string {
+	mid := a.settings().Plex.MachineID
+	if mid == "" || ratingKey == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://app.plex.tv/desktop/#!/server/%s/details?key=%s", mid, url.QueryEscape("/library/metadata/"+ratingKey))
+}
+
 func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 	filter := r.URL.Query().Get("filter")
-	var out []requestOut
+	older := r.URL.Query().Get("older") == "1"
+	admin := u.Role == store.RoleAdmin
+	var all []requestOut
+	var nudgeRan time.Time
+	now := time.Now()
 	a.Store.Read(func(d *store.Data) {
+		nudgeRan = d.Jobs["nudge"].LastRun
+		seen := u.ReadySeen
+		if me := d.UserByID(u.ID); me != nil {
+			seen = me.ReadySeen
+		}
 		for _, rq := range d.Requests {
-			if u.Role != store.RoleAdmin && rq.RequestedBy != u.ID && filter != "all" {
-				continue
-			}
-			if filter == "mine" && rq.RequestedBy != u.ID {
-				continue
-			}
-			if filter == "pending" && rq.Status != store.ReqPending {
-				continue
-			}
-			if filter == "active" {
-				// Admins see pending ones on their own tab.
-				keep := rq.Status == store.ReqApproved || rq.Status == store.ReqFailed ||
-					(rq.Status == store.ReqPending && u.Role != store.RoleAdmin)
-				if !keep {
-					continue
-				}
-			}
-			if filter == "completed" && rq.Status != store.ReqCompleted {
+			if !admin && rq.RequestedBy != u.ID && filter != "all" {
 				continue
 			}
 			ro := requestOut{Request: *rq}
+			ro.Events = nil // the timeline has its own endpoint
 			if ru := d.UserByID(rq.RequestedBy); ru != nil {
 				ro.User, ro.UserImg = ru.Username, ru.Thumb
 			}
 			if mu := d.UserByID(rq.ModifiedBy); mu != nil && rq.ModifiedBy != rq.RequestedBy {
 				ro.Modifier = mu.Username
 			}
+			m := d.MediaByID(rq.MediaID)
 			switch rq.Status {
 			case store.ReqApproved:
-				if m := d.MediaByID(rq.MediaID); m != nil {
+				if m != nil {
 					a.describeOpen(&ro, m)
 				}
 			case store.ReqFailed:
 				ro.State = "attention"
+				ro.Problem = rq.Error
 			case store.ReqPending:
 				ro.State = "pending"
+			case store.ReqCompleted:
+				t := rq.Updated
+				if rq.DoneAt != nil {
+					t = *rq.DoneAt
+				} else if m != nil && m.AvailableAt != nil && m.AvailableAt.After(rq.Created) {
+					t = *m.AvailableAt
+				}
+				ro.Arrived = &t
+				ro.New = rq.RequestedBy == u.ID && t.After(seen) && !seen.IsZero()
+				if m != nil {
+					ro.PlexURL = a.plexURL(m.PlexKey)
+				}
 			}
-			out = append(out, ro)
+			if ro.State == "attention" && ro.Problem == "" && ro.Progress != nil {
+				ro.Problem = ro.Progress.Note
+			}
+			if ro.State == "searching" {
+				next := rq.Updated.Add(2 * time.Hour)
+				if ro.LastSearch != nil {
+					next = ro.LastSearch.Add(nudgeEvery)
+				}
+				if next.Before(now) {
+					next = nudgeRan.Add(2 * time.Hour)
+					if next.Before(now) {
+						next = now.Add(5 * time.Minute)
+					}
+				}
+				ro.NextSearch = &next
+			}
+			ro.Managed = ro.Progress != nil && ro.Progress.Items > 0
+			ro.Group = groupOf(&ro, admin)
+			all = append(all, ro)
 		}
 	})
-	sort.Slice(out, func(i, j int) bool {
-		if filter == "active" && out[i].State != out[j].State {
-			return statePriority[out[i].State] < statePriority[out[j].State]
+	// Counts cover what this person can see on their own lists.
+	counts := map[string]int{}
+	states := map[string]int{}
+	newReady := 0
+	var out []requestOut
+	for _, ro := range all {
+		mine := admin || ro.RequestedBy == u.ID
+		stale := ro.Group == "ready" && ro.Arrived != nil && now.Sub(*ro.Arrived) > readyFor
+		if mine {
+			if !stale {
+				counts[ro.Group]++
+			}
+			counts["all"]++
+			if ro.New {
+				newReady++
+			}
 		}
-		return out[i].Created.After(out[j].Created)
+		keep := false
+		switch filter {
+		case "needs", "active", "upcoming":
+			keep = mine && ro.Group == filter
+		case "ready":
+			keep = mine && ro.Group == "ready" && (older || !stale)
+		case "mine":
+			keep = ro.RequestedBy == u.ID
+		case "pending": // older clients
+			keep = mine && ro.Status == store.ReqPending
+		case "completed":
+			keep = mine && ro.Status == store.ReqCompleted
+		case "all", "":
+			keep = true
+		}
+		if !keep {
+			continue
+		}
+		if ro.State != "" {
+			states[ro.State]++
+		}
+		out = append(out, ro)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		x, y := out[i], out[j]
+		switch filter {
+		case "active", "needs":
+			if x.State != y.State {
+				return statePriority[x.State] < statePriority[y.State]
+			}
+		case "upcoming":
+			dx, dy := soonest(x), soonest(y)
+			if !dx.Equal(dy) {
+				return dx.Before(dy)
+			}
+		case "ready":
+			if x.Arrived != nil && y.Arrived != nil {
+				return x.Arrived.After(*y.Arrived)
+			}
+		}
+		return x.Created.After(y.Created)
 	})
 	if out == nil {
 		out = []requestOut{}
 	}
-	counts := map[string]int{}
-	for _, ro := range out {
-		if ro.State != "" {
-			counts[ro.State]++
-		}
+	if filter == "ready" && newReady > 0 {
+		_ = a.Store.Update(func(d *store.Data) error {
+			if me := d.UserByID(u.ID); me != nil {
+				me.ReadySeen = now
+			}
+			return nil
+		})
+	} else if filter == "ready" {
+		_ = a.Store.Update(func(d *store.Data) error {
+			if me := d.UserByID(u.ID); me != nil && me.ReadySeen.IsZero() {
+				me.ReadySeen = now
+			}
+			return nil
+		})
 	}
-	writeJSON(w, 200, map[string]any{"results": out, "counts": counts})
+	writeJSON(w, 200, map[string]any{"results": out, "counts": states, "groups": counts, "newReady": newReady})
+}
+
+// soonest is the date something coming soon is expected (far future if unknown).
+func soonest(ro requestOut) time.Time {
+	if ro.Release != nil {
+		return *ro.Release
+	}
+	if ro.NextAiring != nil {
+		return *ro.NextAiring
+	}
+	return time.Now().AddDate(10, 0, 0)
 }
 
 func (a *App) hCreateRequest(w http.ResponseWriter, r *http.Request, u *store.User) {
@@ -984,7 +1128,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 	s := a.settings()
 	writeJSON(w, 200, map[string]any{
 		"setupComplete": s.SetupComplete, "appUrl": s.AppURL, "region": s.Region, "language": s.Language,
-		"accent": s.Accent, "theme": s.Theme, "quotas": s.Quotas,
+		"accent": s.Accent, "theme": s.Theme, "quotas": s.Quotas, "autoFix": s.AutoFixOn(),
 		"plex":    map[string]any{"serverName": s.Plex.ServerName, "machineId": s.Plex.MachineID, "url": s.Plex.URL, "libraries": s.Plex.Libraries},
 		"tmdb":    map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked(), "builtIn": tmdb.BuiltInKey != ""},
 		"radarr":  maskArr(s.Radarr),
@@ -996,11 +1140,12 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 
 func (a *App) hSaveGeneral(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var body struct {
-		AppURL *string              `json:"appUrl"`
-		Region *string              `json:"region"`
-		Accent *string              `json:"accent"`
-		Theme  *string              `json:"theme"`
-		Quotas *store.QuotaSettings `json:"quotas"`
+		AppURL  *string              `json:"appUrl"`
+		Region  *string              `json:"region"`
+		Accent  *string              `json:"accent"`
+		Theme   *string              `json:"theme"`
+		Quotas  *store.QuotaSettings `json:"quotas"`
+		AutoFix *bool                `json:"autoFix"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		fail(w, err)
@@ -1024,6 +1169,10 @@ func (a *App) hSaveGeneral(w http.ResponseWriter, r *http.Request, u *store.User
 		}
 		if body.Accent != nil && validAccents[*body.Accent] {
 			st.Accent = *body.Accent
+		}
+		if body.AutoFix != nil {
+			v := *body.AutoFix
+			st.AutoFix = &v
 		}
 		if body.Quotas != nil {
 			q := *body.Quotas
@@ -1463,6 +1612,19 @@ func (a *App) describeOpen(ro *requestOut, m *store.Media) {
 	svc := "radarr"
 	if ro.Type == store.TypeTV {
 		svc = "sonarr"
+		dl := map[int]map[int]bool{} // season -> episodes downloading
+		a.mu.Lock()
+		for _, it := range a.downloads["sonarr"][m.ExternalID] {
+			sn := it.SeasonNumber
+			if it.Episode != nil {
+				sn = it.Episode.SeasonNumber
+			}
+			if dl[sn] == nil {
+				dl[sn] = map[int]bool{}
+			}
+			dl[sn][it.EpisodeID] = true
+		}
+		a.mu.Unlock()
 		for _, s := range ro.Request.Seasons {
 			want, have := m.SeasonEps[s], m.SeasonHave[s]
 			if have > want {
@@ -1470,7 +1632,11 @@ func (a *App) describeOpen(ro *requestOut, m *store.Media) {
 			}
 			ro.Want += want
 			ro.Have += have
-			ro.Seasons = append(ro.Seasons, seasonOut{Season: s, Have: have, Want: want})
+			down := len(dl[s])
+			if down > want-have {
+				down = want - have
+			}
+			ro.Seasons = append(ro.Seasons, seasonOut{Season: s, Have: have, Want: want, Downloading: down})
 		}
 	}
 	a.mu.Lock()
@@ -1512,18 +1678,36 @@ func (a *App) describeOpen(ro *requestOut, m *store.Media) {
 	}
 }
 
-// hSearchNow asks Radarr/Sonarr to search for a request straight away.
+// hSearchNow asks Radarr/Sonarr to search for a request straight away: the
+// whole thing, one season, or a few episodes.
 func (a *App) hSearchNow(w http.ResponseWriter, r *http.Request, u *store.User) {
-	svc, c, id, err := a.arrFor(pathInt(r, "id"))
+	reqID := pathInt(r, "id")
+	svc, c, id, err := a.arrFor(reqID)
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	var body struct {
+		Season   int   `json:"season"`
+		Episodes []int `json:"episodes"`
+	}
+	_ = readJSON(r, &body)
 	kind := "movie"
 	if svc == "sonarr" {
 		kind = "tv"
 	}
-	if err := c.Search(r.Context(), kind, id); err != nil {
+	what := "everything"
+	switch {
+	case svc == "sonarr" && len(body.Episodes) > 0:
+		err = c.SearchEpisodes(r.Context(), body.Episodes)
+		what = fmt.Sprintf("%d episode(s)", len(body.Episodes))
+	case svc == "sonarr" && body.Season > 0:
+		err = c.SearchSeason(r.Context(), id, body.Season)
+		what = fmt.Sprintf("season %d", body.Season)
+	default:
+		err = c.Search(r.Context(), kind, id)
+	}
+	if err != nil {
 		fail(w, err)
 		return
 	}
@@ -1533,6 +1717,12 @@ func (a *App) hSearchNow(w http.ResponseWriter, r *http.Request, u *store.User) 
 	}
 	a.nudged[svc+":"+strconv.Itoa(id)] = time.Now()
 	a.mu.Unlock()
+	_ = a.Store.Update(func(d *store.Data) error {
+		if rq := d.RequestByID(reqID); rq != nil {
+			rq.Log("search", "Asked for a fresh search ("+what+") by "+u.Username)
+		}
+		return nil
+	})
 	writeJSON(w, 200, map[string]any{"ok": true, "message": c.Name + " is searching now"})
 }
 

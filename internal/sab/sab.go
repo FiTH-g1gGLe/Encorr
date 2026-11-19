@@ -252,3 +252,107 @@ func Detect() Detected {
 	}
 	return Detected{Note: "Couldn't find SABnzbd's settings file on this machine. Copy the API key from SABnzbd → Config → General."}
 }
+
+// ---------- controls ----------
+
+func (c *Client) simple(ctx context.Context, mode string, extra url.Values) error {
+	var out map[string]any
+	return c.call(ctx, mode, extra, &out)
+}
+
+// Pause / Resume one download by its nzo_id.
+func (c *Client) Pause(ctx context.Context, id string) error {
+	return c.simple(ctx, "queue", url.Values{"name": {"pause"}, "value": {id}})
+}
+
+func (c *Client) Resume(ctx context.Context, id string) error {
+	return c.simple(ctx, "queue", url.Values{"name": {"resume"}, "value": {id}})
+}
+
+// MoveToTop puts a download first in the queue.
+func (c *Client) MoveToTop(ctx context.Context, id string) error {
+	return c.simple(ctx, "switch", url.Values{"value": {id}, "value2": {"0"}})
+}
+
+// PauseAll / ResumeAll pause or resume the whole queue.
+func (c *Client) PauseAll(ctx context.Context) error  { return c.simple(ctx, "pause", nil) }
+func (c *Client) ResumeAll(ctx context.Context) error { return c.simple(ctx, "resume", nil) }
+
+// Restart restarts SABnzbd (it comes back by itself within a minute).
+func (c *Client) Restart(ctx context.Context) error { return c.simple(ctx, "restart", nil) }
+
+// Info is SABnzbd's overall state for the health page.
+type Info struct {
+	Version   string   `json:"version"`
+	Paused    bool     `json:"paused"`
+	Speed     string   `json:"speed"`
+	Status    string   `json:"status"`
+	Queue     int      `json:"queue"`
+	DiskFree  string   `json:"diskFree"` // GB free on the download drive
+	Orphans   []string `json:"orphans"`
+	Warnings  []string `json:"warnings"`
+	PostProc  int      `json:"postProc"`
+	SizeLeft  string   `json:"sizeLeft"`
+	TimeLeft  string   `json:"timeLeft"`
+	Completed string   `json:"completeDiskFree"`
+}
+
+// Info reads version, queue totals, free space, orphaned jobs and warnings.
+func (c *Client) Info(ctx context.Context) (*Info, error) {
+	var q struct {
+		Queue struct {
+			Version   string `json:"version"`
+			Status    string `json:"status"`
+			Paused    bool   `json:"paused"`
+			Speed     string `json:"speed"`
+			NoOfSlots int    `json:"noofslots_total"`
+			DiskFree1 string `json:"diskspace1"`
+			DiskFree2 string `json:"diskspace2"`
+			SizeLeft  string `json:"sizeleft"`
+			TimeLeft  string `json:"timeleft"`
+		} `json:"queue"`
+	}
+	if err := c.call(ctx, "queue", url.Values{"limit": {"1"}}, &q); err != nil {
+		return nil, err
+	}
+	in := &Info{Version: q.Queue.Version, Paused: q.Queue.Paused, Speed: q.Queue.Speed, Status: q.Queue.Status,
+		Queue: q.Queue.NoOfSlots, DiskFree: q.Queue.DiskFree1, Completed: q.Queue.DiskFree2,
+		SizeLeft: q.Queue.SizeLeft, TimeLeft: q.Queue.TimeLeft, Orphans: []string{}, Warnings: []string{}}
+	var st struct {
+		Status struct {
+			Folders []string `json:"folders"`
+		} `json:"status"`
+	}
+	if err := c.call(ctx, "status", url.Values{"skip_dashboard": {"1"}}, &st); err == nil && st.Status.Folders != nil {
+		in.Orphans = st.Status.Folders
+	}
+	var w struct {
+		Warnings []any `json:"warnings"`
+	}
+	if err := c.call(ctx, "warnings", nil, &w); err == nil {
+		for _, x := range w.Warnings {
+			switch v := x.(type) {
+			case string:
+				in.Warnings = append(in.Warnings, v)
+			case map[string]any:
+				if t, ok := v["text"].(string); ok {
+					in.Warnings = append(in.Warnings, t)
+				}
+			}
+		}
+		if len(in.Warnings) > 5 {
+			in.Warnings = in.Warnings[len(in.Warnings)-5:]
+		}
+	}
+	return in, nil
+}
+
+// DeleteOrphans removes leftover folders of jobs SABnzbd no longer tracks.
+func (c *Client) DeleteOrphans(ctx context.Context) error {
+	return c.simple(ctx, "status", url.Values{"name": {"delete_all_orphan"}})
+}
+
+// ClearWarnings empties SABnzbd's warnings list.
+func (c *Client) ClearWarnings(ctx context.Context) error {
+	return c.simple(ctx, "warnings", url.Values{"name": {"clear"}})
+}

@@ -66,7 +66,13 @@ type Stack struct {
 	Queue        map[string][]map[string]any
 	Discord      []map[string]any
 	Calls        []string
-	Scans        []string // folders Plex was asked to scan
+	Scans        []string                    // folders Plex was asked to scan
+	Removed      []map[string]any            // queue items removed (DELETE /queue/{id})
+	Grabbed      []map[string]any            // releases picked by hand
+	History      map[string][]map[string]any // Radarr/Sonarr history
+	ArrHealth    map[string][]map[string]any
+	SABCalls     []string // SABnzbd control calls: "pause:nzo", "switch:nzo"...
+	SABOrphans   []string
 	nextID       int
 }
 
@@ -82,6 +88,8 @@ func New() *Stack {
 		SonarrEps:    map[int][]map[string]any{},
 		Tags:         map[string][]map[string]any{"radarr": {}, "sonarr": {}},
 		Queue:        map[string][]map[string]any{"radarr": {}, "sonarr": {}},
+		History:      map[string][]map[string]any{"radarr": {}, "sonarr": {}},
+		ArrHealth:    map[string][]map[string]any{"radarr": {}, "sonarr": {}},
 		nextID:       100,
 	}
 	s.Movies = []Movie{
@@ -533,6 +541,30 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 		writeJSON(w, map[string]any{"id": s.id()})
 	case p == "/queue":
 		writeJSON(w, map[string]any{"records": s.Queue[app]})
+	case strings.HasPrefix(p, "/queue/") && r.Method == http.MethodDelete:
+		id, _ := strconv.Atoi(strings.TrimPrefix(p, "/queue/"))
+		kept := s.Queue[app][:0]
+		for _, it := range s.Queue[app] {
+			if n, _ := it["id"].(int); n == id {
+				continue
+			}
+			kept = append(kept, it)
+		}
+		s.Queue[app] = kept
+		s.Removed = append(s.Removed, map[string]any{"app": app, "id": id, "blocklist": r.URL.Query().Get("blocklist"), "skipRedownload": r.URL.Query().Get("skipRedownload")})
+		w.WriteHeader(200)
+	case p == "/history/movie" || p == "/history/series":
+		writeJSON(w, s.History[app])
+	case p == "/health":
+		writeJSON(w, s.ArrHealth[app])
+	case p == "/release" && r.Method == http.MethodGet:
+		writeJSON(w, []any{
+			map[string]any{"guid": "g1", "indexerId": 1, "indexer": "NZBgeek", "title": "Good.Copy.1080p.WEB-DL", "size": 4.2e9, "ageHours": 30.0, "approved": true, "quality": map[string]any{"quality": map[string]any{"name": "WEBDL-1080p"}}},
+			map[string]any{"guid": "g2", "indexerId": 2, "indexer": "Nzb.su", "title": "Bad.Copy.CAM", "size": 1.1e9, "ageHours": 400.0, "approved": false, "rejected": true, "rejections": []any{"Quality not wanted"}, "quality": map[string]any{"quality": map[string]any{"name": "CAM"}}},
+		})
+	case p == "/release" && r.Method == http.MethodPost:
+		s.Grabbed = append(s.Grabbed, readBody(r))
+		writeJSON(w, map[string]any{})
 	default:
 		return false
 	}
@@ -645,16 +677,35 @@ func (s *Stack) sonarr(w http.ResponseWriter, r *http.Request, p string) {
 				if m.TVDB == tv {
 					for si, n := range m.Seasons {
 						for e := 1; e <= n; e++ {
-							s.SonarrEps[id] = append(s.SonarrEps[id], map[string]any{"id": id*1000 + (si+1)*100 + e, "seasonNumber": si + 1, "episodeNumber": e, "monitored": false})
+							air := time.Now().AddDate(0, 0, -100+si*30+e).UTC().Format(time.RFC3339)
+							s.SonarrEps[id] = append(s.SonarrEps[id], map[string]any{"id": id*1000 + (si+1)*100 + e, "seasonNumber": si + 1, "episodeNumber": e, "monitored": false,
+								"title": fmt.Sprintf("Episode %d", e), "airDateUtc": air, "hasFile": false})
 						}
 					}
 				}
 			}
 		}
 		writeJSON(w, s.SonarrEps[id])
+	case p == "/episodefile":
+		writeJSON(w, []any{map[string]any{"id": 1, "size": 1.5e9, "quality": map[string]any{"quality": map[string]any{"name": "WEBDL-1080p"}}}})
 	case p == "/episode/monitor":
 		b := readBody(r)
 		s.Commands = append(s.Commands, map[string]any{"name": "EpisodeMonitor", "body": b})
+		ids := map[int]bool{}
+		if list, ok := b["episodeIds"].([]any); ok {
+			for _, x := range list {
+				if f, ok := x.(float64); ok {
+					ids[int(f)] = true
+				}
+			}
+		}
+		for _, eps := range s.SonarrEps {
+			for _, e := range eps {
+				if id, ok := e["id"].(int); ok && ids[id] {
+					e["monitored"] = b["monitored"]
+				}
+			}
+		}
 		w.WriteHeader(202)
 	default:
 		http.NotFound(w, r)
@@ -711,6 +762,11 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 	}
 	switch q.Get("mode") {
 	case "queue":
+		if n := q.Get("name"); n == "pause" || n == "resume" {
+			s.SABCalls = append(s.SABCalls, n+":"+q.Get("value"))
+			writeJSON(w, map[string]any{"status": true})
+			return
+		}
 		var slots []any
 		for _, app := range []string{"radarr", "sonarr"} {
 			for _, it := range s.Queue[app] {
@@ -720,6 +776,22 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"queue": map[string]any{"kbpersec": "190000", "paused": false, "slots": slots}})
 	case "history":
 		writeJSON(w, map[string]any{"history": map[string]any{"slots": []any{}}})
+	case "pause", "resume", "restart":
+		s.SABCalls = append(s.SABCalls, q.Get("mode"))
+		writeJSON(w, map[string]any{"status": true})
+	case "switch":
+		s.SABCalls = append(s.SABCalls, "switch:"+q.Get("value"))
+		writeJSON(w, map[string]any{"result": map[string]any{"position": 0}})
+	case "status":
+		if q.Get("name") == "delete_all_orphan" {
+			s.SABCalls = append(s.SABCalls, "orphans")
+			s.SABOrphans = nil
+			writeJSON(w, map[string]any{"status": true})
+			return
+		}
+		writeJSON(w, map[string]any{"status": map[string]any{"folders": s.SABOrphans}})
+	case "warnings":
+		writeJSON(w, map[string]any{"warnings": []any{}})
 	default:
 		writeJSON(w, map[string]any{"status": false, "error": "not implemented"})
 	}

@@ -43,6 +43,10 @@ type APIError struct {
 func (e *APIError) Error() string { return e.Msg }
 
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	return c.doWith(ctx, httpClient, method, path, q, body, out)
+}
+
+func (c *Client) doWith(ctx context.Context, hc *http.Client, method, path string, q url.Values, body, out any) error {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -60,7 +64,7 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return c.friendly(err)
 	}
@@ -217,6 +221,7 @@ func (c *Client) ItemPath(ctx context.Context, kind string, id int) (string, err
 
 // QueueItem is one entry in the download queue.
 type QueueItem struct {
+	ID                      int       `json:"id"`
 	MovieID                 int       `json:"movieId"`
 	SeriesID                int       `json:"seriesId"`
 	EpisodeID               int       `json:"episodeId"`
@@ -230,6 +235,8 @@ type QueueItem struct {
 	TimeLeft                string    `json:"timeleft"`
 	Status                  string    `json:"status"`
 	TrackedDownloadState    string    `json:"trackedDownloadState"`
+	TrackedDownloadStatus   string    `json:"trackedDownloadStatus"`
+	ErrorMessage            string    `json:"errorMessage"`
 	EstimatedCompletionTime time.Time `json:"estimatedCompletionTime"`
 	OutputPath              string    `json:"outputPath"`
 	StatusMessages          []struct {

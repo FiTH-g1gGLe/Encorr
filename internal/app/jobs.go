@@ -43,6 +43,7 @@ func (a *App) setupJobs() {
 	add(&job{Name: "cleanup", Label: "Tidy old sessions", Hour: 4, fn: a.jobCleanup})
 	add(&job{Name: "nudge", Label: "Search again for stalled requests", Every: 2 * time.Hour, fn: a.jobNudge})
 	add(&job{Name: "arr-info", Label: "Release dates from Radarr/Sonarr", Every: 20 * time.Minute, fn: a.jobArrInfo})
+	add(&job{Name: "autofix", Label: "Fix stuck downloads", Every: 5 * time.Minute, fn: a.jobAutoFix})
 }
 
 func (j *job) schedule() string {
@@ -422,7 +423,8 @@ func (a *App) jobDownloads(ctx context.Context) (string, error) {
 	if stuckNow != nil {
 		a.logf("SABnzbd looks stuck: %q has been on %q for %s, with %d finished downloads waiting behind it",
 			stuckNow.Name, stuckNow.Action, time.Since(stuckNow.Since).Round(time.Minute), stuckNow.Waiting)
-		a.Notify(notify.Message{Event: notify.EventFailed, Title: "SABnzbd looks stuck",
+		a.activity("warn", "SABnzbd looks stuck", fmt.Sprintf("%s has been on %s for %s", stuckNow.Name, stuckNow.Action, time.Since(stuckNow.Since).Round(time.Minute)))
+		a.Notify(notify.Message{Event: notify.EventAttention, Title: "SABnzbd looks stuck",
 			Detail: fmt.Sprintf("It has been on %s (%s) for %s, and %d finished downloads are waiting behind it. Check Settings → Health in Encorr.",
 				stuckNow.Name, stuckNow.Action, time.Since(stuckNow.Since).Round(time.Minute), stuckNow.Waiting)})
 	}
