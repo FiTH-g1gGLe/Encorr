@@ -377,14 +377,34 @@ func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
 	return &out.Config, nil
 }
 
-// SetConfig changes one setting. For a server, section is "servers" and
-// name is the server's name; otherwise name is empty.
-func (c *Client) SetConfig(ctx context.Context, section, name, keyword, value string) error {
-	q := url.Values{"section": {section}, "keyword": {keyword}, "value": {value}}
-	if name != "" {
-		q.Set("name", name)
+// SetConfig changes one setting in a plain section such as "misc":
+// SABnzbd reads keyword (the setting) and value.
+func (c *Client) SetConfig(ctx context.Context, section, keyword, value string) error {
+	return c.simple(ctx, "set_config", url.Values{"section": {section}, "keyword": {keyword}, "value": {value}})
+}
+
+// SetServer changes one setting of a news server. SABnzbd's API reads the
+// server's name from keyword and each setting as its own parameter, and
+// creates a new server when the name isn't known, so the name must be an
+// existing server's. quota is the server's current data quota: SABnzbd resets
+// a block's usage counter whenever a change arrives without the same quota.
+func (c *Client) SetServer(ctx context.Context, server, field, value, quota string) error {
+	if strings.TrimSpace(server) == "" || field == "" {
+		return errors.New("no server or setting given")
+	}
+	q := url.Values{"section": {"servers"}, "keyword": {server}, field: {value}}
+	if quota != "" && field != "quota" {
+		q.Set("quota", quota)
 	}
 	return c.simple(ctx, "set_config", q)
+}
+
+// DeleteServer removes a news server from SABnzbd's settings.
+func (c *Client) DeleteServer(ctx context.Context, server string) error {
+	if strings.TrimSpace(server) == "" {
+		return errors.New("no server given")
+	}
+	return c.simple(ctx, "del_config", url.Values{"section": {"servers"}, "keyword": {server}})
 }
 
 // Performance is SABnzbd's own system test: CPU score and disk and internet

@@ -38,11 +38,14 @@ type fixState struct {
 // force runs it even when auto-fix is switched off (the Health page button).
 // It returns how many things it fixed.
 func (a *App) autoFix(ctx context.Context, force bool) (int, error) {
+	// Tidy SABnzbd servers an older Encorr made by mistake (whatever the
+	// auto-fix setting: Encorr made them, Encorr cleans them up).
+	strays := a.cleanStraySABServers(ctx)
 	if !force && !a.settings().AutoFixOn() {
-		return 0, nil
+		return strays, nil
 	}
 	now := time.Now()
-	fixed := 0
+	fixed := strays
 	a.mu.Lock()
 	if a.fixes == nil {
 		a.fixes = map[string]*fixState{}

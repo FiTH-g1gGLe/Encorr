@@ -109,6 +109,9 @@ func (a *App) detectedSubs(ctx context.Context) []SubView {
 				}
 			}
 			for _, s := range cfg.Servers {
+				if isStraySABServer(s) {
+					continue
+				}
 				name := canon(s["name"])
 				if name == "" {
 					continue

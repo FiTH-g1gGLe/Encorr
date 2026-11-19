@@ -113,7 +113,7 @@ func (a *App) StartConnTuner(by string) error {
 	var name, label string
 	best := -1
 	for _, s := range cfg.Servers {
-		if canon(s["enable"]) == "0" || num(s["priority"]) != 0 {
+		if canon(s["enable"]) == "0" || num(s["priority"]) != 0 || isStraySABServer(s) {
 			continue
 		}
 		if n := int(num(s["connections"])); n > best {
@@ -170,14 +170,14 @@ func (a *App) runConnTuner(ctx context.Context, t *ConnTuner, by string) {
 	restore := func(why string) {
 		bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		_ = c.SetConfig(bg, "servers", t.Server, "connections", fmt.Sprint(t.Original))
+		_ = a.setSABServer(bg, c, t.Server, "connections", fmt.Sprint(t.Original))
 		a.connUpdate(func(t *ConnTuner) {
 			t.Running, t.Trying, t.Error, t.Finished = false, 0, why, time.Now()
 		})
 	}
 	for _, n := range connCandidates(t.Original) {
 		a.connUpdate(func(t *ConnTuner) { t.Trying = n })
-		if err := c.SetConfig(ctx, "servers", t.Server, "connections", fmt.Sprint(n)); err != nil {
+		if err := a.setSABServer(ctx, c, t.Server, "connections", fmt.Sprint(n)); err != nil {
 			restore("Couldn't change SABnzbd: " + err.Error() + ". Put the original back.")
 			return
 		}
@@ -224,7 +224,7 @@ func (a *App) runConnTuner(ctx context.Context, t *ConnTuner, by string) {
 	}
 	bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if err := c.SetConfig(bg, "servers", t.Server, "connections", fmt.Sprint(best)); err != nil {
+	if err := a.setSABServer(bg, c, t.Server, "connections", fmt.Sprint(best)); err != nil {
 		restore("Couldn't save the result: " + err.Error())
 		return
 	}

@@ -572,8 +572,9 @@ async function pageSettings(main, section) {
         <div class="tfmain"><div class="tftop"><span class="tapp">${esc(APPS[f.app] || f.app)}</span><strong>${esc(f.title)}</strong>${change || f.level === "warn" ? `<span class="tlv l-${esc(f.level)}"${lvTip ? tip(lvTip) : ""}>${lv}</span>` : ""}</div>
           <div class="tfwhy">${esc(f.why)}</div>
           ${f.current || f.recommended ? `<div class="tfvals">${f.current ? `<span class="cur">${esc(f.current)}</span>` : ""}${f.recommended ? `<span class="arrow">→</span><span class="rec">${esc(f.recommended)}</span>` : ""}</div>` : ""}
-          ${f.fix ? `<div class="tffix">${I.hand} ${esc(f.fix)}</div>` : ""}</div>
-        ${f.canApply ? `<button class="btn sm ${f.level === "safe" ? "primary" : ""}" data-apply="${esc(f.id)}">Apply</button>` : f.status === "ok" ? `<span class="tok">${I.check}</span>` : ""}
+          ${f.fix ? `<div class="tffix">${I.hand} ${esc(f.fix)}</div>` : ""}
+          ${f.failed ? `<div class="tffail">${I.warn}<span><b>Last try didn't work:</b> ${esc(f.failed)}</span></div>` : ""}</div>
+        ${f.canApply ? `<button class="btn sm ${f.level === "safe" ? "primary" : ""}" data-apply="${esc(f.id)}">${f.failed ? "Try again" : "Apply"}</button>` : f.status === "ok" ? `<span class="tok">${I.check}</span>` : ""}
       </div>`;
     };
     const load = async () => {
@@ -687,34 +688,63 @@ async function pageSettings(main, section) {
     const ST = { urgent: "Renew now", soon: "Renewing soon", expired: "Expired", ok: "Active", lifetime: "Lifetime", unknown: "No date yet", off: "Turned off" };
     const money = (v, c) => `${CUR[c] || ""}${Number(v).toFixed(v % 1 ? 2 : 0)}${CUR[c] ? "" : " " + esc(c || "")}`;
     const bytes = (b) => (b >= 1e12 ? (b / 1e12).toFixed(b >= 1e13 ? 0 : 1) + " TB" : b >= 1e9 ? Math.round(b / 1e9) + " GB" : Math.round(b / 1e6) + " MB");
-    const ring = (frac, inner, sub) => {
-      const r = 34, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac));
-      return `<div class="subring"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="${r}" class="trk"/><circle cx="40" cy="40" r="${r}" class="val" stroke-dasharray="${(c * f).toFixed(1)} ${c.toFixed(1)}"/></svg><div><b>${inner}</b><i>${sub}</i></div></div>`;
+    const SVG = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    const KICON = {
+      provider: SVG('<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>'),
+      indexer: SVG('<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>'),
+      other: SVG('<path d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M9 12h6M12 9v6"/>'),
     };
-    const gauge = (v) => {
+    const PENCIL = SVG('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/>');
+    const LINK = SVG('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>');
+    const fmtDate = (d) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    const when = (v, i) => {
       if (v.plan === "block" && v.blockSize) {
-        const left = Math.max(0, v.blockSize - (v.blockUsed || 0));
-        return ring(left / v.blockSize, bytes(left).replace(" ", "<small>") + "</small>", "left");
+        const used = v.blockUsed || 0, left = Math.max(0, v.blockSize - used), pct = Math.min(100, Math.round((used / v.blockSize) * 100));
+        return `<div class="swhen"><b>${bytes(left)}</b><span>left of ${bytes(v.blockSize)}</span>
+          <div class="subtime" role="img" aria-label="${pct}% used"><i style="width:${100 - pct}%"></i></div>
+          ${v.renews && v.status !== "lifetime" ? `<span class="sdate">${I.calendar} Ends ${esc(fmtDate(v.renews))}</span>` : ""}</div>`;
       }
-      if (v.status === "lifetime") return ring(1, "∞", "forever");
+      if (v.status === "lifetime") return `<div class="swhen"><b>Lifetime</b><span>never renews</span><div class="subtime full"><i style="width:100%"></i></div></div>`;
       if (v.daysLeft != null) {
-        const span = v.plan === "monthly" ? 31 : 365;
-        const d = v.daysLeft;
-        return ring(d < 0 ? 0 : d / span, d < 0 ? "0" : d > 999 ? "999+" : String(d), d === 1 ? "day left" : "days left");
+        const d = v.daysLeft, span = v.plan === "monthly" ? 31 : 365, pct = d < 0 ? 0 : Math.min(100, Math.round((d / span) * 100));
+        const big = d < 0 ? "Ended" : d === 0 ? "Today" : d > 999 ? "999+ days" : `${d} day${d === 1 ? "" : "s"}`;
+        const verb = d < 0 ? "Ended" : v.plan === "monthly" || v.plan === "yearly" ? "Renews" : "Ends";
+        return `<div class="swhen"><b>${big}</b><span>${verb} ${esc(fmtDate(v.renews))}</span><div class="subtime"><i style="width:${pct}%"></i></div></div>`;
       }
-      return ring(0, "?", "add date");
+      return `<div class="swhen none"><button class="btn sm ghost" data-edit="${i}">${I.calendar} Add renewal date</button></div>`;
     };
     const card = (v, i) => {
-      const renews = v.renews && v.status !== "lifetime" ? new Date(v.renews).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
-      const used = v.plan === "block" && v.blockSize ? Math.round(((v.blockUsed || 0) / v.blockSize) * 100) : null;
-      return `<article class="subcard s-${esc(v.status)}" style="--i:${i}">
-        <div class="subtop"><span class="subsrc src-${esc(v.source.toLowerCase())}"${tip(v.source === "You" ? "Added by you" : "Found automatically in " + v.source)}>${esc(v.source === "You" ? "Added by you" : v.source)}</span><span class="substate">${esc(ST[v.status] || v.status)}</span></div>
-        <div class="submid">${gauge(v)}<div class="subname"><h3>${esc(v.name)}</h3><div class="small dim">${esc(KIND[v.kind] || v.kind)} · ${esc(PLAN[v.plan] || (v.source === "Prowlarr" && v.renews ? "VIP account" : "Plan not set"))}</div>
-          ${v.cost ? `<div class="subcost">${money(v.cost, v.currency)}<span>${v.plan === "monthly" ? "/month" : v.plan === "yearly" ? "/year" : ""}</span></div>` : ""}</div></div>
-        ${used != null ? `<div class="subbar"${tip(bytes(v.blockUsed || 0) + " of " + bytes(v.blockSize) + " used")}><span style="width:${Math.min(100, used)}%"></span></div><div class="small dim">${used}% used of ${bytes(v.blockSize)}</div>` : ""}
-        <div class="submeta">${renews ? `<span>${I.calendar} ${v.status === "expired" ? "Ended" : v.plan === "monthly" || v.plan === "yearly" ? "Renews" : "Ends"} ${esc(renews)}</span>` : ""}${v.note ? `<span>${I.warn} ${esc(v.note)}</span>` : ""}${v.notes ? `<span class="subnotes">${esc(v.notes)}</span>` : ""}</div>
-        <div class="subact"><button class="btn sm" data-edit="${i}">${v.id ? "Edit" : "Add details"}</button>${v.url ? `<a class="btn sm" href="${esc(v.url)}" target="_blank" rel="noopener">Open account ↗</a>` : ""}${v.source === "You" ? `<button class="btn sm sq" data-del="${v.id}" aria-label="Remove"${tip("Remove")}>${I.trash}</button>` : ""}</div>
+      const planTxt = PLAN[v.plan] || (v.source === "Prowlarr" && v.renews ? "VIP account" : "");
+      const bits = [esc(KIND[v.kind] || v.kind), planTxt ? esc(planTxt) : "", v.source !== "You" ? `from ${esc(v.source)}` : ""].filter(Boolean).join(" · ");
+      const cost = v.cost ? ` · <b class="scost">${money(v.cost, v.currency)}</b>${v.plan === "monthly" ? "/month" : v.plan === "yearly" ? "/year" : ""}` : "";
+      return `<article class="subrow s-${esc(v.status)}" style="--i:${i}">
+        <div class="sico"${tip(ST[v.status] || "")}>${KICON[v.kind] || KICON.other}</div>
+        <div class="sbody">
+          <div class="sname"><b>${esc(v.name)}</b>${v.source === "You" ? `<span class="schip">Added by you</span>` : ""}<span class="sstate">${esc(ST[v.status] || v.status)}</span></div>
+          <div class="ssub">${bits}${cost}</div>
+          ${v.note ? `<div class="snote">${I.warn} ${esc(v.note)}</div>` : ""}${v.notes ? `<div class="snotes">${esc(v.notes)}</div>` : ""}
+        </div>
+        ${when(v, i)}
+        <div class="sact">
+          <button class="btn sm sq" data-edit="${i}" aria-label="Edit ${esc(v.name)}"${tip(v.id ? "Edit" : "Add details")}>${PENCIL}</button>
+          ${v.url ? `<a class="btn sm sq" href="${esc(v.url)}" target="_blank" rel="noopener" aria-label="Open account page"${tip("Open account page")}>${LINK}</a>` : ""}
+          ${v.source === "You" ? `<button class="btn sm sq" data-del="${v.id}" aria-label="Remove"${tip("Remove")}>${I.trash}</button>` : ""}
+        </div>
       </article>`;
+    };
+    const GROUPS = [
+      ["Coming up", "Renews or runs out within 30 days", (v) => ["urgent", "soon", "expired"].includes(v.status)],
+      ["Active", "", (v) => v.status === "ok"],
+      ["Lifetime", "Paid once, never renews", (v) => v.status === "lifetime"],
+      ["Needs a date", "Add a renewal date and Encorr will remind you before it runs out", (v) => v.status === "unknown" || v.status === "off"],
+    ];
+    const listHTML = (items) => {
+      if (!items.length) return `<div class="subempty">${I.calendar}<strong>No subscriptions yet</strong><span class="small dim">Connect Prowlarr or SABnzbd, or add one yourself.</span></div>`;
+      const idx = new Map(items.map((v, i) => [v, i]));
+      return GROUPS.map(([title, sub, test]) => {
+        const g = items.filter(test);
+        return g.length ? `<section class="sgroup"><h3>${esc(title)} <span>${g.length}</span></h3>${sub ? `<p class="small dim">${esc(sub)}</p>` : ""}<div class="slist">${g.map((v) => card(v, idx.get(v))).join("")}</div></section>` : "";
+      }).join("");
     };
     const editor = (v, done) => {
       const date = v.renews ? v.renews.slice(0, 10) : "";
@@ -761,7 +791,7 @@ async function pageSettings(main, section) {
         </div>
         ${!d.prowlarr ? `<div class="notice subhint">${I.spark} Connect Prowlarr in <a href="#/settings/tune">Tune-up</a> and your indexers' VIP dates show up here by themselves.</div>` : ""}
         ${!d.sabnzbd ? `<div class="notice subhint">${I.spark} Connect <a href="#/settings/sabnzbd">SABnzbd</a> to see your news servers and how much of each block is left.</div>` : `<div class="small dim subtipline">${I.hand} Tip: set a server's expiry date and block size (Quota) in SABnzbd → Config → Servers and they appear here automatically.</div>`}
-        <div class="subgrid">${items.length ? items.map(card).join("") : `<div class="subempty">${I.calendar}<strong>No subscriptions yet</strong><span class="small dim">Connect Prowlarr or SABnzbd, or add one yourself.</span></div>`}</div>`;
+        ${listHTML(items)}`;
       qs("#subAdd").addEventListener("click", () => editor({ source: "You", kind: "indexer", plan: "yearly", currency: "GBP" }, load));
       qsa("[data-edit]", panel).forEach((b) => b.addEventListener("click", () => editor(items[+b.dataset.edit], load)));
       qsa("[data-del]", panel).forEach((b) => b.addEventListener("click", async () => {

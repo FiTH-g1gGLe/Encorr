@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -264,8 +265,12 @@ func (a *App) hTuneApply(w http.ResponseWriter, r *http.Request, u *store.User) 
 	for _, id := range body.IDs {
 		if _, err := a.TuneApply(ctx, id, u.Username); err != nil {
 			out = append(out, result{ID: id, Error: err.Error()})
+			a.noteTuneFail(id, err)
 			continue
 		}
+		a.mu.Lock()
+		delete(a.tuneFails, id)
+		a.mu.Unlock()
 		ok++
 		out = append(out, result{ID: id, OK: true})
 	}
@@ -351,4 +356,29 @@ func (a *App) hSaveProwlarr(w http.ResponseWriter, r *http.Request, u *store.Use
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+type tuneFail struct {
+	msg string
+	at  time.Time
+}
+
+// noteTuneFail remembers why a change didn't work, so the card can say so,
+// and puts it in the activity log and Encorr's log.
+func (a *App) noteTuneFail(id string, err error) {
+	title := id
+	if r, _, ok := ruleFor(id); ok && r.title != "" {
+		title = r.title
+	}
+	if strings.HasPrefix(id, "sab-pipelining:") || strings.Contains(id, ":") {
+		title += " (" + id[strings.Index(id, ":")+1:] + ")"
+	}
+	a.mu.Lock()
+	if a.tuneFails == nil {
+		a.tuneFails = map[string]tuneFail{}
+	}
+	a.tuneFails[id] = tuneFail{msg: err.Error(), at: time.Now()}
+	a.mu.Unlock()
+	a.logf("Tune-up couldn't change %q: %v", title, err)
+	a.activity("warn", "Tune-up couldn't change: "+title, err.Error())
 }

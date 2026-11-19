@@ -43,8 +43,9 @@ type App struct {
 	fixes     map[string]*fixState               // auto-fix memory per download
 	// orphansCleared is when auto-fix last cleared SABnzbd's leftover folders.
 	orphansCleared time.Time
-	lastProgress   time.Time  // when any download last moved (auto-fix)
-	conn           *ConnTuner // the connection helper, while running and after
+	lastProgress   time.Time           // when any download last moved (auto-fix)
+	conn           *ConnTuner          // the connection helper, while running and after
+	tuneFails      map[string]tuneFail // Tune-up changes whose last Apply failed
 	stallWarned    time.Time
 
 	sabTried      bool

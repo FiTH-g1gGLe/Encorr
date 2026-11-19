@@ -1066,6 +1066,51 @@ func TestEndToEnd(t *testing.T) {
 	if l, _ := fk.SABMisc["unwanted_extensions"].([]any); len(l) < 5 {
 		t.Fatalf("unwanted list: %v", fk.SABMisc["unwanted_extensions"])
 	}
+	// SABnzbd makes a new server for a name it doesn't know: the change must
+	// land on the real server and make nothing new.
+	fk.Lock()
+	nServers := len(fk.SABServers)
+	for _, sv := range fk.SABServers {
+		if sv["name"] == "pipelining_requests" || sv["host"] == "" {
+			t.Fatalf("a stray server was made: %v", sv)
+		}
+	}
+	fk.Unlock()
+	if nServers != 2 {
+		t.Fatalf("servers: %d", nServers)
+	}
+	// Changing a block server keeps its usage counter.
+	if err := a.setSABServer(ctx, a.SAB(), "block.example.net", "connections", "15"); err != nil {
+		t.Fatal(err)
+	}
+	fk.Lock()
+	blk := fk.SABServers[1]
+	fk.Unlock()
+	if blk["connections"] != 15 || blk["usage_at_start"] != 1e11 {
+		t.Fatalf("block server: %v", blk)
+	}
+	if err := a.setSABServer(ctx, a.SAB(), "no-such-server", "connections", "5"); err == nil {
+		t.Fatal("never write to a server that isn't there (SABnzbd would make it)")
+	}
+	// Leftovers from the old bug are removed, and nothing else.
+	fk.Lock()
+	fk.SABServers = append(fk.SABServers, map[string]any{"name": "pipelining_requests", "host": "", "enable": 1},
+		map[string]any{"name": "connections", "host": "", "enable": 1},
+		map[string]any{"name": "spare", "host": ""}) // empty but not one of ours: left alone
+	fk.Unlock()
+	if n := a.cleanStraySABServers(ctx); n != 2 {
+		t.Fatalf("cleaned %d", n)
+	}
+	fk.Lock()
+	var names []string
+	for _, sv := range fk.SABServers {
+		names = append(names, fmt.Sprint(sv["name"]))
+	}
+	fk.SABServers = fk.SABServers[:2]
+	fk.Unlock()
+	if strings.Join(names, ",") != "news.example.com,block.example.net,spare" {
+		t.Fatalf("servers after clean-up: %v", names)
+	}
 	owner.ok("GET", "/tune", nil, &tr)
 	for _, f := range tr.Findings {
 		if (f.ID == "sab-pwrar" || f.ID == "plex-fsevents" || f.ID == "radarr-redownload") && f.Status != "ok" {
@@ -1629,7 +1674,57 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
-	// 44. Owners only.
+	// 44. A change an app turns down is remembered and shown, with the reason.
+	{
+		fk.Lock()
+		fk.ArrRefuse = map[string]string{"sonarr.mediamanagement": "Path does not exist"}
+		fk.ArrConfig["sonarr"]["mediamanagement"]["minimumFreeSpaceWhenImporting"] = 100
+		fk.Unlock()
+		var res struct {
+			Results []struct {
+				ID    string
+				OK    bool
+				Error string
+			}
+		}
+		owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"sonarr-freespace"}}, &res)
+		if len(res.Results) != 1 || res.Results[0].OK || !strings.Contains(res.Results[0].Error, "Path does not exist") {
+			t.Fatalf("refused change: %+v", res)
+		}
+		var tr2 struct{ Findings []TuneFinding }
+		owner.ok("GET", "/tune", nil, &tr2)
+		var got *TuneFinding
+		for i := range tr2.Findings {
+			if tr2.Findings[i].ID == "sonarr-freespace" {
+				got = &tr2.Findings[i]
+			}
+		}
+		if got == nil || got.Status != "change" || !strings.Contains(got.Failed, "Path does not exist") {
+			t.Fatalf("failure shown on the card: %+v", got)
+		}
+		var acts struct{ Items []store.Activity }
+		owner.ok("GET", "/activity", nil, &acts)
+		logged := false
+		for _, x := range acts.Items {
+			logged = logged || strings.Contains(x.Title, "couldn't change") && strings.Contains(x.Detail, "Path does not exist")
+		}
+		if !logged {
+			t.Fatalf("activity: %+v", acts.Items[:min(3, len(acts.Items))])
+		}
+		fk.Lock()
+		fk.ArrRefuse = nil
+		fk.Unlock()
+		owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"sonarr-freespace"}}, &res)
+		var tr3 struct{ Findings []TuneFinding }
+		owner.ok("GET", "/tune", nil, &tr3)
+		for _, f := range tr3.Findings {
+			if f.ID == "sonarr-freespace" && (f.Status == "change" || f.Failed != "") {
+				t.Fatalf("after it works, the card clears: %+v", f)
+			}
+		}
+	}
+
+	// 45. Owners only.
 	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
 		t.Fatalf("friends can't see Tune-up: %d", code)
 	}

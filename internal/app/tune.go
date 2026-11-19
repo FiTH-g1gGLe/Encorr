@@ -43,6 +43,8 @@ type TuneFinding struct {
 	CanApply    bool   `json:"canApply"`
 	CanUndo     bool   `json:"canUndo"`
 	Fix         string `json:"fix,omitempty"` // what to do by hand, when Encorr can't
+	// Failed is why the last Apply didn't work, until one does.
+	Failed string `json:"failed,omitempty"`
 }
 
 // TuneApp is how Tune-up got on with one app.
@@ -212,7 +214,7 @@ func (a *App) readSAB(ctx context.Context, e *tuneEnv) error {
 	}
 	for _, srv := range cfg.Servers {
 		name, _ := srv["name"].(string)
-		if name == "" {
+		if name == "" || isStraySABServer(srv) {
 			continue
 		}
 		for k, v := range srv {
@@ -220,7 +222,11 @@ func (a *App) readSAB(ctx context.Context, e *tuneEnv) error {
 		}
 	}
 	e.mu.Lock()
-	e.sabSrv = cfg.Servers
+	for _, sv := range cfg.Servers {
+		if !isStraySABServer(sv) { // empty leftovers aren't real servers
+			e.sabSrv = append(e.sabSrv, sv)
+		}
+	}
 	e.mu.Unlock()
 	if in, err := c.Info(ctx); err == nil {
 		e.mu.Lock()
@@ -1025,7 +1031,15 @@ func checkProwlarr(e *tuneEnv) []TuneFinding {
 // TuneCheck reads everything and lists every recommendation.
 func (a *App) TuneCheck(ctx context.Context) ([]TuneFinding, []TuneApp) {
 	e := a.readTune(ctx)
-	return a.evaluate(e), appList(e)
+	fs := a.evaluate(e)
+	a.mu.Lock()
+	for i := range fs {
+		if f, ok := a.tuneFails[fs[i].ID]; ok && fs[i].Status == "change" && time.Since(f.at) < 7*24*time.Hour {
+			fs[i].Failed = f.msg
+		}
+	}
+	a.mu.Unlock()
+	return fs, appList(e)
 }
 
 func appList(e *tuneEnv) []TuneApp {
@@ -1209,10 +1223,10 @@ func (a *App) writeSetting(ctx context.Context, e *tuneEnv, app, key string, v a
 			if i < 0 {
 				return userErr("Bad server setting.")
 			}
-			return c.SetConfig(ctx, "servers", rest[:i], rest[i+1:], val)
+			return a.setSABServer(ctx, c, rest[:i], rest[i+1:], val)
 		}
 		section, kw, _ := strings.Cut(key, ".")
-		return c.SetConfig(ctx, section, "", kw, val)
+		return c.SetConfig(ctx, section, kw, val)
 	case "radarr", "sonarr":
 		c := a.Radarr()
 		if app == "sonarr" {

@@ -83,6 +83,7 @@ type Stack struct {
 	SABMisc       map[string]any
 	SABServers    []map[string]any
 	ProwlarrVIP   string // vipExpiration for the fake indexer
+	ArrRefuse     map[string]string // "sonarr.mediamanagement" -> validation message, to refuse changes
 	// Jellyfin (see jellyfin.go).
 	JFMovies        map[int]time.Time   // tmdb id -> added
 	JFShows         map[int]map[int]int // tmdb id -> season -> episodes
@@ -676,6 +677,12 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 			return true
 		}
 		if r.Method == http.MethodPut {
+			if msg := s.ArrRefuse[app+"."+res]; msg != "" {
+				// Like Radarr/Sonarr turning down a change.
+				w.WriteHeader(400)
+				writeJSON(w, []any{map[string]any{"propertyName": "RecycleBin", "errorMessage": msg}})
+				return true
+			}
 			b := readBody(r)
 			for k, v := range b {
 				obj[k] = v
@@ -991,13 +998,37 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 		sec, kw, val := q.Get("section"), q.Get("keyword"), q.Get("value")
 		s.SABCalls = append(s.SABCalls, "set:"+sec+"."+kw+"="+val)
 		if sec == "servers" {
+			// Like SABnzbd: the server's name comes from keyword (or name),
+			// every setting is its own parameter, and an unknown name makes a
+			// new, empty server.
+			name := kw
+			if name == "" {
+				name = q.Get("name")
+			}
+			var srv map[string]any
 			for _, sv := range s.SABServers {
-				if sv["name"] == q.Get("name") {
-					if n, err := strconv.Atoi(val); err == nil {
-						sv[kw] = n
-					} else {
-						sv[kw] = val
-					}
+				if sv["name"] == name {
+					srv = sv
+				}
+			}
+			if srv == nil {
+				srv = map[string]any{"name": name, "host": "", "enable": 1, "connections": 8, "pipelining_requests": 2, "priority": 0, "quota": ""}
+				s.SABServers = append(s.SABServers, srv)
+			}
+			// SABnzbd resets a block's usage counter when a change arrives
+			// without the server's current quota.
+			if cur := fmt.Sprint(srv["quota"]); cur != "" && cur != "<nil>" && q.Get("quota") != cur {
+				srv["usage_at_start"] = 9.99e12
+			}
+			for k, vs := range q {
+				switch k {
+				case "mode", "apikey", "output", "section", "keyword", "name":
+					continue
+				}
+				if n, err := strconv.Atoi(vs[0]); err == nil {
+					srv[k] = n
+				} else {
+					srv[k] = vs[0]
 				}
 			}
 		} else if kw == "unwanted_extensions" {
@@ -1010,6 +1041,18 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 			s.SABMisc[kw] = n
 		} else {
 			s.SABMisc[kw] = val
+		}
+		writeJSON(w, map[string]any{"status": true})
+	case "del_config":
+		if q.Get("section") == "servers" {
+			keep := s.SABServers[:0]
+			for _, sv := range s.SABServers {
+				if sv["name"] != q.Get("keyword") {
+					keep = append(keep, sv)
+				}
+			}
+			s.SABServers = keep
+			s.SABCalls = append(s.SABCalls, "del:servers."+q.Get("keyword"))
 		}
 		writeJSON(w, map[string]any{"status": true})
 	case "server_stats":
