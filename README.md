@@ -55,12 +55,15 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 
 | | |
 | --- | --- |
-| 🗺️ **Request journey** | Requested → Approved → Downloading → In Plex, with live percentage, speed and time left from SABnzbd. |
-| 🚦 **In progress, sorted** | Grouped into Needs a hand, Downloading, Nearly there, Looking for a copy and Not out yet, with a bar per season, release dates for films not out yet, and when the next episode airs. |
-| 🛠️ **One-tap fixes** | **Search again** asks Radarr/Sonarr to look now. **Import it** confirms downloads Radarr/Sonarr were stuck waiting on. |
+| 🗂️ **Four simple lists** | **Needs you** (approvals and problems), **Active**, **Coming soon** and **Ready**, shown as tiles with counts. |
+| 🗺️ **Six-step tracker** | Requested → Approved → Finding → Downloading → Adding → Ready on every card, plus one line saying what's happening and what's next: when it'll search again, when it's out, or why it's stuck. |
+| 📺 **Every episode** | A strip per season (in Plex, downloading, missing) and a full episode list from Sonarr with quality, air dates and a search button for a season or a single episode. |
+| 🕑 **Timeline** | The whole story of a request: asked for, approved, copy found, failed, swapped, imported, upgraded. |
+| 🎛️ **Download controls** | Pause, resume, move to front, try another copy, stop, import, search now, or **pick a copy yourself** from every release the indexers have. |
+| 🩹 **Auto-fix** | Every 5 minutes Encorr imports downloads stuck before Plex, swaps failed or stalled ones for another copy and clears SABnzbd's leftovers. If nothing at all is moving it warns you instead of throwing good copies away. |
+| ✅ **Ready** | When it arrived, a Play on Plex button, and a "new" badge for whoever asked. Tidies itself after 30 days. |
 | 🔁 **Never forgotten** | Encorr asks Radarr/Sonarr to search again every few hours for anything with nothing downloading. |
 | ⚡ **Instant "ready"** | When a download finishes, Encorr asks Plex to scan just that folder, so requests turn green within seconds. |
-| ⚠️ **Stuck download warning** | If SABnzbd's unpacking freezes on a broken file, the Health page goes red and Discord gets a message. |
 | 👀 **Plex watchlists** | Add something to your Plex watchlist and Encorr requests it. Remove the request and it stays removed. |
 
 ### Running it
@@ -70,17 +73,21 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | 👥 **Accounts for friends** | Username and password, or Plex sign-in. Owner, Trusted (no approval needed) and Friend (needs approval, with limits). |
 | 📚 **Knows your library** | Reads your whole Plex library the moment it's connected, then keeps up every few minutes. |
 | 💬 **Discord** | New requests, approvals, problems and "Your encore is ready", with @mentions. |
-| ❤️ **Health page** | Plain-English checks for Plex, TMDB, Radarr, Sonarr, SABnzbd, Discord and disk space. |
+| ❤️ **Health page** | Plain-English checks for Plex, TMDB, Radarr, Sonarr, SABnzbd, indexers, Discord and disk space, with fix buttons (resume or restart SABnzbd, clear leftovers, search for everything missing) and a log of everything Encorr fixed. |
 | 🌍 **Reach it from anywhere** | Works behind a Cloudflare Tunnel or reverse proxy. [Step-by-step guide](docs/REMOTE-ACCESS.md). |
 | 📱 **Phone-friendly** | Works in any phone browser with a bottom menu; "Add to Home screen" gives you an app icon. |
-| 🎨 **Your colours** | Black frosted glass (or the original navy) with 8 accent colours: violet, blue, teal, green, yellow, orange, red and pink. |
+| 🎨 **Your colours** | Midnight navy or graphite, with 8 accent colours: lavender, blue, teal, green, yellow, orange, red and pink. |
 
 ## Screenshots 📸
 
 | | |
 | --- | --- |
-| <img src="docs/screenshots/title.png" alt="A film's page with crew, tags, ratings and a facts panel"> | <img src="docs/screenshots/requests.png" alt="In progress, grouped by what's happening"> |
-| **Film page:** crew, ratings, release dates, streaming and more | **In progress:** what's happening with every request |
+| <img src="docs/screenshots/title.png" alt="A film's page with crew, tags, ratings and a facts panel"> | <img src="docs/screenshots/requests.png" alt="Requests with filter tiles, a six-step tracker and season strips"> |
+| **Film page:** crew, ratings, release dates, streaming and more | **Requests:** where everything is up to, and what happens next |
+| <img src="docs/screenshots/episodes.png" alt="Every episode of a season with its status"> | <img src="docs/screenshots/manage.png" alt="Download controls: pause, move to front, try another copy, pick a copy"> |
+| **Episodes:** what's in Plex, downloading and missing | **Download controls** for the owner |
+| <img src="docs/screenshots/pick-copy.png" alt="Every release the indexers have, with quality, size and age"> | <img src="docs/screenshots/timeline.png" alt="A request's timeline"> |
+| **Pick a copy** yourself | **Timeline:** the story of a request |
 | <img src="docs/screenshots/posters.png" alt="A poster showing its title, rating and description on hover"> | <img src="docs/screenshots/collection.png" alt="A film collection with a button to request the missing films"> |
 | **Poster peeks** and the "Just added to Plex" row | **Collections:** request the films you haven't got |
 | <img src="docs/screenshots/search.png" alt="Search results split into films and TV shows"> | <img src="docs/screenshots/request-seasons.png" alt="The season picker with switches and status"> |
@@ -90,9 +97,9 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | <img src="docs/screenshots/people.png" alt="The People page with accounts and roles"> | <img src="docs/screenshots/settings-look.png" alt="Settings with 8 accent colours and two backgrounds"> |
 | **People:** accounts and what each person can do | **Your colours:** 8 accents, black or navy |
 | <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard connected to Radarr"> | <img src="docs/screenshots/health.png" alt="The health page with plain-English checks"> |
-| **Setup wizard** | **Health:** what's working, and how to fix what isn't |
+| **Setup wizard** | **Health:** what's working, fix buttons, and what auto-fix did |
 
-<p align="center"><img src="docs/screenshots/phone-home.png" width="240" alt="Encorr's home page on a phone"> &nbsp; <img src="docs/screenshots/phone-title.png" width="240" alt="A film's page on a phone"> &nbsp; <img src="docs/screenshots/phone-requests.png" width="240" alt="In progress on a phone"></p>
+<p align="center"><img src="docs/screenshots/phone-home.png" width="240" alt="Encorr's home page on a phone"> &nbsp; <img src="docs/screenshots/phone-title.png" width="240" alt="A film's page on a phone"> &nbsp; <img src="docs/screenshots/phone-requests.png" width="240" alt="Requests on a phone"> &nbsp; <img src="docs/screenshots/phone-episodes.png" width="240" alt="Episodes on a phone"></p>
 
 ## Get started (Windows) 🚀
 
@@ -151,20 +158,22 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 - [x] Rich film and show pages: crew, cast, tags, ratings, release dates, streaming services and "Play on Plex"
 - [x] Collections, season picker, trailers and "more like this"
 - [x] Requests with approval, limits, notes, retry and cancel
-- [x] Journey tracker, live SABnzbd progress, a sorted In progress page and a Completed tab
-- [x] Search again, Import it, and automatic re-searching for stalled requests
+- [x] Requests in four lists (Needs you, Active, Coming soon, Ready) with a six-step tracker and live SABnzbd progress
+- [x] Episode-by-episode view, season strips and per-request timelines
+- [x] Download controls: pause, resume, move to front, try another copy, stop, pick a copy yourself, import
+- [x] Auto-fix for stuck imports, failed and stalled downloads and SABnzbd leftovers, with an activity log
+- [x] "Ready" badge for requesters, Play on Plex, and automatic re-searching for stalled requests
 - [x] Instant Plex scan and fast "ready" detection (old and new Plex agents)
 - [x] Encorr accounts (username + password) alongside Plex sign-in
 - [x] Discord notifications and Plex watchlist requests
-- [x] Health page with a stuck-download warning, and background jobs
+- [x] Health page with fix buttons, Radarr/Sonarr warnings, a stuck-download warning and background jobs
 - [x] Windows background service with one-click on/off and double-click updates
-- [x] Black or navy frosted glass with 8 accent colours
+- [x] Midnight or graphite themes with 8 accent colours
 - [x] Tested end to end against simulated Plex, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server
 
 ## Coming next 🛣️
 
 - [ ] "Report a problem" with a title, so friends can flag a bad file
-- [ ] Messages to friends when their request is ready
 - [ ] IMDb and Rotten Tomatoes ratings for everything (optional OMDb key)
 - [ ] Android app (request, approve and get notified on your phone)
 - [ ] Discord bot (request from Discord)
