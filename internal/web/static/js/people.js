@@ -8,7 +8,7 @@ const ROLE_HELP = { admin: "Can do everything, including settings", trusted: "Re
 async function pageUsers(main) {
   main.innerHTML = `
     <div class="page-head"><div><h1>People</h1><div class="muted">Everyone who can request. Make accounts for friends here.</div></div>
-      <div class="row"><button class="btn" id="import">${I.plex} Import Plex friends</button><button class="btn primary" id="add">${I.plus} Add a person</button></div></div>
+      <div class="row">${state.status && state.status.plex !== false ? `<button class="btn" id="import">${I.plex} Import Plex friends</button>` : ""}<button class="btn primary" id="add">${I.plus} Add a person</button></div></div>
     <div class="people" id="ulist"><span class="spinner"></span></div>
     <div class="glass roles">${Object.keys(ROLE_NAMES).map((r) => `<div><strong>${ROLE_NAMES[r]}</strong><span>${ROLE_HELP[r]}</span></div>`).join("")}</div>`;
   const load = async () => {
@@ -16,7 +16,7 @@ async function pageUsers(main) {
     const box = qs("#ulist");
     if (!box) return;
     box.innerHTML = r.results.map((u) => {
-      const how = [u.hasPassword ? "a username and password" : "", u.plex ? "Plex" : ""].filter(Boolean).join(" or ");
+      const how = [u.hasPassword ? "a username and password" : "", u.plex ? "Plex" : "", u.jellyfin ? "Jellyfin" : ""].filter(Boolean).join(" or ");
       const me = u.id === state.user.id;
       return `<div class="glass person">
         ${u.thumb ? `<img class="pic" src="${esc(u.thumb)}" alt="">` : `<span class="pic initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
@@ -44,7 +44,8 @@ async function pageUsers(main) {
     }));
   };
   qs("#add").addEventListener("click", () => addPersonModal(load));
-  qs("#import").addEventListener("click", async (e) => {
+  const imp = qs("#import");
+  if (imp) imp.addEventListener("click", async (e) => {
     busy(e.currentTarget, true, "Importing…");
     try { const r = await api("/users/import", { method: "POST", body: {} }); toast(r.added ? `Added ${r.added} people from Plex` : "Everyone's already here", "ok"); await load(); }
     catch (err) { toast(err.message, "error"); }
@@ -114,7 +115,7 @@ function pageProfile(main) {
         <div><h2 style="margin:0">${esc(u.username)}</h2><div class="muted small">${esc(u.email || "")}</div><div style="margin-top:6px">${pill(u.role === "admin" ? "approved" : u.role === "trusted" ? "available" : "partial", u.role[0].toUpperCase() + u.role.slice(1))}</div></div>
       </div>
       <h2>Password</h2>
-      <p class="small muted" style="margin-top:-6px">${u.hasPassword ? "Change the password you sign in with." : "Set a password so you can also sign in with your username, without Plex."}</p>
+      <p class="small muted" style="margin-top:-6px">${u.hasPassword ? "Change the password you sign in with." : `Set a password so you can also sign in with your username, without ${u.jellyfin && !u.plex ? "Jellyfin" : "Plex"}.`}</p>
       <form id="pwf" class="row" style="align-items:flex-end">
         <input type="text" name="username" autocomplete="username" value="${esc(u.username)}" hidden>
         ${u.hasPassword ? `<label class="field grow" style="margin:0"><span>Current password</span><input type="password" id="pcur" autocomplete="current-password"></label>` : ""}

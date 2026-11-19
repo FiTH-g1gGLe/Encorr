@@ -15,17 +15,17 @@ function journeyState(status, p, part) {
     case "pending": return { at: 1, text: "Waiting for the owner to approve it" };
     case "declined": return { at: 1, bad: true, text: "The owner declined this request" };
     case "failed": return { at: 2, bad: true, text: "Couldn't start the download. The owner can retry it" };
-    case "completed": case "available": return { at: 4, text: "Ready to watch in Plex" };
+    case "completed": case "available": return { at: 4, text: `Ready to watch in ${BOTH() ? "your library" : LIB()}` };
   }
   const r = part || {};
   if (!p && r.state === "waiting") {
     const when = r.release ? `Out to watch at home ${niceDate(r.release)}` : r.nextAiring ? `Next episode ${niceDate(r.nextAiring)}` : "Not released yet";
     return { at: 2, text: `${when}`, bits: ["it'll download by itself when it's out"], fill: 0, wait: true };
   }
-  if (!p && r.state === "finishing") return { at: 3, text: "All there. Waiting for Plex to confirm", busy: true };
+  if (!p && r.state === "finishing") return { at: 3, text: `All there. Waiting for ${BOTH() ? "your library" : LIB()} to confirm`, busy: true };
   if (!p && r.want > 0 && r.have > 0) {
     const left = r.want - r.have;
-    return { at: 2, text: `${r.have} of ${r.want} episodes in Plex`, bits: [`looking for the other ${left}`], fill: Math.round((r.have / r.want) * 100) };
+    return { at: 2, text: `${r.have} of ${r.want} episodes in ${BOTH() ? "your library" : LIB()}`, bits: [`looking for the other ${left}`], fill: Math.round((r.have / r.want) * 100) };
   }
   if (!p) return { at: 2, text: "Looking for a copy to download", fill: 0 };
   const stage = p.stage || "Downloading";
@@ -82,7 +82,7 @@ async function pageTitle(main, type, id) {
     : seasons.some((x) => !["available", "processing", "pending"].includes(seasonState(x.season_number)));
 
   let statusLine = "";
-  if (s.status === "available") statusLine = `<span class="have">${MARK(18)} In your Plex library</span>`;
+  if (s.status === "available") statusLine = `<span class="have">${MARK(18)} In ${YOUR_LIB()}</span>`;
   else if (s.status === "partial") statusLine = pill("partial");
 
   const mine = s.myRequest;
@@ -130,7 +130,7 @@ async function pageTitle(main, type, id) {
   fact("Original title", esc(d.originalTitle || ""));
   fact("Country", esc((d.countries || []).join(", ")));
   fact("Studio", esc((d.studios || []).join(", ")));
-  if (P && (P.quality || P.audio)) fact("In your Plex", [P.quality, P.audio].filter(Boolean).map((q) => `<span class="qual">${esc(q)}</span>`).join(" "));
+  if (P && (P.quality || P.audio)) fact("In " + YOUR_LIB(), [P.quality, P.audio].filter(Boolean).map((q) => `<span class="qual">${esc(q)}</span>`).join(" "));
   const providers = (d.providers || []).length ? `<div class="fblock"><div class="k">Currently streaming on</div><div class="provs">${d.providers.map((p) => `<a href="${esc(d.providersUrl || "#")}" target="_blank" rel="noopener" title="${esc(p.name)}"><img src="${esc(img(p.logo, "w92"))}" alt="${esc(p.name)}"></a>`).join("")}</div><div class="tiny dim">Streaming info from JustWatch</div></div>` : "";
   const links = [
     `<a href="https://www.themoviedb.org/${type}/${esc(d.id)}" target="_blank" rel="noopener">TMDB</a>`,
@@ -141,8 +141,8 @@ async function pageTitle(main, type, id) {
     d.homepage ? `<a href="${esc(d.homepage)}" target="_blank" rel="noopener">Official site</a>` : "",
   ].filter(Boolean).join("");
 
-  const statusPill = s.status === "available" ? `<span class="tpill ok">${MARK(14)} In your Plex</span>`
-    : s.status === "partial" ? `<span class="tpill part">Some seasons in Plex</span>`
+  const statusPill = s.status === "available" ? `<span class="tpill ok">${MARK(14)} In ${YOUR_LIB()}</span>`
+    : s.status === "partial" ? `<span class="tpill part">Some seasons in ${BOTH() ? "your library" : LIB()}</span>`
     : s.status === "processing" ? `<span class="tpill busy">On its way</span>`
     : s.status === "pending" ? `<span class="tpill wait">Waiting for approval</span>` : "";
 
@@ -158,6 +158,7 @@ async function pageTitle(main, type, id) {
         ${qchipsHTML(P)}
         <div class="actions">
           ${P && P.url && ["available", "partial"].includes(s.status) ? `<a class="btn plex" href="${esc(P.url)}" target="_blank" rel="noopener"${tip("Open it in Plex")}>${I.play} Play on Plex</a>` : ""}
+          ${data.jellyfin && data.jellyfin.url && ["available", "partial"].includes(s.status) ? `<a class="btn jf" href="${esc(data.jellyfin.url)}" target="_blank" rel="noopener"${tip("Open it in Jellyfin")}>${I.play} Play on Jellyfin</a>` : ""}
           ${requestable ? `<button class="btn primary cta" id="reqBtn"${tip(isAdmin() || state.user.role === "trusted" ? "Starts downloading straight away" : "Sends it to the owner to approve")}>${I.plus} ${s.status === "partial" || (type === "tv" && Object.keys(s.seasons || {}).length) ? "Request more" : "Request"}</button>` : ""}
           ${d.trailer ? `<button class="btn" id="trailer"${tip("Watch the trailer here")}>Trailer</button>` : ""}
           ${cancelBtn}
@@ -224,7 +225,7 @@ function requestModal(type, d, s) {
   const seasons = d.seasons || [];
   const st = (n) => (s.seasons || {})[n] || "";
   const free = seasons.filter((x) => !["available", "processing", "pending"].includes(st(x.season_number)));
-  const SEASON_STATUS = { available: "In Plex", partial: "Partly in Plex", processing: "On its way", pending: "Waiting for approval" };
+  const SEASON_STATUS = { available: IN_LIB(), partial: "Partly in " + (BOTH() ? "your library" : LIB()), processing: "On its way", pending: "Waiting for approval" };
   const sw = (attrs) => `<label class="switch sm"><input type="checkbox" ${attrs}><span class="slider"></span></label>`;
   const seasonHtml = type === "tv" ? `
     <div class="stable">

@@ -32,7 +32,7 @@ import (
 // TuneFinding is one line on the Tune-up page.
 type TuneFinding struct {
 	ID          string `json:"id"`
-	App         string `json:"app"`  // sabnzbd | radarr | sonarr | prowlarr | plex
+	App         string `json:"app"`  // sabnzbd | radarr | sonarr | prowlarr | plex | jellyfin
 	Area        string `json:"area"` // Reliability | Speed | Library | Housekeeping | Indexers
 	Title       string `json:"title"`
 	Why         string `json:"why"`
@@ -77,6 +77,7 @@ type tuneEnv struct {
 	speed     *store.SpeedTest
 	region    string
 	libraries []store.PlexLibrary
+	jfNames   map[string]string // Jellyfin library id -> name
 }
 
 type prowlarrInfo struct {
@@ -117,7 +118,7 @@ func (e *tuneEnv) get(app, key string) (any, bool) {
 	return v, ok
 }
 
-var tuneAppNames = map[string]string{"sabnzbd": "SABnzbd", "radarr": "Radarr", "sonarr": "Sonarr", "prowlarr": "Prowlarr", "plex": "Plex"}
+var tuneAppNames = map[string]string{"sabnzbd": "SABnzbd", "radarr": "Radarr", "sonarr": "Sonarr", "prowlarr": "Prowlarr", "plex": "Plex", "jellyfin": "Jellyfin"}
 
 // secretKey guards against ever writing credentials or connection settings.
 var secretKey = regexp.MustCompile(`(?i)(pass(word)?|api_?key|nzb_key|token|secret|username|^user$|host|port$|^url|url_base|baseurl|cert|https|email|whitelist|local_ranges|inet_exposure|bind|remote|secureconnections|allowednetworks|relay|customconnections|manualportmapping|publishserver)`)
@@ -184,6 +185,9 @@ func (a *App) readTune(ctx context.Context, only ...string) *tuneEnv {
 	}
 	if srv := a.PlexServer(); srv != nil {
 		run("plex", func(ctx context.Context, e *tuneEnv) error { return a.readPlex(ctx, e, srv) })
+	}
+	if jf := a.Jellyfin(); jf != nil {
+		run("jellyfin", func(ctx context.Context, e *tuneEnv) error { return a.readJellyfin(ctx, e) })
 	}
 	wg.Wait()
 	// Apps that aren't set up still show, so people know Tune-up can check them.
@@ -795,7 +799,7 @@ func tuneRules() []tuneRule {
 				return nil, fmt.Sprintf("%d items", n), err
 			}},
 	)
-	return rules
+	return append(rules, jellyfinRules()...)
 }
 
 // checkSABServers looks at each news server: connections, pipelining and,
@@ -1024,7 +1028,7 @@ func (a *App) TuneCheck(ctx context.Context) ([]TuneFinding, []TuneApp) {
 
 func appList(e *tuneEnv) []TuneApp {
 	var out []TuneApp
-	for _, k := range []string{"sabnzbd", "radarr", "sonarr", "prowlarr", "plex"} {
+	for _, k := range []string{"sabnzbd", "radarr", "sonarr", "prowlarr", "plex", "jellyfin"} {
 		if ta := e.apps[k]; ta != nil {
 			out = append(out, *ta)
 		}

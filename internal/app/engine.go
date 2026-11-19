@@ -102,6 +102,7 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 
 	var req *store.Request
 	var user store.User
+	libName := a.libName() // before the lock: it reads settings
 	err = a.Store.Update(func(d *store.Data) error {
 		u := d.UserByID(userID)
 		if u == nil {
@@ -113,7 +114,7 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 
 		if nr.Type == store.TypeMovie {
 			if inLib || (m != nil && m.Status == store.MediaAvailable) {
-				return userErr("This film is already in Plex.")
+				return userErr("This film is already in " + libName + ".")
 			}
 			if m != nil {
 				for _, r := range d.RequestsForMedia(m.ID) {
@@ -126,10 +127,10 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 				}
 			}
 		} else {
-			// Drop seasons that are already in Plex or already requested.
+			// Drop seasons that are already in the library or already requested.
 			taken := map[int]bool{}
 			if inLib {
-				for s, have := range lib.Seasons {
+				for s, have := range lib.Have() {
 					if want := seasonEps(det, s); want > 0 && have >= want {
 						taken[s] = true
 					}
@@ -151,7 +152,7 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 				}
 			}
 			if len(left) == 0 {
-				return userErr("Those seasons are already in Plex or already requested.")
+				return userErr("Those seasons are already in " + libName + " or already requested.")
 			}
 			nr.Seasons = left
 		}
@@ -489,20 +490,36 @@ func (a *App) SendToArr(ctx context.Context, reqID int) error {
 	return nil
 }
 
-// markAvailable updates media and requests when Plex has something, and
-// tells requesters. For TV, seasons maps season number -> episodes in Plex.
-func (a *App) markAvailable(typ string, tmdbID int, plexKey string, seasons map[int]int) {
+// Library sources: the media servers a title can be found on.
+const (
+	srcPlex     = "plex"
+	srcJellyfin = "jellyfin"
+)
+
+// markAvailable updates media and requests when a media server (Plex or
+// Jellyfin) has something, and tells requesters. For TV, seasons maps season
+// number -> episodes on that server. With both servers, a season counts as
+// there when either one has it.
+func (a *App) markAvailable(src, typ string, tmdbID int, itemKey string, seasons map[int]int) {
 	type ping struct {
 		r store.Request
 		u store.User
 	}
 	var pings []ping
+	lib := sourceName(src)
 	_ = a.Store.Update(func(d *store.Data) error {
 		key := store.LibKey(typ, tmdbID)
 		e := d.Library[key]
-		e.Key = plexKey
-		if seasons != nil {
-			e.Seasons = seasons
+		if src == srcJellyfin {
+			e.JF = itemKey
+			if seasons != nil {
+				e.JFSeasons = seasons
+			}
+		} else {
+			e.Key = itemKey
+			if seasons != nil {
+				e.Seasons = seasons
+			}
 		}
 		d.Library[key] = e
 
@@ -511,9 +528,13 @@ func (a *App) markAvailable(typ string, tmdbID int, plexKey string, seasons map[
 			return nil
 		}
 		now := time.Now()
-		m.PlexKey = plexKey
-		if typ == store.TypeTV && seasons != nil {
-			m.SeasonHave = seasons
+		if src == srcJellyfin {
+			m.JFKey = itemKey
+		} else {
+			m.PlexKey = itemKey
+		}
+		if have := e.Have(); typ == store.TypeTV && have != nil {
+			m.SeasonHave = have
 		}
 		full := func(s int) bool {
 			if typ == store.TypeMovie {
@@ -564,7 +585,7 @@ func (a *App) markAvailable(typ string, tmdbID int, plexKey string, seasons map[
 				r.Status = store.ReqCompleted
 				r.Updated = now
 				r.DoneAt = &now
-				r.Log("ready", "In Plex and ready to watch")
+				r.Log("ready", "In "+lib+" and ready to watch")
 				p := ping{r: *r}
 				if u := d.UserByID(r.RequestedBy); u != nil {
 					p.u = *u
@@ -576,31 +597,34 @@ func (a *App) markAvailable(typ string, tmdbID int, plexKey string, seasons map[
 	})
 	for _, p := range pings {
 		a.Notify(notify.Message{Event: notify.EventAvailable, Title: p.r.Title, Year: p.r.Year,
-			Poster: ImageURL(p.r.Poster, "w342"), RequestedBy: p.u.Username, MentionID: p.u.DiscordID, Seasons: p.r.Seasons})
-		a.logf("request #%d complete: %q is in Plex", p.r.ID, p.r.Title)
+			Poster: ImageURL(p.r.Poster, "w342"), RequestedBy: p.u.Username, MentionID: p.u.DiscordID, Seasons: p.r.Seasons, Library: lib})
+		a.logf("request #%d complete: %q is in %s", p.r.ID, p.r.Title, lib)
 	}
 }
 
-// ensureSeasons asks Plex for a show's seasons when it's in the library but
-// hasn't been checked in detail yet, so already-downloaded seasons show as
-// available and can't be requested again.
+// ensureSeasons asks the media servers for a show's seasons when it's in a
+// library but hasn't been checked in detail yet, so already-downloaded
+// seasons show as available and can't be requested again.
 func (a *App) ensureSeasons(ctx context.Context, tmdbID int) {
-	var key string
-	var known bool
-	a.Store.Read(func(d *store.Data) {
-		if e, ok := d.Library[store.LibKey(store.TypeTV, tmdbID)]; ok {
-			key, known = e.Key, e.Seasons != nil
+	var e store.LibEntry
+	var ok bool
+	a.Store.Read(func(d *store.Data) { e, ok = d.Library[store.LibKey(store.TypeTV, tmdbID)] })
+	if !ok {
+		return
+	}
+	if e.Key != "" && e.Seasons == nil {
+		if srv := a.PlexServer(); srv != nil {
+			if ss, err := srv.Seasons(ctx, e.Key); err == nil {
+				a.markAvailable(srcPlex, store.TypeTV, tmdbID, e.Key, seasonCounts(ss))
+			}
 		}
-	})
-	if key == "" || known {
-		return
 	}
-	srv := a.PlexServer()
-	if srv == nil {
-		return
-	}
-	if ss, err := srv.Seasons(ctx, key); err == nil {
-		a.markAvailable(store.TypeTV, tmdbID, key, seasonCounts(ss))
+	if e.JF != "" && e.JFSeasons == nil {
+		if jf := a.Jellyfin(); jf != nil {
+			if counts, err := jf.SeasonCounts(ctx, e.JF); err == nil {
+				a.markAvailable(srcJellyfin, store.TypeTV, tmdbID, e.JF, counts)
+			}
+		}
 	}
 }
 

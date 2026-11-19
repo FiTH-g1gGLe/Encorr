@@ -28,8 +28,8 @@ func (a *App) plexRecent(ctx context.Context) []tmdb.Card {
 	if time.Since(a.recent.at) < 5*time.Minute && a.recent.cards != nil {
 		return a.recent.cards
 	}
-	srv := a.PlexServer()
-	if srv == nil {
+	srv, jf := a.PlexServer(), a.Jellyfin()
+	if srv == nil && jf == nil {
 		return nil
 	}
 	type hit struct {
@@ -46,7 +46,11 @@ func (a *App) plexRecent(ctx context.Context) []tmdb.Card {
 			hits = append(hits, hit{typ, id, added})
 		}
 	}
-	for _, lib := range a.enabledLibraries() {
+	var plexLibs []store.PlexLibrary
+	if srv != nil {
+		plexLibs = a.enabledLibraries()
+	}
+	for _, lib := range plexLibs {
 		if lib.Type == "movie" {
 			items, err := srv.Newest(ctx, lib.Key, 1, 20)
 			if err != nil {
@@ -79,6 +83,35 @@ func (a *App) plexRecent(ctx context.Context) []tmdb.Card {
 			}
 			if md, err := srv.Metadata(ctx, key); err == nil {
 				add(store.TypeTV, a.resolveTMDB(ctx, *md, store.TypeTV), shows[key])
+			}
+		}
+	}
+	if jf != nil {
+		res := a.newResolver(20)
+		for _, lib := range a.jfLibraries() {
+			if lib.Type == "movie" {
+				items, err := jf.Newest(ctx, lib.Key, "Movie", 20)
+				if err != nil {
+					continue
+				}
+				for _, it := range items {
+					add(store.TypeMovie, res.tmdb(ctx, it, store.TypeMovie), it.DateCreated.Unix())
+				}
+				continue
+			}
+			eps, err := jf.Newest(ctx, lib.Key, "Episode", 80)
+			if err != nil {
+				continue
+			}
+			seen := map[string]bool{}
+			for _, e := range eps {
+				if e.SeriesID == "" || seen[e.SeriesID] || len(seen) >= 20 {
+					continue
+				}
+				seen[e.SeriesID] = true
+				if show, err := jf.Item(ctx, e.SeriesID); err == nil {
+					add(store.TypeTV, res.tmdb(ctx, *show, store.TypeTV), e.DateCreated.Unix())
+				}
 			}
 		}
 	}

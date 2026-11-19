@@ -27,6 +27,10 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("POST /api/v1/auth/plex/pin", a.limited(a.hPlexPin))
 	api("POST /api/v1/auth/plex/check", a.limited(a.hPlexCheck))
 	api("POST /api/v1/auth/login", a.limited(a.hLogin))
+	api("POST /api/v1/auth/jellyfin/login", a.limited(a.hJellyfinLogin))
+	api("POST /api/v1/auth/jellyfin/quick", a.limited(a.hJellyfinQuickStart))
+	api("POST /api/v1/auth/jellyfin/quick/check", a.limited(a.hJellyfinQuickCheck))
+	api("POST /api/v1/auth/jellyfin/setup", a.limited(a.hJellyfinSetup))
 	api("POST /api/v1/auth/logout", a.hLogout)
 
 	// Signed-in users
@@ -89,6 +93,11 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("GET /api/v1/settings/plex/servers", a.setup(a.hPlexServers))
 	api("POST /api/v1/settings/plex/server", a.setup(a.hPickServer))
 	api("PUT /api/v1/settings/plex/libraries", a.setup(a.hSaveLibraries))
+	api("POST /api/v1/settings/plex/link", a.setup(a.hPlexLink))
+	api("POST /api/v1/settings/jellyfin", a.setup(a.hJellyfinConnect))
+	api("PUT /api/v1/settings/jellyfin/libraries", a.setup(a.hJellyfinLibraries))
+	api("PUT /api/v1/settings/jellyfin/public", a.setup(a.hJellyfinSavePublic))
+	api("DELETE /api/v1/settings/jellyfin", a.admin(a.hJellyfinDisconnect))
 	api("GET /api/v1/settings/detect/{app}", a.setup(a.hDetect))
 	api("POST /api/v1/settings/{app}/test", a.setup(a.hTestArr))
 	api("PUT /api/v1/settings/arr/{app}", a.setup(a.hSaveArr))
@@ -236,7 +245,7 @@ func (a *App) setup(h userHandler) http.HandlerFunc {
 		hasAdmin := false
 		a.Store.Read(func(d *store.Data) { hasAdmin = d.HasAdmin() })
 		if !hasAdmin {
-			writeErr(w, http.StatusUnauthorized, "Sign in with Plex first: the first person to sign in becomes the admin.")
+			writeErr(w, http.StatusUnauthorized, "Sign in first: the first person to sign in becomes the admin.")
 			return
 		}
 		a.admin(h)(w, r)

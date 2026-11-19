@@ -32,6 +32,7 @@ type publicUser struct {
 	WatchlistSync bool   `json:"watchlistSync"`
 	SignedIn      bool   `json:"signedIn"`    // has signed in at least once
 	Plex          bool   `json:"plex"`        // can sign in with Plex
+	Jellyfin      bool   `json:"jellyfin"`    // can sign in with Jellyfin
 	HasPassword   bool   `json:"hasPassword"` // can sign in with username + password
 	MustChange    bool   `json:"mustChangePassword,omitempty"`
 	Created       string `json:"created"`
@@ -41,7 +42,7 @@ type publicUser struct {
 func toPublic(u *store.User) publicUser {
 	return publicUser{ID: u.ID, Username: u.Username, Email: u.Email, Thumb: u.Thumb, Role: u.Role,
 		DiscordID: u.DiscordID, WatchlistSync: u.WatchlistSync, SignedIn: u.PlexToken != "" || !u.LastSeen.IsZero(),
-		Plex: u.PlexID != 0, HasPassword: u.PasswordHash != "", MustChange: u.MustChangePassword,
+		Plex: u.PlexID != 0, Jellyfin: u.JellyfinID != "", HasPassword: u.PasswordHash != "", MustChange: u.MustChangePassword,
 		Created: u.Created.Format(time.RFC3339)}
 }
 
@@ -53,6 +54,15 @@ func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
 		"version": Version, "setupComplete": s.SetupComplete, "hasAdmin": hasAdmin,
 		"accent": s.Accent, "theme": s.Theme, "serverName": s.Plex.ServerName, "appUrl": s.AppURL,
 		"radarr": s.Radarr.Enabled, "sonarr": s.Sonarr.Enabled,
+		// Which sign-in buttons to show, and what the library is called.
+		"plex": s.Plex.URL != "" || !s.Jellyfin.Ready(), "jellyfin": s.Jellyfin.Ready(),
+		"jellyfinName": s.Jellyfin.ServerName, "libraryName": a.libName(),
+	}
+	if s.Jellyfin.Ready() && s.SetupComplete {
+		out["quickConnect"] = a.jfQuickEnabled(r.Context())
+	}
+	if out["serverName"] == "" {
+		out["serverName"] = s.Jellyfin.ServerName
 	}
 	if u := a.currentUser(r); u != nil {
 		out["user"] = toPublic(u)
@@ -61,11 +71,21 @@ func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// librarySync says how well Encorr knows the Plex library: counts, whether a
-// full read has ever worked, and whether one is running now.
+// librarySync says how well Encorr knows the library: counts, whether a
+// full read has worked on every connected server, and whether one is
+// running now.
 func (a *App) librarySync() map[string]any {
+	s := a.settings()
+	var names []string
+	if s.Plex.URL != "" || !s.Jellyfin.Ready() {
+		names = append(names, "plex-full")
+	}
+	if s.Jellyfin.Ready() {
+		names = append(names, "jellyfin-full")
+	}
 	films, shows := 0, 0
-	var full store.JobInfo
+	synced := true
+	var lastRun time.Time
 	a.Store.Read(func(d *store.Data) {
 		for k := range d.Library {
 			if strings.HasPrefix(k, store.TypeTV+":") {
@@ -74,15 +94,23 @@ func (a *App) librarySync() map[string]any {
 				films++
 			}
 		}
-		full = d.Jobs["plex-full"]
+		for _, n := range names {
+			j := d.Jobs[n]
+			synced = synced && j.LastOK
+			if j.LastRun.After(lastRun) {
+				lastRun = j.LastRun
+			}
+		}
 	})
 	running := false
-	if j, ok := a.jobs["plex-full"]; ok {
-		a.mu.Lock()
-		running = j.running
-		a.mu.Unlock()
+	a.mu.Lock()
+	for _, n := range names {
+		if j, ok := a.jobs[n]; ok && j.running {
+			running = true
+		}
 	}
-	return map[string]any{"films": films, "shows": shows, "synced": full.LastOK, "running": running, "lastRun": full.LastRun}
+	a.mu.Unlock()
+	return map[string]any{"films": films, "shows": shows, "synced": synced, "running": running, "lastRun": lastRun, "name": a.libName()}
 }
 
 func (a *App) hPlexPin(w http.ResponseWriter, r *http.Request) {
@@ -546,9 +574,9 @@ func (a *App) statusOf(d *store.Data, typ string, tmdbID int, userID int) status
 		if m.ExternalID > 0 && si.Status != store.MediaAvailable {
 			si.Progress = a.progressFor(typ, m.ExternalID)
 		}
-	} else if inLib && typ == store.TypeTV && len(lib.Seasons) > 0 {
+	} else if inLib && typ == store.TypeTV && len(lib.Have()) > 0 {
 		si.Seasons = map[int]string{}
-		for s, have := range lib.Seasons {
+		for s, have := range lib.Have() {
 			if have > 0 {
 				si.Seasons[s] = store.MediaPartial // exact counts compared on the title page
 			}
@@ -580,7 +608,7 @@ func (a *App) hDiscover(w http.ResponseWriter, r *http.Request, u *store.User) {
 		if page <= 1 {
 			cards = append(cards, a.plexRecent(r.Context())...)
 		}
-		writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": 1, "title": "Just added to Plex"})
+		writeJSON(w, 200, map[string]any{"results": a.annotate(cards, u.ID), "totalPages": 1, "title": "Just added to " + a.libName()})
 		return
 	}
 	cards, pages, err := a.TMDB().List(r.Context(), key, page)
@@ -597,7 +625,13 @@ func (a *App) hDiscover(w http.ResponseWriter, r *http.Request, u *store.User) {
 
 // hDiscoverRows lists today's home-screen rows (some rotate daily).
 func (a *App) hDiscoverRows(w http.ResponseWriter, r *http.Request, u *store.User) {
-	writeJSON(w, 200, map[string]any{"rows": a.TMDB().Rows(r.Context(), time.Now())})
+	rows := a.TMDB().Rows(r.Context(), time.Now())
+	for i := range rows {
+		if rows[i].Key == "plex-recent" {
+			rows[i].Title = "Just added to " + a.libName() // Plex, Jellyfin or your library
+		}
+	}
+	writeJSON(w, 200, map[string]any{"rows": rows})
 }
 
 // hSearch finds films and TV separately, so the page can show them apart.
@@ -655,14 +689,15 @@ func (a *App) hTitle(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var recs []cardOut
 	a.Store.Read(func(d *store.Data) {
 		si = a.statusOf(d, typ, id, u.ID)
-		// Use exact TMDB episode counts for seasons when Plex detail is known.
-		if lib, ok := d.Library[store.LibKey(typ, id)]; ok && typ == store.TypeTV && len(lib.Seasons) > 0 {
+		// Use exact TMDB episode counts for seasons when the servers' detail is known.
+		if lib, ok := d.Library[store.LibKey(typ, id)]; ok && typ == store.TypeTV && len(lib.Have()) > 0 {
+			have := lib.Have()
 			if si.Seasons == nil {
 				si.Seasons = map[int]string{}
 			}
 			all := true
 			for _, s := range det.Seasons {
-				have := lib.Seasons[s.SeasonNumber]
+				have := have[s.SeasonNumber]
 				switch {
 				case have > 0 && have >= s.EpisodeCount:
 					si.Seasons[s.SeasonNumber] = store.MediaAvailable
@@ -687,14 +722,19 @@ func (a *App) hTitle(w http.ResponseWriter, r *http.Request, u *store.User) {
 	})
 	det.Recommended = nil
 	out := map[string]any{"details": det, "status": si, "recommended": recs}
-	var plexKey string
-	a.Store.Read(func(d *store.Data) {
-		if lib, ok := d.Library[store.LibKey(typ, id)]; ok {
-			plexKey = lib.Key
-		}
-	})
-	if pi := a.plexDetails(r.Context(), plexKey); pi != nil {
+	var lib store.LibEntry
+	a.Store.Read(func(d *store.Data) { lib = d.Library[store.LibKey(typ, id)] })
+	pi, ji := a.plexDetails(r.Context(), lib.Key), a.jellyfinDetails(r.Context(), lib.JF, typ == store.TypeTV)
+	if pi != nil {
 		out["plex"] = pi
+	}
+	if ji != nil {
+		out["jellyfin"] = ji
+		if pi == nil {
+			out["plex"] = &plexInfo{Quality: ji.Quality, Audio: ji.Audio} // quality chips
+		} else if pi.Quality == "" {
+			pi.Quality, pi.Audio = ji.Quality, ji.Audio
+		}
 	}
 	writeJSON(w, 200, out)
 }
@@ -718,13 +758,14 @@ type requestOut struct {
 	NextAiring *time.Time `json:"nextAiring,omitempty"` // show: next new episode
 	LastSearch *time.Time `json:"lastSearch,omitempty"` // when Encorr last asked for a fresh search
 	// Group is the filter it lives under: needs | active | upcoming | ready | declined.
-	Group      string     `json:"group"`
-	NextSearch *time.Time `json:"nextSearch,omitempty"` // when Encorr will look again by itself
-	Problem    string     `json:"problem,omitempty"`    // why it needs a hand
-	Arrived    *time.Time `json:"arrived,omitempty"`    // when it reached Plex
-	PlexURL    string     `json:"plexUrl,omitempty"`
-	New        bool       `json:"new,omitempty"`     // ready since the requester last looked
-	Managed    bool       `json:"managed,omitempty"` // has a live download an admin can control
+	Group       string     `json:"group"`
+	NextSearch  *time.Time `json:"nextSearch,omitempty"` // when Encorr will look again by itself
+	Problem     string     `json:"problem,omitempty"`    // why it needs a hand
+	Arrived     *time.Time `json:"arrived,omitempty"`    // when it reached Plex
+	PlexURL     string     `json:"plexUrl,omitempty"`
+	JellyfinURL string     `json:"jellyfinUrl,omitempty"`
+	New         bool       `json:"new,omitempty"`     // ready since the requester last looked
+	Managed     bool       `json:"managed,omitempty"` // has a live download an admin can control
 }
 
 type seasonOut struct {
@@ -765,8 +806,12 @@ func groupOf(ro *requestOut, admin bool) string {
 }
 
 // plexURL opens a library item in Plex's web app.
-func (a *App) plexURL(ratingKey string) string {
-	mid := a.settings().Plex.MachineID
+func (a *App) plexURL(ratingKey string) string { return plexURLFor(a.settings(), ratingKey) }
+
+// plexURLFor is plexURL for code already holding the store lock (calling
+// a.settings() there would take the lock twice).
+func plexURLFor(s store.Settings, ratingKey string) string {
+	mid := s.Plex.MachineID
 	if mid == "" || ratingKey == "" {
 		return ""
 	}
@@ -777,6 +822,7 @@ func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 	filter := r.URL.Query().Get("filter")
 	older := r.URL.Query().Get("older") == "1"
 	admin := u.Role == store.RoleAdmin
+	st := a.settings() // read before taking the store lock below
 	var all []requestOut
 	var nudgeRan time.Time
 	now := time.Now()
@@ -819,7 +865,10 @@ func (a *App) hRequests(w http.ResponseWriter, r *http.Request, u *store.User) {
 				ro.Arrived = &t
 				ro.New = rq.RequestedBy == u.ID && t.After(seen) && !seen.IsZero()
 				if m != nil {
-					ro.PlexURL = a.plexURL(m.PlexKey)
+					ro.PlexURL = plexURLFor(st, m.PlexKey)
+					if m.JFKey != "" && st.Jellyfin.Ready() {
+						ro.JellyfinURL = jfURLFor(st, m.JFKey)
+					}
 				}
 			}
 			if ro.State == "attention" && ro.Problem == "" && ro.Progress != nil {
@@ -1130,6 +1179,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 		"setupComplete": s.SetupComplete, "appUrl": s.AppURL, "region": s.Region, "language": s.Language,
 		"accent": s.Accent, "theme": s.Theme, "quotas": s.Quotas, "autoFix": s.AutoFixOn(),
 		"plex":     map[string]any{"serverName": s.Plex.ServerName, "machineId": s.Plex.MachineID, "url": s.Plex.URL, "libraries": s.Plex.Libraries},
+		"jellyfin": jfSettingsOut(s.Jellyfin),
 		"tmdb":     map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked(), "builtIn": tmdb.BuiltInKey != ""},
 		"radarr":   maskArr(s.Radarr),
 		"sonarr":   maskArr(s.Sonarr),
@@ -1593,15 +1643,20 @@ func (a *App) hTestDiscord(w http.ResponseWriter, r *http.Request, u *store.User
 func (a *App) hCompleteSetup(w http.ResponseWriter, r *http.Request, u *store.User) {
 	s := a.settings()
 	switch {
-	case s.Plex.URL == "":
-		fail(w, userErr("Choose your Plex server first."))
+	case s.Plex.URL == "" && !s.Jellyfin.Ready():
+		fail(w, userErr("Connect Plex or Jellyfin first."))
 		return
 	case tmdbKey(s) == "":
 		fail(w, userErr("Add a TMDB key first."))
 		return
 	}
 	_ = a.Store.Update(func(d *store.Data) error { d.Settings.SetupComplete = true; return nil })
-	_ = a.RunJob("plex-full")
+	if s.Plex.URL != "" {
+		_ = a.RunJob("plex-full")
+	}
+	if s.Jellyfin.Ready() {
+		_ = a.RunJob("jellyfin-full")
+	}
 	_ = a.RunJob("downloads")
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }

@@ -107,6 +107,12 @@ function setBackdrop(path) {
 }
 
 function clearTimers() { state.timers.forEach(clearInterval); state.timers = []; }
+// What the media library is called here: "Plex", "Jellyfin", or "your
+// library" when both are connected.
+const LIB = () => (state.status && state.status.libraryName) || "Plex";
+const BOTH = () => LIB() === "your library";
+const IN_LIB = () => (BOTH() ? "In your library" : "In " + LIB());
+const YOUR_LIB = () => (BOTH() ? "your library" : "your " + LIB());
 const isAdmin = () => state.user && state.user.role === "admin";
 const seasonsText = (s) => (!s || !s.length ? "" : s.length === 1 ? `Season ${s[0]}` : `Seasons ${s.join(", ")}`);
 

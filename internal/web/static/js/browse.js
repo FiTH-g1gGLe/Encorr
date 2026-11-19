@@ -10,7 +10,7 @@ function card(c) {
   return `<a class="card" href="#/title/${esc(c.type)}/${esc(c.id)}" title="${esc(c.title)}">
     <div class="poster">${p ? `<img loading="lazy" src="${esc(p)}" alt="">` : `<div class="noimg">${esc(c.title)}</div>`}
       ${c.rating ? `<span class="rchip">${c.rating.toFixed(1)}</span>` : ""}${st}${quick}
-      <div class="peek"><div class="pt">${esc(c.title)}</div><div class="pm">${esc(c.year || "")} ${rating}</div>${c.overview ? `<div class="po">${esc(c.overview)}</div>` : ""}<span class="pgo">${c.status === "available" ? "In your Plex" : "View"} ${I.chev}</span></div></div>
+      <div class="peek"><div class="pt">${esc(c.title)}</div><div class="pm">${esc(c.year || "")} ${rating}</div>${c.overview ? `<div class="po">${esc(c.overview)}</div>` : ""}<span class="pgo">${c.status === "available" ? "In " + YOUR_LIB() : "View"} ${I.chev}</span></div></div>
     <div class="meta"><div class="t">${esc(c.title)}</div><div class="y">${[c.year, c.type === "tv" ? "TV" : "Film"].filter(Boolean).map(esc).join(" · ")}</div></div></a>`;
 }
 
@@ -28,7 +28,7 @@ async function pageDiscover(main, q = "", focus = false) {
       ${seenHow ? "" : `<ol class="how glass" id="how">
         <li><span class="n">1</span><div><strong>Find it</strong><span>Search, or browse the rows below. Tap a heading to see everything in it.</span></div></li>
         <li><span class="n">2</span><div><strong>Request it</strong><span>Press Request. That's all you do.</span></div></li>
-        <li><span class="n">3</span><div><strong>Watch it in Plex</strong><span>It downloads by itself and we tell you when it's ready.</span></div></li>
+        <li><span class="n">3</span><div><strong>Watch it in ${BOTH() ? "Plex or Jellyfin" : LIB()}</strong><span>It downloads by itself and we tell you when it's ready.</span></div></li>
         <button class="x" id="howClose" aria-label="Hide these tips" title="Got it">${I.check} Got it</button>
       </ol>`}
     </section>
@@ -92,8 +92,8 @@ async function pageDiscover(main, q = "", focus = false) {
     try { st = await api("/status"); } catch (_) { return; }
     const L = st.library || {};
     if (!L.running && L.synced) { box.innerHTML = ""; return; }
-    box.innerHTML = `<div class="glass libsync">${L.running ? `<span class="spinner sm"></span>` : ""}<div><strong>${L.running ? "Reading your Plex library…" : "Encorr hasn't read your whole Plex library yet"}</strong>
-      <span class="small dim">${L.films || L.shows ? `Found ${L.films} films and ${L.shows} shows so far. ` : ""}${L.running ? "Anything you already have will show “In Plex” once it's done." : "It'll try again shortly."}</span></div></div>`;
+    box.innerHTML = `<div class="glass libsync">${L.running ? `<span class="spinner sm"></span>` : ""}<div><strong>${L.running ? `Reading ${YOUR_LIB()}…` : `Encorr hasn't read all of ${YOUR_LIB()} yet`}</strong>
+      <span class="small dim">${L.films || L.shows ? `Found ${L.films} films and ${L.shows} shows so far. ` : ""}${L.running ? `Anything you already have will show “${IN_LIB()}” once it's done.` : "It'll try again shortly."}</span></div></div>`;
     if (L.running) state.timers.push(setTimeout(syncBanner, 4000));
   };
   syncBanner();
@@ -126,12 +126,12 @@ async function pageDiscover(main, q = "", focus = false) {
   if (!slides.length) { h.remove(); return; }
   h.classList.remove("skeleton");
   h.classList.add("carousel");
-  const action = (x) => x.status === "available" ? `<span class="have">${MARK(18)} In your Plex library</span>`
+  const action = (x) => x.status === "available" ? `<span class="have">${MARK(18)} In ${YOUR_LIB()}</span>`
     : ["processing", "pending"].includes(x.status) ? `<span class="have req">${I.check} Requested</span>`
     : `<a class="btn primary" href="#/title/${esc(x.type)}/${esc(x.id)}">${I.plus} Request</a>`;
   h.innerHTML = slides.map((x, i) => `<div class="slide ${i === 0 ? "on" : ""}" style="background-image:url('${esc(img(x.backdrop, "w1280"))}')" aria-hidden="${i === 0 ? "false" : "true"}">
       <div class="inner">
-        ${x.status === "available" ? `<div class="qchips"><span class="qchip plex">In your Plex</span></div>` : ""}<div class="eyebrow"><span class="ech">Trending this week</span><span>${x.type === "tv" ? "TV show" : "Film"}</span></div>
+        ${x.status === "available" ? `<div class="qchips"><span class="qchip plex">In ${YOUR_LIB()}</span></div>` : ""}<div class="eyebrow"><span class="ech">Trending this week</span><span>${x.type === "tv" ? "TV show" : "Film"}</span></div>
         <h1>${esc(x.title)}</h1>
         <div class="hmeta">${x.rating ? `<span class="crate">${x.rating.toFixed(1)}</span>` : ""}${x.year ? `<span>${esc(x.year)}</span>` : ""}</div>
         <p>${esc(x.overview)}</p>
@@ -197,7 +197,7 @@ async function pageCollection(main, id) {
   const asked = c.parts.filter((p) => ["pending", "processing", "approved", "partial"].includes(p.status)).length;
   const upcoming = c.parts.filter((p) => !p.date).length;
   setBackdrop(c.backdrop);
-  const summary = [`${c.parts.length} films`, have ? `${have} in your Plex` : "", asked ? `${asked} on the way` : "", upcoming ? `${upcoming} not dated yet` : ""].filter(Boolean).join(" · ");
+  const summary = [`${c.parts.length} films`, have ? `${have} in ${YOUR_LIB()}` : "", asked ? `${asked} on the way` : "", upcoming ? `${upcoming} not dated yet` : ""].filter(Boolean).join(" · ");
   const canAsk = c.missing > 0;
   const who = isAdmin() || state.user.role === "trusted" ? "They'll start downloading straight away." : "They'll go to the owner to approve.";
   main.innerHTML = `
@@ -208,7 +208,7 @@ async function pageCollection(main, id) {
       <div class="facts">${esc(summary)}</div>
       ${c.overview ? `<p>${esc(c.overview)}</p>` : ""}
       <div class="row">
-        ${canAsk ? `<button class="btn primary" id="reqAll"${tip(who)}>${I.plus} Request the ${c.missing === c.parts.length ? "whole series" : c.missing + " you haven't got"}</button>` : `<span class="have">${MARK(18)} ${have === c.parts.length ? "You've got the whole series" : "Everything that's out is in Plex or on its way"}</span>`}
+        ${canAsk ? `<button class="btn primary" id="reqAll"${tip(who)}>${I.plus} Request the ${c.missing === c.parts.length ? "whole series" : c.missing + " you haven't got"}</button>` : `<span class="have">${MARK(18)} ${have === c.parts.length ? "You've got the whole series" : `Everything that's out is in ${BOTH() ? "your library" : LIB()} or on its way`}</span>`}
       </div></div></section>
     <h2>In release order</h2>
     <div class="grid">${c.parts.map(card).join("")}</div>`;

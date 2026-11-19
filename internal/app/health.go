@@ -41,6 +41,8 @@ func (a *App) Health(ctx context.Context) []Check {
 		c := Check{Name: "Plex"}
 		srv := a.PlexServer()
 		switch {
+		case srv == nil && s.Jellyfin.Ready():
+			c.Status, c.Message, c.Fix = "off", "Not connected: Encorr is using Jellyfin.", "If you also run Plex, connect it in Settings → Plex."
 		case srv == nil:
 			c.Status, c.Message, c.Fix = "error", "No Plex server chosen yet.", "Open Settings → Plex and pick your server."
 		default:
@@ -199,6 +201,10 @@ func (a *App) Health(ctx context.Context) []Check {
 		z.Status, z.Message, z.Fix = "off", "Not connected: progress bars update about once a minute.", "Connect SABnzbd in Settings → SABnzbd for live progress."
 	}
 	checks = append(checks, z)
+	if jc, ok := a.jellyfinCheck(ctx, s); ok {
+		// Right after Plex, so the media servers sit together.
+		checks = append(checks[:1], append([]Check{jc}, checks[1:]...)...)
+	}
 	checks = append(checks, extra...)
 
 	af := Check{Name: "Auto-fix"}
@@ -228,4 +234,38 @@ func (a *App) Health(ctx context.Context) []Check {
 		}
 	}
 	return checks
+}
+
+// jellyfinCheck reports on Jellyfin when it's connected (or half set up).
+func (a *App) jellyfinCheck(ctx context.Context, s store.Settings) (Check, bool) {
+	j := s.Jellyfin
+	if !j.Ready() {
+		return Check{}, false
+	}
+	c := Check{Name: "Jellyfin"}
+	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	info, err := a.Jellyfin().Ping(cctx)
+	switch {
+	case err != nil && strings.Contains(err.Error(), "accept"):
+		c.Status, c.Message, c.Fix = "error", "Jellyfin turned down Encorr's API key: it may have been deleted in Jellyfin's dashboard.", "Reconnect in Settings → Jellyfin (sign in as an administrator again)."
+	case err != nil:
+		c.Status, c.Message, c.Fix = "error", err.Error(), "Make sure Jellyfin is running, then press Re-check. If its address changed, update it in Settings → Jellyfin."
+	default:
+		n := 0
+		for _, l := range j.Libraries {
+			if l.Enabled {
+				n++
+			}
+		}
+		name := j.ServerName
+		if info != nil && info.ServerName != "" {
+			name = info.ServerName
+		}
+		c.Status, c.Message = "ok", fmt.Sprintf("Connected to %s, watching %d libraries.", name, n)
+		if n == 0 {
+			c.Status, c.Fix = "warn", "Tick at least one library in Settings → Jellyfin."
+		}
+	}
+	return c, true
 }

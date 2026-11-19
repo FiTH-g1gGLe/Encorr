@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/encorr-logo.svg" width="380" alt="Encorr"></p>
 
-<p align="center"><b>Request the encore.</b><br>A friendly media request app for Plex. Friends ask for a film or show, and it turns up in Plex by itself.</p>
+<p align="center"><b>Request the encore.</b><br>A friendly media request app for Plex and Jellyfin. Friends ask for a film or show, and it turns up in your library by itself.</p>
 
 <p align="center">
   <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/FiTH-g1gGLe/Encorr?label=release&color=9b7bff"></a>
@@ -10,7 +10,7 @@
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/FiTH-g1gGLe/Encorr?logo=go&logoColor=white">
   <img alt="Windows and Linux" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux-18181d">
   <img alt="No Docker needed" src="https://img.shields.io/badge/Docker-not%20needed-18181d">
-  <img alt="Works with Plex, Radarr, Sonarr, SABnzbd" src="https://img.shields.io/badge/works%20with-Plex%20%C2%B7%20Radarr%20%C2%B7%20Sonarr%20%C2%B7%20SABnzbd-e5a00d">
+  <img alt="Works with Plex, Jellyfin, Radarr, Sonarr, SABnzbd" src="https://img.shields.io/badge/works%20with-Plex%20%C2%B7%20Jellyfin%20%C2%B7%20Radarr%20%C2%B7%20Sonarr%20%C2%B7%20SABnzbd-e5a00d">
 </p>
 
 <p align="center"><a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip"><b>⬇️ Download Encorr for Windows</b></a> &nbsp;·&nbsp; <a href="TESTING.md">🧪 Testing guide</a> &nbsp;·&nbsp; <a href="https://github.com/FiTH-g1gGLe/Encorr/releases">📝 What's new</a></p>
@@ -19,12 +19,12 @@
 
 ## What is it? 🍿
 
-Encorr is the front door to your Plex server. People sign in, find something to watch, and press **Request**. Encorr hands it to Radarr (films) or Sonarr (TV), SABnzbd downloads it, and Encorr tells them when it's ready to watch.
+Encorr is the front door to your Plex or Jellyfin server (or both). People sign in, find something to watch, and press **Request**. Encorr hands it to Radarr (films) or Sonarr (TV), SABnzbd downloads it, and Encorr tells them when it's ready to watch.
 
 It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 
 - **🪶 Simple to run:** one program file. No Docker, no Node, no Java, no database server.
-- **🧭 Simple to set up:** a wizard signs you in with Plex and finds Radarr, Sonarr and SABnzbd on the same machine by itself.
+- **🧭 Simple to set up:** a wizard signs you in with Plex or Jellyfin and finds Radarr, Sonarr and SABnzbd on the same machine by itself.
 - **🙂 Simple to use:** plain English everywhere, big buttons, and a progress tracker anyone can read.
 - **🌙 Always on:** one click runs it in the background as a Windows service that starts with the computer.
 
@@ -46,7 +46,8 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | --- | --- |
 | 🎬 **Rich details** | Crew (director, writers, creator, producers, music), cast with photos, tags, release dates (cinema, digital, disc), budget, revenue, language, country and studio. |
 | ⭐ **Ratings** | TMDB for everything, plus IMDb and Rotten Tomatoes (critics and audience) from Plex for things in your library. |
-| ▶️ **Play on Plex** | Opens it straight in Plex, and shows the quality you have (e.g. 4K HDR10, 5.1). |
+| ▶️ **Play on Plex or Jellyfin** | Opens it straight in Plex or Jellyfin (a button for each server that has it), and shows the quality you have (e.g. 4K HDR10, 5.1). |
+| 🪼 **Jellyfin, alongside Plex or instead of it** | Connect Jellyfin as well as Plex, or on its own. Friends sign in with their Jellyfin account or a Quick Connect code typed into a Jellyfin app they already use. Encorr checks both servers to see what you have (a season counts when either has it), tells Jellyfin to scan the moment a download lands, and the wording follows your setup: "In Plex", "In Jellyfin" or "In your library". |
 | 📡 **Where it's streaming** | UK streaming services with their logos, plus links to TMDB, IMDb, Trakt, Letterboxd and TheTVDB. |
 | 📚 **Collections** | "Part of the Harry Potter Collection": see the whole series and request every film you haven't got in one go. |
 | 📺 **Season picker** | A table of seasons with switches, episode counts and what's already in Plex or on its way. |
@@ -70,7 +71,7 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 
 | | |
 | --- | --- |
-| 🔧 **Settings check** | Reads the live settings of SABnzbd, Radarr, Sonarr, Prowlarr and Plex and compares them with recommendations from SABnzbd's own guide, the Servarr wiki, TRaSH Guides and Plex. Each one is explained in plain English, current value → recommended value. |
+| 🔧 **Settings check** | Reads the live settings of SABnzbd, Radarr, Sonarr, Prowlarr, Plex and Jellyfin and compares them with recommendations from SABnzbd's own guide, the Servarr wiki, TRaSH Guides and Plex. Each one is explained in plain English, current value → recommended value. |
 | ✅ **Safe or your call** | Standard advice for every setup is marked **Safe** and can be applied in one go; anything that depends on taste or hardware is marked **Your call**. Connection, password and remote-access settings are never touched. |
 | ↩️ **Undo everything** | Every change is read back to confirm it took, and saved with its old value. Undo puts it back, and asks first if someone changed it again since. |
 | 🚀 **Speed test** | Measures your internet line, the download folders and the CPU (using SABnzbd's own test) and how many articles your news server actually has, then names the slowest part and sizes the recommendations to your machine. The **connection helper** tries a few connection counts on a live download and keeps the smallest that reaches top speed. |
@@ -81,10 +82,10 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 
 | | |
 | --- | --- |
-| 👥 **Accounts for friends** | Username and password, or Plex sign-in. Owner, Trusted (no approval needed) and Friend (needs approval, with limits). |
-| 📚 **Knows your library** | Reads your whole Plex library the moment it's connected, then keeps up every few minutes. |
+| 👥 **Accounts for friends** | Username and password, Plex sign-in, or Jellyfin sign-in (password or Quick Connect). Owner, Trusted (no approval needed) and Friend (needs approval, with limits). |
+| 📚 **Knows your library** | Reads your whole Plex and/or Jellyfin library the moment it's connected, then keeps up every few minutes. |
 | 💬 **Discord** | New requests, approvals, problems and "Your encore is ready", with @mentions. |
-| ❤️ **Health page** | Plain-English checks for Plex, TMDB, Radarr, Sonarr, SABnzbd, indexers, Discord and disk space, with fix buttons (resume or restart SABnzbd, clear leftovers, search for everything missing) and a log of everything Encorr fixed. |
+| ❤️ **Health page** | Plain-English checks for Plex, Jellyfin, TMDB, Radarr, Sonarr, SABnzbd, indexers, Discord and disk space, with fix buttons (resume or restart SABnzbd, clear leftovers, search for everything missing) and a log of everything Encorr fixed. |
 | 🗓️ **Subscriptions** | Your news servers, indexers and blocks in one place: VIP dates read from Prowlarr, expiry dates and data left on each block read from SABnzbd, plus anything you add yourself (Plex Pass, say) with costs and a yearly total. Reminders on Discord 14, 7 and 1 days before something runs out, and when a block is 75% and 90% used. |
 | 🌍 **Reach it from anywhere** | Works behind a Cloudflare Tunnel or reverse proxy. [Step-by-step guide](docs/REMOTE-ACCESS.md). |
 | 📱 **Phone-friendly** | Works in any phone browser with a bottom menu; "Add to Home screen" gives you an app icon. |
@@ -112,6 +113,10 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | **Tune-up:** speed test and what's slowing you down | **Tune-up:** recommendations you can apply and undo |
 | <img src="docs/screenshots/subscriptions.png" alt="Subscriptions with countdown rings, block usage and a yearly total"> | <img src="docs/screenshots/subscriptions-edit.png" alt="Adding cost and renewal details to a subscription"> |
 | **Subscriptions:** what renews when, and what's left on each block | **Add details:** cost, plan and account link |
+| <img src="docs/screenshots/title-both.png" alt="A film on both servers, with Play on Plex and Play on Jellyfin"> | <img src="docs/screenshots/jellyfin-quick.png" alt="Signing in with a Jellyfin Quick Connect code"> |
+| **Plex and Jellyfin:** a Play button for each | **Quick Connect:** sign in with a code from your Jellyfin app |
+| <img src="docs/screenshots/settings-jellyfin.png" alt="Jellyfin settings: server, libraries and Play button address"> | <img src="docs/screenshots/sign-in.png" alt="The setup wizard asking which media server you use"> |
+| **Jellyfin settings** | **Setup:** start with Plex or Jellyfin |
 | <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard connected to Radarr"> | <img src="docs/screenshots/health.png" alt="The health page with plain-English checks"> |
 | **Setup wizard** | **Health:** what's working, fix buttons, and what auto-fix did |
 
@@ -121,7 +126,7 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 
 1. **[Download Encorr-Windows.zip](https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip)** and unzip it. The link always gives you the newest version.
 2. **Double-click `encorr.exe`.** Your browser opens at <http://localhost:5150>. If Windows asks about the firewall, allow private networks.
-3. **Follow the setup wizard:** sign in with Plex, pick your server and libraries, and press Test on Radarr and Sonarr (usually already filled in).
+3. **Follow the setup wizard:** sign in with Plex (and pick your server) or connect Jellyfin as an administrator, choose your libraries, and press Test on Radarr and Sonarr (usually already filled in).
 4. **Run it in the background:** go to Settings → General → *Run in the background* → **Turn on**, and press Yes when Windows asks. Encorr now starts with the computer and restarts itself if it ever stops.
 5. **Invite people:** go to People → *Add a person*, then copy the message and send it.
 
@@ -185,9 +190,10 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 - [x] Health page with fix buttons, Radarr/Sonarr warnings, a stuck-download warning and background jobs
 - [x] Tune-up: settings check for SABnzbd, Radarr, Sonarr, Prowlarr and Plex with apply and undo, a speed test, and fixers
 - [x] Subscriptions page: indexer VIP dates from Prowlarr, server expiry and block usage from SABnzbd, your own entries with costs, and reminders
+- [x] Jellyfin support, alongside Plex or on its own: Jellyfin and Quick Connect sign-in, library reading, instant scans, Play buttons, Health and Tune-up checks
 - [x] Windows background service with one-click on/off and double-click updates
 - [x] Midnight or graphite themes with 8 accent colours
-- [x] Tested end to end against simulated Plex, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server
+- [x] Tested end to end against simulated Plex, Jellyfin, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server
 
 ## Coming next 🛣️
 
@@ -211,7 +217,7 @@ Every push to `main` is tested and published as a release, with the TMDB key add
 
 ### Trying it without a real server
 
-`encorr-fake` pretends to be Plex, TMDB, Radarr, Sonarr, SABnzbd and Discord:
+`encorr-fake` pretends to be Plex, Jellyfin, TMDB, Radarr, Sonarr, SABnzbd and Discord:
 
 ```sh
 go run ./cmd/encorr-fake -port 5199 &
@@ -229,6 +235,7 @@ Use TMDB key `good-key`. For Radarr use `http://localhost:5199/radarr` and key `
 | `internal/arr` | Radarr and Sonarr client, including auto-detection |
 | `internal/sab` | SABnzbd client for live download progress |
 | `internal/plex` | plex.tv sign-in, servers, friends, watchlists, library scans |
+| `internal/jellyfin` | Jellyfin sign-in (password and Quick Connect), libraries, folder scans, settings |
 | `internal/tmdb` | Film and TV information from TMDB |
 | `internal/notify` | Discord notifications |
 | `internal/store` | The data file, with encrypted secrets and backups |

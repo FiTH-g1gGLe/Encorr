@@ -156,23 +156,43 @@ async function serverPicker(root, onPicked) {
   }
 }
 
-function librariesForm(libs) {
+function librariesForm(libs, attr = "lib") {
   if (!libs || !libs.length) return `<div class="notice warn">No film or TV libraries found on this server.</div>`;
-  return `<div class="liblist">${libs.map((l) => `<label class="glass lib"><span><strong>${esc(l.title)}</strong> <span class="dim small">${l.type === "show" ? "TV" : "Films"}</span></span><label class="switch"><input type="checkbox" data-lib="${esc(l.key)}" ${l.enabled ? "checked" : ""}><span class="slider"></span></label></label>`).join("")}</div>`;
+  return `<div class="liblist">${libs.map((l) => `<label class="glass lib"><span><strong>${esc(l.title)}</strong> <span class="dim small">${l.type === "show" ? "TV" : "Films"}</span></span><label class="switch"><input type="checkbox" data-${attr}="${esc(l.key)}" ${l.enabled ? "checked" : ""}><span class="slider"></span></label></label>`).join("")}</div>`;
 }
 const saveLibraries = (root) => api("/settings/plex/libraries", { method: "PUT", body: { enabled: qsa("[data-lib]", root).filter((c) => c.checked).map((c) => c.dataset.lib) } });
+const saveJfLibraries = (root) => api("/settings/jellyfin/libraries", { method: "PUT", body: { enabled: qsa("[data-jflib]", root).filter((c) => c.checked).map((c) => c.dataset.jflib) } });
+
+// jellyfinForm asks for the server address and an administrator's sign-in.
+// The password is used once, to make Encorr its own API key, and not kept.
+function jellyfinForm(j = {}) {
+  return `<div class="jfform">
+    <label class="field"><span>Jellyfin address</span><input type="url" id="jfUrl" value="${esc(j.url || "")}" placeholder="http://localhost:8096" autocomplete="off"></label>
+    <div class="grid2">
+      <label class="field"><span>Administrator username</span><input type="text" id="jfUser" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+      <label class="field"><span>Password</span><input type="password" id="jfPass" autocomplete="current-password"></label>
+    </div>
+    <small class="hint">Used once to give Encorr its own API key (you'll see it as “Encorr” under Dashboard → API Keys). Your password isn't saved.</small>
+    <div id="jfOut"></div>
+  </div>`;
+}
+const jfFormBody = (root) => ({ url: qs("#jfUrl", root).value.trim(), username: qs("#jfUser", root).value.trim(), password: qs("#jfPass", root).value });
 
 // ---------- setup wizard ----------
-const STEPS = ["signin", "server", "libraries", "tmdb", "radarr", "sonarr", "discord", "done"];
+const STEPS = ["signin", "server", "libraries", "jellyfin", "tmdb", "radarr", "sonarr", "discord", "done"];
 const STEPS_BACK = {};
 
 async function renderWizard(stepName) {
   setBackdrop(null);
-  let step = stepName || (state.user ? "server" : "signin");
   let settings = null;
   if (state.user) {
     try { settings = await api("/settings"); } catch { /* not admin */ }
   }
+  const jfOnly = settings && settings.jellyfin.connected && !settings.plex.url && !state.user.plex;
+  let step = stepName || (state.user ? (jfOnly ? "libraries" : "server") : "signin");
+  if (step === "server" && jfOnly) step = "libraries"; // set up with Jellyfin: Plex can come later
+  if (step === "jellyfin" && settings && settings.jellyfin.connected) step = settings.tmdb.builtIn ? "radarr" : "tmdb";
+  if (step === "tmdb" && settings && settings.tmdb.builtIn && !settings.tmdb.hasKey) step = "radarr"; // Encorr's own key works
   const idx = STEPS.indexOf(step);
   const go = (s) => renderWizard(s);
   const shell = (title, lead, body, { back = true, next = "Continue", skip = false } = {}) => {
@@ -198,9 +218,28 @@ async function renderWizard(stepName) {
   };
 
   if (step === "signin") {
-    shell("Welcome to Encorr", "Let's get you set up. It takes about five minutes. First, sign in with the Plex account that owns your server: you'll be the admin.",
-      `<button class="btn plex" id="signin">${I.plex} Sign in with Plex</button><p class="hint" style="margin-top:14px">A Plex window opens. Approve it, and you'll come straight back here.</p>`, { back: false, next: "" });
+    const body = shell("Welcome to Encorr", "Let's get you set up. It takes about five minutes. First, which media server do you use? You'll be the admin. If you run both, start with either: you can add the other in a moment.",
+      `<div class="pickserver">
+        <button class="glass srvopt" id="signin"><span class="srvic plex">${I.plex}</span><span><strong>Plex</strong><span class="small dim">Sign in with the Plex account that owns your server</span></span></button>
+        <button class="glass srvopt" id="usejf"><span class="srvic jf">${I.play}</span><span><strong>Jellyfin</strong><span class="small dim">Sign in as a Jellyfin administrator</span></span></button>
+      </div>
+      <div id="jfsetup" hidden style="margin-top:18px">${jellyfinForm({ url: "http://localhost:8096" })}<button class="btn jf" id="jfConnect" style="margin-top:14px">Connect Jellyfin</button></div>`, { back: false, next: "" });
     qs("#signin").addEventListener("click", (e) => plexSignIn(e.currentTarget, async () => { state.status = await api("/status"); state.user = state.status.user; go("server"); }));
+    qs("#usejf").addEventListener("click", () => { qs("#jfsetup", body).hidden = false; qs("#usejf").classList.add("on"); qs("#jfUser", body).focus(); });
+    qs("#jfConnect", body).addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      busy(btn, true, "Connecting…");
+      qs("#jfOut", body).innerHTML = "";
+      try {
+        const r = await api("/auth/jellyfin/setup", { method: "POST", body: jfFormBody(body), allow401: true });
+        toast(`Connected to ${r.jellyfin.serverName}`, "ok");
+        state.status = await api("/status"); state.user = state.status.user;
+        go("libraries");
+      } catch (err) {
+        qs("#jfOut", body).innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+        busy(btn, false);
+      }
+    });
     return;
   }
   if (step === "server") {
@@ -212,8 +251,35 @@ async function renderWizard(stepName) {
     return;
   }
   if (step === "libraries") {
-    const body = shell("Which libraries?", "Encorr watches these to know what's already in Plex. Most people leave them all on.", librariesForm(settings.plex.libraries));
-    onNext(async () => { await saveLibraries(body); go(settings.tmdb.builtIn ? "radarr" : "tmdb"); });
+    const P = settings.plex.url, J = settings.jellyfin.connected;
+    const lead = P && J ? "Encorr watches these to know what's already in your library. Most people leave them all on."
+      : `Encorr watches these to know what's already in ${J ? "Jellyfin" : "Plex"}. Most people leave them all on.`;
+    const body = shell("Which libraries?", lead,
+      `${P ? `${J ? `<h3 class="libhead">${I.plex} Plex</h3>` : ""}${librariesForm(settings.plex.libraries)}` : ""}
+       ${J ? `${P ? `<h3 class="libhead">${I.play} Jellyfin</h3>` : ""}${librariesForm(settings.jellyfin.libraries, "jflib")}` : ""}`);
+    if (jfOnly) STEPS_BACK.libraries = "libraries";
+    const b = qs("#wBack"); if (b && jfOnly) b.remove();
+    onNext(async () => {
+      if (P) await saveLibraries(body);
+      if (J) await saveJfLibraries(body);
+      go(J ? (settings.tmdb.builtIn ? "radarr" : "tmdb") : "jellyfin");
+    });
+    return;
+  }
+  if (step === "jellyfin") {
+    const body = shell("Also use Jellyfin?", "Optional. If you run Jellyfin as well as Plex, connect it and friends can sign in with either. Encorr checks both to see what you already have.",
+      jellyfinForm({ url: "http://localhost:8096" }), { skip: true, next: "Connect Jellyfin" });
+    onNext(async () => {
+      qs("#jfOut", body).innerHTML = "";
+      try {
+        const r = await api("/settings/jellyfin", { method: "POST", body: jfFormBody(body) });
+        toast(`Connected to ${r.serverName}`, "ok");
+        go("libraries");
+      } catch (err) {
+        qs("#jfOut", body).innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+        busy(qs("#wNext"), false);
+      }
+    });
     return;
   }
   if (step === "tmdb") {
@@ -231,7 +297,7 @@ async function renderWizard(stepName) {
   }
   if (step === "radarr" || step === "sonarr") {
     const name = step === "radarr" ? "Radarr" : "Sonarr";
-    if (step === "radarr" && settings.tmdb.builtIn) STEPS_BACK.radarr = "libraries";
+    if (step === "radarr" && settings.tmdb.builtIn) STEPS_BACK.radarr = settings.jellyfin.connected && !settings.plex.url ? "libraries" : "jellyfin";
     const body = shell(`Connect ${name}`, `${step === "radarr" ? "Films" : "TV shows"} get downloaded through ${name}. If it's on this computer, Encorr can find it for you.`, arrForm(step, settings[step]), { skip: true });
     const save = bindArrForm(body, step, settings[step]);
     if (!settings[step].url) qs('[data-a="detect"]', body).click();
@@ -245,7 +311,9 @@ async function renderWizard(stepName) {
     return;
   }
   if (step === "done") {
-    shell("You're all set", `Encorr will scan your Plex libraries now. Share this address with your friends: <span class="code">${esc(location.origin)}</span>. They sign in with their own Plex accounts.<br><br>Tip: on your phone, open Encorr in Chrome and choose <strong>Add to Home screen</strong> for an app icon.`, "", { next: "Start using Encorr" });
+    const P = settings.plex.url, J = settings.jellyfin.connected;
+    const servers = P && J ? "Plex and Jellyfin" : J ? "Jellyfin" : "Plex";
+    shell("You're all set", `Encorr will read your ${servers} libraries now. Share this address with your friends: <span class="code">${esc(location.origin)}</span>. They sign in with their own ${servers} accounts${J ? ", or with a Jellyfin Quick Connect code" : ""}.<br><br>Tip: on your phone, open Encorr in Chrome and choose <strong>Add to Home screen</strong> for an app icon.`, "", { next: "Start using Encorr" });
     onNext(async () => {
       await api("/settings/complete", { method: "POST", body: {} });
       state.status = await api("/status");
@@ -256,7 +324,7 @@ async function renderWizard(stepName) {
 }
 
 // ---------- settings pages ----------
-const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["subscriptions", "Subscriptions"], ["jobs", "Jobs & backup"]];
+const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["jellyfin", "Jellyfin"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["subscriptions", "Subscriptions"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
   main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener">What's new ↗</a></div></div></div>
@@ -309,6 +377,65 @@ async function pageSettings(main, section) {
       const k = qs("#tmdbKey").value.trim();
       if (k) await api("/settings/tmdb", { method: "PUT", body: { key: k } });
     });
+  }
+  if (section === "plex" && !s.plex.url && !(state.user && state.user.plex)) {
+    // Set up with Jellyfin (or a password): link a Plex account first.
+    panel.innerHTML = `<h2>Plex <span class="dim small" style="font-weight:500">optional</span></h2>
+      <p class="lead">${s.jellyfin.connected ? "Encorr is using Jellyfin. If you also run Plex, connect it and friends can sign in with either. Encorr checks both to see what you already have." : "Connect the Plex server people will request for."}</p>
+      <button class="btn plex" id="plink">${I.plex} Sign in with Plex</button>
+      <p class="hint" style="margin-top:12px">Use the Plex account that owns the server. It's linked to you, so you can sign in with it too.</p>
+      <div id="picker" style="margin-top:14px"></div>`;
+    qs("#plink").addEventListener("click", (e) => plexSignIn(e.currentTarget, async () => {
+      state.status = await api("/status"); state.user = state.status.user;
+      qs("#plink").remove();
+      serverPicker(qs("#picker"), () => pageSettings(main, "plex"));
+    }, "/settings/plex/link"));
+    return;
+  }
+  if (section === "jellyfin") {
+    const j = s.jellyfin;
+    if (!j.connected) {
+      panel.innerHTML = `<h2>Jellyfin <span class="dim small" style="font-weight:500">optional</span></h2>
+        <p class="lead">${s.plex.url ? "Run Jellyfin as well as Plex? Connect it and friends can sign in with either, and Encorr checks both to see what you already have." : "Connect your Jellyfin server."}</p>
+        ${jellyfinForm({ url: "http://localhost:8096" })}
+        <div class="row" style="margin-top:16px"><button class="btn jf" id="jfConnect">Connect Jellyfin</button></div>`;
+      qs("#jfConnect").addEventListener("click", async (e) => {
+        busy(e.currentTarget, true, "Connecting…");
+        qs("#jfOut").innerHTML = "";
+        try {
+          const r = await api("/settings/jellyfin", { method: "POST", body: jfFormBody(panel) });
+          toast(`Connected to ${r.serverName}: reading its library`, "ok");
+          state.status = await api("/status"); applyLibName();
+          pageSettings(main, "jellyfin");
+        } catch (err) { qs("#jfOut").innerHTML = `<div class="notice error">${esc(err.message)}</div>`; busy(e.currentTarget, false); }
+      });
+      return;
+    }
+    panel.innerHTML = `<h2>Server</h2>
+      <div class="row between"><div><strong>${esc(j.serverName)}</strong><div class="small dim">${esc(j.url)}${j.version ? ` · Jellyfin ${esc(j.version)}` : ""}</div></div><button class="btn sm" id="jfRe">Reconnect</button></div>
+      <div id="jfReBox" hidden style="margin-top:14px">${jellyfinForm(j)}<div class="row" style="margin-top:12px"><button class="btn jf sm" id="jfReGo">Reconnect</button></div></div>
+      <h2>Libraries</h2><p class="lead">Encorr watches these to know what's already in Jellyfin.</p><div id="jflibs">${librariesForm(j.libraries, "jflib")}</div>
+      <h2>Play buttons</h2><p class="lead">Play buttons open Jellyfin at the address above. If friends reach Jellyfin at a different address (from outside your home, say), put it here.</p>
+      <label class="field"><span>Address friends use <span class="dim">optional</span></span><input type="url" id="jfPub" value="${esc(j.publicUrl || "")}" placeholder="https://jellyfin.example.com"></label>
+      ${saveBar()}
+      <h2>Signing in</h2><p class="lead">Anyone with an account on ${esc(j.serverName)} can sign in to Encorr with their Jellyfin username and password, or with a Quick Connect code. New people start as Friends: change roles under <a href="#/users">Users</a>.</p>
+      <div class="danger-zone"><button class="btn sm danger" id="jfOff">Disconnect Jellyfin</button></div>`;
+    qs("#jfRe").addEventListener("click", () => { qs("#jfReBox").hidden = !qs("#jfReBox").hidden; });
+    qs("#jfReGo").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Connecting…");
+      qs("#jfOut").innerHTML = "";
+      try { await api("/settings/jellyfin", { method: "POST", body: jfFormBody(panel) }); toast("Reconnected", "ok"); pageSettings(main, "jellyfin"); }
+      catch (err) { qs("#jfOut").innerHTML = `<div class="notice error">${esc(err.message)}</div>`; busy(e.currentTarget, false); }
+    });
+    qs("#jfOff").addEventListener("click", async () => {
+      if (!confirm(`Disconnect ${j.serverName}? Encorr forgets what's in it. Friends who only use Jellyfin can't sign in until you reconnect.`)) return;
+      try { await api("/settings/jellyfin", { method: "DELETE" }); toast("Jellyfin disconnected", "ok"); state.status = await api("/status"); applyLibName(); pageSettings(main, "jellyfin"); }
+      catch (err) { toast(err.message, "error"); }
+    });
+    onSave(async () => {
+      await api("/settings/jellyfin/public", { method: "PUT", body: { publicUrl: qs("#jfPub").value.trim() } });
+      await saveJfLibraries(panel);
+    }, "Saved: rereading Jellyfin");
   }
   if (section === "plex") {
     panel.innerHTML = `<h2>Server</h2>
@@ -402,7 +529,7 @@ async function pageSettings(main, section) {
     run();
   }
   if (section === "tune") {
-    const APPS = { sabnzbd: "SABnzbd", radarr: "Radarr", sonarr: "Sonarr", prowlarr: "Prowlarr", plex: "Plex" };
+    const APPS = { sabnzbd: "SABnzbd", radarr: "Radarr", sonarr: "Sonarr", prowlarr: "Prowlarr", plex: "Plex", jellyfin: "Jellyfin" };
     const LEVEL = { safe: ["Safe", "Standard advice for every setup"], review: ["Your call", "Good for most setups, but worth a read first"], warn: ["Needs a look", ""], info: ["Advice", ""] };
     const BOTTLE = { internet: "Your internet line", provider: "Your news server", disk: "The download folder's drive", cpu: "The CPU", settings: "Settings or the provider", unknown: "Not sure yet" };
     const mbs = (v) => (v ? `${Math.round(v)} MB/s` : "–");

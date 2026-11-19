@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FiTH-g1gGLe/encorr/internal/arr"
+	"github.com/FiTH-g1gGLe/encorr/internal/jellyfin"
 	"github.com/FiTH-g1gGLe/encorr/internal/notify"
 	"github.com/FiTH-g1gGLe/encorr/internal/plex"
 	"github.com/FiTH-g1gGLe/encorr/internal/sab"
@@ -60,6 +61,7 @@ type App struct {
 }
 
 func New(st *store.Store, logger *log.Logger) *App {
+	jellyfin.Version = Version
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{
 		Store:        st,
@@ -155,6 +157,43 @@ func (a *App) PlexServer() *plex.Server {
 	return &plex.Server{URL: s.Plex.URL, ClientID: s.ClientID, Token: string(s.Plex.Token)}
 }
 
+// Jellyfin returns a client for the owner's Jellyfin server (with Encorr's
+// API key), or nil when it isn't connected.
+func (a *App) Jellyfin() *jellyfin.Client {
+	s := a.settings()
+	if !s.Jellyfin.Ready() {
+		return nil
+	}
+	return &jellyfin.Client{URL: s.Jellyfin.URL, Token: string(s.Jellyfin.APIKey), DeviceID: s.ClientID}
+}
+
+// jellyfinAt is a client for signing in (no token) at an address.
+func (a *App) jellyfinAt(url, token string) *jellyfin.Client {
+	return &jellyfin.Client{URL: url, Token: token, DeviceID: a.settings().ClientID}
+}
+
+// libName is what people's media server is called in messages: "Plex",
+// "Jellyfin", or "your library" when both are connected.
+func (a *App) libName() string {
+	s := a.settings()
+	hasPlex, hasJF := s.Plex.URL != "", s.Jellyfin.Ready()
+	switch {
+	case hasPlex && hasJF:
+		return "your library"
+	case hasJF:
+		return "Jellyfin"
+	}
+	return "Plex"
+}
+
+// sourceName names one server.
+func sourceName(src string) string {
+	if src == srcJellyfin {
+		return "Jellyfin"
+	}
+	return "Plex"
+}
+
 func (a *App) plexClient(token string) *plex.Client {
 	return &plex.Client{ClientID: a.settings().ClientID, Token: token}
 }
@@ -175,6 +214,9 @@ func (a *App) Notify(m notify.Message) {
 	s := a.settings()
 	if !s.Discord.Enabled || s.Discord.WebhookURL == "" {
 		return
+	}
+	if m.Library == "" {
+		m.Library = a.libName()
 	}
 	if m.URL == "" && s.AppURL != "" {
 		m.URL = strings.TrimRight(s.AppURL, "/") + "/"

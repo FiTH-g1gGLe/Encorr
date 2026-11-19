@@ -123,27 +123,60 @@ func SkipKey(userID int, typ string, tmdbID int) string {
 
 // LibEntry records that an item is in Plex. Seasons holds episode counts per
 // season for shows that have been checked in detail.
+// LibEntry is one film or show in the library index. A title can be on
+// Plex, on Jellyfin, or both; each server keeps its own details.
 type LibEntry struct {
-	Key     string      `json:"key"`
+	Key     string      `json:"key,omitempty"` // Plex rating key
 	Seasons map[int]int `json:"seasons,omitempty"`
+	// Jellyfin item id and episodes per season there.
+	JF        string      `json:"jf,omitempty"`
+	JFSeasons map[int]int `json:"jfSeasons,omitempty"`
+}
+
+// Empty is true when neither server has the title any more.
+func (e LibEntry) Empty() bool { return e.Key == "" && e.JF == "" }
+
+// Have merges both servers: episodes available per season, whichever has
+// more. nil when no season detail is known yet.
+func (e LibEntry) Have() map[int]int {
+	if e.Seasons == nil && e.JFSeasons == nil {
+		return nil
+	}
+	out := map[int]int{}
+	for s, n := range e.Seasons {
+		out[s] = n
+	}
+	for s, n := range e.JFSeasons {
+		if n > out[s] {
+			out[s] = n
+		}
+	}
+	return out
+}
+
+// KnowsSeasons is true when every server that has the show has had its
+// seasons read.
+func (e LibEntry) KnowsSeasons() bool {
+	return (e.Key == "" || e.Seasons != nil) && (e.JF == "" || e.JFSeasons != nil)
 }
 
 type Settings struct {
-	SetupComplete bool           `json:"setupComplete"`
-	ClientID      string         `json:"clientId"` // X-Plex-Client-Identifier for this install
-	AppURL        string         `json:"appUrl"`
-	Region        string         `json:"region"`   // GB
-	Language      string         `json:"language"` // en-GB
-	Accent        string         `json:"accent"`   // violet | blue | teal | green | yellow | coral | red | pink
-	Theme         string         `json:"theme"`    // black (default) | navy
-	Plex          PlexSettings   `json:"plex"`
-	TMDBKey       Secret         `json:"tmdbKey"`
-	Radarr        ArrSettings    `json:"radarr"`
-	Sonarr        ArrSettings    `json:"sonarr"`
-	Discord       DiscordSetting `json:"discord"`
-	SABnzbd       SabSettings    `json:"sabnzbd"`
-	Prowlarr      ArrSettings    `json:"prowlarr"`
-	Quotas        QuotaSettings  `json:"quotas"`
+	SetupComplete bool             `json:"setupComplete"`
+	ClientID      string           `json:"clientId"` // X-Plex-Client-Identifier for this install
+	AppURL        string           `json:"appUrl"`
+	Region        string           `json:"region"`   // GB
+	Language      string           `json:"language"` // en-GB
+	Accent        string           `json:"accent"`   // violet | blue | teal | green | yellow | coral | red | pink
+	Theme         string           `json:"theme"`    // black (default) | navy
+	Plex          PlexSettings     `json:"plex"`
+	Jellyfin      JellyfinSettings `json:"jellyfin"`
+	TMDBKey       Secret           `json:"tmdbKey"`
+	Radarr        ArrSettings      `json:"radarr"`
+	Sonarr        ArrSettings      `json:"sonarr"`
+	Discord       DiscordSetting   `json:"discord"`
+	SABnzbd       SabSettings      `json:"sabnzbd"`
+	Prowlarr      ArrSettings      `json:"prowlarr"`
+	Quotas        QuotaSettings    `json:"quotas"`
 	// AutoFix lets Encorr sort out stuck downloads by itself. nil means on.
 	AutoFix *bool `json:"autoFix,omitempty"`
 }
@@ -158,6 +191,22 @@ type PlexSettings struct {
 	Token      Secret        `json:"token"` // the owner's token, used for library scans
 	Libraries  []PlexLibrary `json:"libraries"`
 }
+
+// JellyfinSettings is the owner's Jellyfin server. APIKey is made by Encorr
+// when the owner signs in; their password is never kept.
+type JellyfinSettings struct {
+	ServerName string `json:"serverName"`
+	ServerID   string `json:"serverId"`
+	URL        string `json:"url"`       // how Encorr reaches it, e.g. http://localhost:8096
+	PublicURL  string `json:"publicUrl"` // optional: the address friends use, for Play buttons
+	Version    string `json:"version"`
+	APIKey     Secret `json:"apiKey"`
+	// Libraries uses the same shape as Plex: Key is the Jellyfin library id.
+	Libraries []PlexLibrary `json:"libraries"`
+}
+
+// Ready is true once a server is connected.
+func (j JellyfinSettings) Ready() bool { return j.URL != "" && j.APIKey != "" }
 
 type PlexLibrary struct {
 	Key     string `json:"key"`
@@ -209,6 +258,8 @@ type User struct {
 	Thumb     string `json:"thumb"`
 	Role      string `json:"role"`
 	PlexToken Secret `json:"plexToken"`
+	// JellyfinID links a Jellyfin account (they sign in with it).
+	JellyfinID string `json:"jellyfinId,omitempty"`
 	// Encorr's own sign-in (username + password). Only a salted, slow hash
 	// is kept, never the password itself.
 	PasswordHash       string    `json:"passwordHash,omitempty"`
@@ -233,6 +284,7 @@ type Media struct {
 	Poster      string         `json:"poster,omitempty"`
 	Status      string         `json:"status"`
 	PlexKey     string         `json:"plexKey,omitempty"`
+	JFKey       string         `json:"jfKey,omitempty"`
 	ExternalID  int            `json:"externalId,omitempty"` // Radarr movie id / Sonarr series id
 	SeasonEps   map[int]int    `json:"seasonEps,omitempty"`  // season -> episodes TMDB expects
 	SeasonHave  map[int]int    `json:"seasonHave,omitempty"` // season -> episodes in Plex

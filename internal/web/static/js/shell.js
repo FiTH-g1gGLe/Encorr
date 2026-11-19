@@ -11,6 +11,7 @@ async function boot() {
     return;
   }
   state.user = state.status.user || null;
+  applyLibName();
   document.documentElement.dataset.accent = state.status.accent || "violet";
   document.documentElement.dataset.theme = state.status.theme || "navy";
   const s = state.status;
@@ -20,6 +21,20 @@ async function boot() {
   if (state.user.mustChangePassword) return renderChoosePassword();
   renderShell();
   route();
+}
+
+// applyLibName rewrites the fixed labels for this server ("In Plex",
+// "In Jellyfin" or "In your library"). Labels are set once at start-up.
+function applyLibName() {
+  const L = LIB(), IN = IN_LIB(), YL = YOUR_LIB(), to = BOTH() ? "your library" : L;
+  STATUS.available[1] = IN; STATUS.completed[1] = IN; STATUS.partial[1] = "Partly in " + to;
+  PILL_TIPS.available = `Already in ${YL}: ready to watch`; PILL_TIPS.completed = `Arrived in ${to}`; PILL_TIPS.partial = `Some of it is in ${to}`;
+  STATES.finishing.label = `Adding to ${to}`; STATES.finishing.tip = `Downloaded, being unpacked or added to ${to}`;
+  STAGE_TIPS[4] = `Unpacking it and adding it to ${to}`; STAGE_TIPS[5] = `${IN}, ready to watch`;
+  EP_STATUS.have[0] = IN;
+  JOURNEY[3] = IN;
+  STAGE_TEXT["Waiting for Plex"] = `Downloaded. Waiting for ${to} to add it`;
+  STEP_TIPS[3] = `It's in ${to}, ready to watch`;
 }
 
 // Keyboard: "/" jumps to search from anywhere.
@@ -71,7 +86,7 @@ function renderShell() {
       <a class="item" data-page="discover" href="#/discover"${tip("What's popular, trending and coming soon")}>${I.discover}<span class="label">Home</span></a>
       <a class="item" data-page="requests" href="#/requests"${tip("Everything asked for, and where it's up to")}>${I.requests}<span class="label">${admin ? "Requests" : "My requests"}</span><span class="badge" id="pendingBadge" hidden title="Waiting for your approval"></span></a>
       ${admin ? `<a class="item" data-page="users" href="#/users"${tip("Make accounts and choose what people can do")}>${I.users}<span class="label">People</span></a>
-      <a class="item" data-page="settings" href="#/settings"${tip("Plex, Radarr, Sonarr, SABnzbd, Discord and more")}>${I.settings}<span class="label">Settings</span></a>` : ""}
+      <a class="item" data-page="settings" href="#/settings"${tip("Plex, Jellyfin, Radarr, Sonarr, SABnzbd, Discord and more")}>${I.settings}<span class="label">Settings</span></a>` : ""}
       <div class="spacer"></div>
       <a href="#/profile" class="item me" data-page="profile">
         ${u.thumb ? `<img class="avatar" src="${esc(u.thumb)}" alt="">` : `<span class="avatar initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
@@ -97,7 +112,7 @@ async function refreshPending() {
 }
 
 // ---------- sign-in ----------
-async function plexSignIn(btn, after) {
+async function plexSignIn(btn, after, checkPath = "/auth/plex/check") {
   const popup = window.open("about:blank", "plexauth", "width=620,height=720");
   busy(btn, true, "Waiting for Plex…");
   try {
@@ -107,7 +122,7 @@ async function plexSignIn(btn, after) {
     const started = Date.now();
     while (Date.now() - started < 180000) {
       await new Promise((r) => setTimeout(r, 1500));
-      const res = await api("/auth/plex/check", { method: "POST", body: { id: pin.id }, allow401: true });
+      const res = await api(checkPath, { method: "POST", body: { id: pin.id }, allow401: true });
       if (res.done) {
         if (popup && !popup.closed) popup.close();
         toast("Signed in with Plex", "ok");
@@ -116,7 +131,7 @@ async function plexSignIn(btn, after) {
       }
       if (popup && popup.closed && Date.now() - started > 4000) {
         // One last check in case they approved just before closing.
-        const last = await api("/auth/plex/check", { method: "POST", body: { id: pin.id }, allow401: true });
+        const last = await api(checkPath, { method: "POST", body: { id: pin.id }, allow401: true });
         if (last.done) { toast("Signed in with Plex", "ok"); await after(); return; }
         throw new Error("The Plex window was closed before signing in.");
       }
@@ -128,6 +143,87 @@ async function plexSignIn(btn, after) {
   } finally {
     busy(btn, false);
   }
+}
+
+// jellyfinSignIn offers Quick Connect (a code typed into a Jellyfin app
+// you're already signed in to) and, as the other option, a Jellyfin
+// username and password. Encorr passes them to Jellyfin and keeps neither.
+function jellyfinSignIn(after) {
+  const s = state.status || {};
+  const name = s.jellyfinName ? esc(s.jellyfinName) : "Jellyfin";
+  const m = modal(`<div class="jfsign">
+    <div class="jfhead"><span class="jfmark">${I.play}</span><div><h2>Sign in with Jellyfin</h2><div class="small dim">${name}</div></div></div>
+    ${s.quickConnect ? `<div class="jftabs" role="tablist"><button class="on" data-tab="qc" role="tab">Quick Connect</button><button data-tab="pw" role="tab">Password</button></div>` : ""}
+    <div data-pane="qc" ${s.quickConnect ? "" : "hidden"}>
+      <p class="small muted">Open Jellyfin on a phone, TV or computer where you're already signed in. Go to your profile, choose <strong>Quick Connect</strong> and type this code:</p>
+      <div class="jfcode" id="jfcode" aria-live="polite"><span class="spinner"></span></div>
+      <div class="jfwait small dim" id="jfwait">Getting a code…</div>
+    </div>
+    <form data-pane="pw" ${s.quickConnect ? "hidden" : ""} autocomplete="on" class="signin-form">
+      <label class="field"><span>Jellyfin username</span><input type="text" id="jfu" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Password</span><input type="password" id="jfp" autocomplete="current-password"></label>
+      <div id="jferr"></div>
+      <button class="btn jf wide" type="submit" id="jfgo">Sign in</button>
+    </form>
+    <button class="btn wide ghost" data-close style="margin-top:12px">Cancel</button>
+  </div>`);
+  let alive = true, secret = "";
+  const stop = () => { alive = false; };
+  qsa("[data-close]", m.el).forEach((b) => b.addEventListener("click", stop));
+  m.el.parentElement.addEventListener("click", (e) => { if (e.target === m.el.parentElement) stop(); });
+  const done = async () => { stop(); m.close(); toast("Signed in with Jellyfin", "ok"); await after(); };
+  const show = (tab) => {
+    qsa("[data-tab]", m.el).forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+    qsa("[data-pane]", m.el).forEach((p) => { p.hidden = p.dataset.pane !== tab; });
+    if (tab === "pw") qs("#jfu", m.el).focus();
+  };
+  qsa("[data-tab]", m.el).forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
+  qs("form[data-pane=pw]", m.el).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = qs("#jfgo", m.el);
+    busy(btn, true, "Signing in…");
+    qs("#jferr", m.el).innerHTML = "";
+    try {
+      await api("/auth/jellyfin/login", { method: "POST", body: { username: qs("#jfu", m.el).value.trim(), password: qs("#jfp", m.el).value }, allow401: true });
+      await done();
+    } catch (err) {
+      qs("#jferr", m.el).innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+      busy(btn, false);
+    }
+  });
+  const startQuick = async () => {
+    const code = qs("#jfcode", m.el), wait = qs("#jfwait", m.el);
+    try {
+      const r = await api("/auth/jellyfin/quick", { method: "POST", body: {} });
+      secret = r.secret;
+      code.innerHTML = r.code.split("").map((c) => `<span>${esc(c)}</span>`).join("");
+      wait.innerHTML = `<span class="spinner sm"></span> Waiting for you to approve it…`;
+    } catch (err) {
+      code.innerHTML = "";
+      wait.innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+      show("pw");
+      return;
+    }
+    const started = Date.now();
+    while (alive && Date.now() - started < 9 * 60000) {
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!alive || !m.el.isConnected) return; // closed (Esc, Cancel or outside click)
+      try {
+        const res = await api("/auth/jellyfin/quick/check", { method: "POST", body: { secret }, allow401: true });
+        if (res.done) return done();
+      } catch (err) {
+        if (!alive) return;
+        wait.innerHTML = `<div class="notice error">${esc(err.message)}</div><button class="btn sm" id="jfagain" style="margin-top:10px">Get a new code</button>`;
+        qs("#jfagain", m.el).addEventListener("click", () => { qs("#jfcode", m.el).innerHTML = `<span class="spinner"></span>`; startQuick(); });
+        return;
+      }
+    }
+    if (alive) {
+      wait.innerHTML = `The code ran out. <button class="btn sm" id="jfagain">Get a new code</button>`;
+      qs("#jfagain", m.el).addEventListener("click", startQuick);
+    }
+  };
+  if (s.quickConnect) startQuick(); else qs("#jfu", m.el).focus();
 }
 
 function renderLogin() {
@@ -144,10 +240,14 @@ function renderLogin() {
       <button class="btn primary wide" type="submit" id="lgo">Sign in</button>
     </form>
     <div class="or"><span>or</span></div>
-    <button class="btn plex wide" id="signin">${I.plex} Sign in with Plex</button>
+    <div class="signin-alt">
+      ${s.plex !== false ? `<button class="btn plex wide" id="signin">${I.plex} Sign in with Plex</button>` : ""}
+      ${s.jellyfin ? `<button class="btn jf wide" id="jfsignin">${I.play} Sign in with Jellyfin</button>` : ""}
+    </div>
     <p class="small dim" style="margin-top:18px">No account yet? Ask ${s.serverName ? `the owner of ${esc(s.serverName)}` : "the owner"} to make you one.</p>
   </div></div>`;
-  qs("#signin").addEventListener("click", (e) => plexSignIn(e.currentTarget, boot));
+  const pb = qs("#signin"); if (pb) pb.addEventListener("click", (e) => plexSignIn(e.currentTarget, boot));
+  const jb = qs("#jfsignin"); if (jb) jb.addEventListener("click", () => jellyfinSignIn(boot));
   qs("#pwForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = qs("#lgo");

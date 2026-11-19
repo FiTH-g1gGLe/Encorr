@@ -37,6 +37,14 @@ type Message struct {
 	MentionID   string // Discord user id to @mention
 	Seasons     []int
 	Detail      string // error text or note
+	Library     string // where things appear: "Plex", "Jellyfin" or "your library"
+}
+
+func (m Message) library() string {
+	if m.Library == "" {
+		return "Plex"
+	}
+	return m.Library
 }
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -97,9 +105,9 @@ func Discord(ctx context.Context, webhook string, m Message) error {
 	case EventRequested:
 		desc = "Waiting for an admin to approve."
 	case EventAuto, EventApproved:
-		desc = "On its way: it'll appear in Plex once it's downloaded."
+		desc = "On its way: it'll appear in " + m.library() + " once it's downloaded."
 	case EventAvailable:
-		desc = "It's in Plex now. Enjoy the show."
+		desc = "It's in " + m.library() + " now. Enjoy the show."
 	case EventDeclined:
 		desc = "This request was declined."
 	case EventFailed:

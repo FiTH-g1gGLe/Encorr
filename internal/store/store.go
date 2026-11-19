@@ -188,6 +188,19 @@ func (d *Data) UserByName(name string) *User {
 	return nil
 }
 
+// UserByJellyfinID finds the person linked to a Jellyfin account.
+func (d *Data) UserByJellyfinID(id string) *User {
+	if id == "" {
+		return nil
+	}
+	for _, u := range d.Users {
+		if strings.EqualFold(u.JellyfinID, id) {
+			return u
+		}
+	}
+	return nil
+}
+
 func (d *Data) UserByPlexID(id int) *User {
 	if id == 0 {
 		return nil // Encorr-only accounts have no Plex id

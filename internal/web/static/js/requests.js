@@ -81,17 +81,17 @@ function reqInfoHTML(r) {
   if (r.status === "declined") return box("bad", I.x, "Declined", esc(r.error || ""));
   if (r.status === "failed") return box("bad", "!", "Couldn't send it to Radarr/Sonarr", esc(r.problem || r.error || ""));
   if (r.status === "completed") {
-    const arrived = r.arrived ? `Arrived ${esc(ago(r.arrived))}` : "In Plex";
+    const arrived = r.arrived ? `Arrived ${esc(ago(r.arrived))}` : IN_LIB();
     return box("good", I.check, "Ready to watch", arrived);
   }
-  if (p.blocked) return box("bad", "!", "Downloaded, but stuck before Plex", (r.problem ? esc(r.problem) + ". " : "") + (isAdmin() ? "Import it to finish. Auto-fix tries this by itself too" : "The owner has been told"));
+  if (p.blocked) return box("bad", "!", `Downloaded, but stuck before ${BOTH() ? "your library" : LIB()}`, (r.problem ? esc(r.problem) + ". " : "") + (isAdmin() ? "Import it to finish. Auto-fix tries this by itself too" : "The owner has been told"));
   if (r.state === "attention") return box("bad", "!", p.stage === "Failed" ? "The download failed" : "The download is stuck", (r.problem ? esc(r.problem) + ". " : "") + "Auto-fix swaps it for another copy if it doesn't recover");
   if (r.state === "downloading" && p.percent != null) {
     const pct = Math.max(0, Math.min(100, p.percent));
     const label = p.stage === "Paused" ? "Paused" : p.stage === "Queued" ? "Queued" : `${pct}%${p.speed ? ` · ${esc(p.speed)}` : ""}`;
     return `<div class="rprog"><div class="pline"><span class="hi">${label}</span><span class="eta">${p.timeLeft ? `${esc(p.timeLeft)} left` : esc(STAGE_TEXT[p.stage] || "")}</span></div><div class="pbar"><i style="width:${pct}%;--w:${Math.max(pct, 1)}"></i></div></div>`;
   }
-  if (r.state === "finishing") return box("live", `<span class="spinner sm"></span>`, STAGE_TEXT[p.stage] || "Adding it to Plex", "Almost there");
+  if (r.state === "finishing") return box("live", `<span class="spinner sm"></span>`, STAGE_TEXT[p.stage] || `Adding it to ${BOTH() ? "your library" : LIB()}`, "Almost there");
   if (r.state === "waiting") {
     const main = r.release ? `Out to watch at home ${esc(niceDate(r.release))}` : r.nextAiring ? `Next episode ${esc(niceDate(r.nextAiring))}` : "Not released yet";
     return box("wait", I.calendar, main, "It downloads by itself when it's out");
@@ -105,7 +105,7 @@ function reqInfoHTML(r) {
   return "";
 }
 
-// One strip per season: green in Plex, blue downloading, amber still missing.
+// One strip per season: green in the library, blue downloading, amber still missing.
 function seasonStrips(r) {
   const list = r.seasonProgress || [];
   if (r.type !== "tv" || !list.length || r.status !== "approved") return "";
@@ -113,7 +113,7 @@ function seasonStrips(r) {
     if (!x.want) return `<button class="sstrip future" data-eps="${r.id}" data-season="${x.season}"${tip(`Season ${x.season}: not out yet`)}><span class="sl">S${x.season}</span><span class="sbar2"><i class="u" style="flex:1"></i></span><span class="sn">soon</span></button>`;
     const have = x.have, down = x.downloading || 0, miss = Math.max(0, x.want - have - down);
     const seg = (cls, n) => n > 0 ? `<i class="${cls}" style="flex:${n}"></i>` : "";
-    return `<button class="sstrip ${have >= x.want ? "full" : ""}" data-eps="${r.id}" data-season="${x.season}"${tip(`Season ${x.season}: ${have} in Plex${down ? `, ${down} downloading` : ""}${miss ? `, ${miss} missing` : ""}. Tap for episodes`)}><span class="sl">S${x.season}</span><span class="sbar2">${seg("h", have)}${seg("d", down)}${seg("m", miss)}</span><span class="sn">${have}/${x.want}</span></button>`;
+    return `<button class="sstrip ${have >= x.want ? "full" : ""}" data-eps="${r.id}" data-season="${x.season}"${tip(`Season ${x.season}: ${have} in ${BOTH() ? "your library" : LIB()}${down ? `, ${down} downloading` : ""}${miss ? `, ${miss} missing` : ""}. Tap for episodes`)}><span class="sl">S${x.season}</span><span class="sbar2">${seg("h", have)}${seg("d", down)}${seg("m", miss)}</span><span class="sn">${have}/${x.want}</span></button>`;
   }).join("")}</div>`;
 }
 
@@ -131,7 +131,8 @@ function reqCard(r) {
   if (admin && pr.blocked) btns.push(`<button class="btn primary grow" data-act="import" data-id="${r.id}"${tip("Confirm the import Radarr/Sonarr are waiting on")}>Import it</button>`);
   if (admin && r.status === "approved" && ["searching", "attention"].includes(r.state) && !pr.blocked) btns.push(`<button class="btn grow" data-act="search" data-id="${r.id}"${tip("Ask Radarr/Sonarr to look for a copy right now")}>${I.search} Search now</button>`);
   if (r.status === "completed" && r.plexUrl) btns.push(`<a class="btn plex grow" href="${esc(r.plexUrl)}" target="_blank" rel="noopener">${I.play} Play on Plex</a>`);
-  if (r.type === "tv" && ["approved", "completed"].includes(r.status)) btns.push(`<button class="btn grow" data-eps="${r.id}"${tip("Every episode: in Plex, downloading or missing")}>${I.list} Episodes</button>`);
+  if (r.status === "completed" && r.jellyfinUrl) btns.push(`<a class="btn jf grow" href="${esc(r.jellyfinUrl)}" target="_blank" rel="noopener">${I.play} Play on Jellyfin</a>`);
+  if (r.type === "tv" && ["approved", "completed"].includes(r.status)) btns.push(`<button class="btn grow" data-eps="${r.id}"${tip(`Every episode: in ${BOTH() ? "your library" : LIB()}, downloading or missing`)}>${I.list} Episodes</button>`);
   btns.push(`<button class="btn sq" data-timeline="${r.id}" aria-label="Timeline"${tip("Everything that's happened to this request")}>${I.clock}</button>`);
   if (admin && r.status !== "pending") btns.push(`<button class="btn sq" data-manage="${r.id}" aria-label="Manage"${tip("Download controls: pause, retry, pick a copy, remove")}>${I.more}</button>`);
   if (!admin && r.status === "pending" && mine) btns.push(`<button class="btn sq" data-act="delete" data-id="${r.id}" aria-label="Cancel"${tip("Cancel your request")}>${I.trash}</button>`);
@@ -257,7 +258,7 @@ async function episodesModal(reqID, season, reload) {
   const draw = () => {
     const s = cur;
     const tabs = data.seasons.length > 1 ? `<div class="etabs">${data.seasons.map((x) => `<button class="chip ${x.season === s.season ? "on" : ""}" data-s="${x.season}">Season ${x.season} <b>${x.have}/${x.aired || x.total}</b></button>`).join("")}</div>` : "";
-    const sum = [`<b>${s.have}</b> in Plex`, s.downloading ? `<b>${s.downloading}</b> downloading` : "", s.missing ? `<b class="miss">${s.missing}</b> missing` : "", s.total > s.aired ? `${s.total - s.aired} still to air` : ""].filter(Boolean).join(" · ");
+    const sum = [`<b>${s.have}</b> in ${BOTH() ? "your library" : LIB()}`, s.downloading ? `<b>${s.downloading}</b> downloading` : "", s.missing ? `<b class="miss">${s.missing}</b> missing` : "", s.total > s.aired ? `${s.total - s.aired} still to air` : ""].filter(Boolean).join(" · ");
     const rows = s.episodes.map((e) => {
       const [label, cls] = EP_STATUS[e.status] || [e.status, ""];
       let right = `<span class="estat ${cls}">${label}</span>`;

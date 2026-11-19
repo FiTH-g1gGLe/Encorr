@@ -83,7 +83,20 @@ type Stack struct {
 	SABMisc       map[string]any
 	SABServers    []map[string]any
 	ProwlarrVIP   string // vipExpiration for the fake indexer
-	nextID        int
+	// Jellyfin (see jellyfin.go).
+	JFMovies        map[int]time.Time   // tmdb id -> added
+	JFShows         map[int]map[int]int // tmdb id -> season -> episodes
+	JFAdded         map[int]time.Time
+	JFScans         []string // folders Jellyfin was told about
+	JFKeys          []string // API keys made
+	JFLibOpts       map[string]map[string]any
+	JFConfig        map[string]any
+	JFQuickOn       bool
+	JFOldKeys       bool // behave like Jellyfin before 10.11 (no key returned)
+	JFIgnoreMissing bool // ignore IsMissing=false, like some older servers
+	jfKeyApps       []string
+	jfQuick         map[string]*jfQuick
+	nextID          int
 }
 
 func New() *Stack {
@@ -149,6 +162,7 @@ func New() *Stack {
 	s.PlexMovies[105] = time.Now().Add(-48 * time.Hour)
 	s.PlexShows[203] = map[int]int{1: 6}
 	s.PlexAdded[203] = time.Now().Add(-48 * time.Hour)
+	s.initJellyfin()
 	return s
 }
 
@@ -196,6 +210,8 @@ func (s *Stack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.prowlarr(w, r, strings.TrimPrefix(p, "/prowlarr/api/v1"))
 	case strings.HasPrefix(p, "/speedtest"):
 		w.Write(make([]byte, 2_000_000))
+	case strings.HasPrefix(p, "/jellyfin/"):
+		s.jellyfin(w, r, strings.TrimPrefix(p, "/jellyfin"))
 	case strings.HasPrefix(p, "/sonarr/api/v3/"):
 		s.sonarr(w, r, strings.TrimPrefix(p, "/sonarr/api/v3"))
 	case strings.HasPrefix(p, "/_test/plex/movie/") && r.Method == http.MethodPost:
@@ -203,6 +219,11 @@ func (s *Stack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.Atoi(strings.TrimPrefix(p, "/_test/plex/movie/"))
 		s.PlexMovies[id] = time.Now()
 		s.Queue["radarr"] = nil
+		writeJSON(w, map[string]any{"ok": true})
+	case strings.HasPrefix(p, "/_test/jellyfin/movie/") && r.Method == http.MethodPost:
+		// Preview helper: put a film in Jellyfin.
+		id, _ := strconv.Atoi(strings.TrimPrefix(p, "/_test/jellyfin/movie/"))
+		s.JFMovies[id] = time.Now()
 		writeJSON(w, map[string]any{"ok": true})
 	case p == "/sabnzbd/api":
 		s.sab(w, r)
@@ -587,7 +608,20 @@ func (s *Stack) tmdb(w http.ResponseWriter, r *http.Request, p string) {
 		res["number_of_seasons"], res["number_of_episodes"] = len(m.Seasons), 0
 		writeJSON(w, res)
 	case strings.HasPrefix(p, "/find/"):
-		writeJSON(w, map[string]any{"movie_results": []any{}, "tv_results": []any{}})
+		// Like TMDB's /find: look a title up by its TVDB or IMDb id.
+		id, src := strings.TrimPrefix(p, "/find/"), r.URL.Query().Get("external_source")
+		mv, tv := []any{}, []any{}
+		for _, sh := range s.Shows {
+			if src == "tvdb_id" && strconv.Itoa(sh.TVDB) == id {
+				tv = append(tv, map[string]any{"id": sh.ID, "name": sh.Title})
+			}
+		}
+		for _, m := range s.Movies {
+			if src == "imdb_id" && m.IMDB == id {
+				mv = append(mv, map[string]any{"id": m.ID, "title": m.Title})
+			}
+		}
+		writeJSON(w, map[string]any{"movie_results": mv, "tv_results": tv})
 	default:
 		http.NotFound(w, r)
 	}

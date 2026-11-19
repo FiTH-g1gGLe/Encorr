@@ -38,6 +38,8 @@ func (a *App) setupJobs() {
 	add := func(j *job) { j.trigger = make(chan struct{}, 1); a.jobs[j.Name] = j }
 	add(&job{Name: "plex-recent", Label: "Plex recently added scan", Every: 5 * time.Minute, fn: a.jobPlexRecent})
 	add(&job{Name: "plex-full", Label: "Plex full library scan", Hour: 3, fn: a.jobPlexFull})
+	add(&job{Name: "jellyfin-recent", Label: "Jellyfin recently added scan", Every: 5 * time.Minute, fn: a.jobJellyfinRecent})
+	add(&job{Name: "jellyfin-full", Label: "Jellyfin full library scan", Hour: 3, fn: a.jobJellyfinFull})
 	add(&job{Name: "downloads", Label: "Download progress", Every: 15 * time.Second, fn: a.jobDownloads})
 	add(&job{Name: "watchlists", Label: "Plex watchlist sync", Every: 10 * time.Minute, fn: a.jobWatchlists})
 	add(&job{Name: "cleanup", Label: "Tidy old sessions", Hour: 4, fn: a.jobCleanup})
@@ -71,7 +73,7 @@ func (a *App) startJobs() {
 			if j.Every == 0 {
 				first = untilHour(j.Hour)
 			}
-			if j.Name == "plex-full" {
+			if j.Name == "plex-full" || j.Name == "jellyfin-full" {
 				// Scan the whole library soon after start unless a full scan
 				// worked within the last day: Encorr needs to know what you
 				// already have before it can say "In Plex" or skip watchlist
@@ -167,7 +169,7 @@ func (a *App) Jobs() []JobView {
 			infos[k] = v
 		}
 	})
-	order := []string{"plex-recent", "plex-full", "downloads", "watchlists", "nudge", "arr-info", "cleanup"}
+	order := []string{"plex-recent", "plex-full", "jellyfin-recent", "jellyfin-full", "downloads", "watchlists", "nudge", "arr-info", "cleanup"}
 	out := []JobView{}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -228,6 +230,9 @@ func seasonCounts(items []plex.Item) map[int]int {
 func (a *App) jobPlexRecent(ctx context.Context) (string, error) {
 	srv := a.PlexServer()
 	if srv == nil {
+		if a.Jellyfin() != nil {
+			return "Plex isn't connected (Jellyfin is)", nil
+		}
 		return "", errors.New("no Plex server set up")
 	}
 	var last time.Time
@@ -245,7 +250,7 @@ func (a *App) jobPlexRecent(ctx context.Context) (string, error) {
 			}
 			for _, it := range items {
 				if id := a.resolveTMDB(ctx, it, store.TypeMovie); id > 0 {
-					a.markAvailable(store.TypeMovie, id, it.RatingKey, nil)
+					a.markAvailable(srcPlex, store.TypeMovie, id, it.RatingKey, nil)
 					found++
 				}
 			}
@@ -284,7 +289,7 @@ func (a *App) refreshShow(ctx context.Context, srv *plex.Server, ratingKey strin
 	if err != nil {
 		return err
 	}
-	a.markAvailable(store.TypeTV, id, ratingKey, seasonCounts(seasons))
+	a.markAvailable(srcPlex, store.TypeTV, id, ratingKey, seasonCounts(seasons))
 	return nil
 }
 
@@ -292,6 +297,10 @@ func (a *App) refreshShow(ctx context.Context, srv *plex.Server, ratingKey strin
 func (a *App) jobPlexFull(ctx context.Context) (string, error) {
 	srv := a.PlexServer()
 	if srv == nil {
+		if a.Jellyfin() != nil {
+			a.dropSource(srcPlex) // Plex was disconnected: forget what it had
+			return "Plex isn't connected (Jellyfin is)", nil
+		}
 		return "", errors.New("no Plex server set up")
 	}
 	movies, shows := 0, 0
@@ -334,14 +343,17 @@ func (a *App) jobPlexFull(ctx context.Context) (string, error) {
 			index[key] = e
 		}
 	}
-	// Keep season detail we already know for untracked shows.
+	// Keep season detail we already know for untracked shows, and keep
+	// everything Jellyfin knows: this scan only replaces Plex's half.
 	_ = a.Store.Update(func(d *store.Data) error {
-		for k, e := range index {
-			if e.Seasons == nil {
-				if old, ok := d.Library[k]; ok {
-					e.Seasons = old.Seasons
-					index[k] = e
-				}
+		for k, old := range d.Library {
+			e, inPlex := index[k]
+			if inPlex && e.Seasons == nil && old.Key != "" {
+				e.Seasons = old.Seasons
+			}
+			e.JF, e.JFSeasons = old.JF, old.JFSeasons
+			if !e.Empty() {
+				index[k] = e
 			}
 		}
 		d.Library = index
@@ -362,7 +374,9 @@ func (a *App) jobPlexFull(ctx context.Context) (string, error) {
 		}
 	})
 	for _, h := range hits {
-		a.markAvailable(h.typ, h.id, h.e.Key, h.e.Seasons)
+		if h.e.Key != "" {
+			a.markAvailable(srcPlex, h.typ, h.id, h.e.Key, h.e.Seasons)
+		}
 	}
 	return fmt.Sprintf("%d films, %d shows in Plex", movies, shows), nil
 }
@@ -438,7 +452,7 @@ func (a *App) jobDownloads(ctx context.Context) (string, error) {
 		if svc == "sonarr" {
 			typ = store.TypeTV
 		}
-		a.logf("%s finished downloading item %d; checking Plex for it", svc, id)
+		a.logf("%s finished downloading item %d; checking %s for it", svc, id, a.libName())
 		go a.checkPlexSoon(typ, id)
 	}
 	if len(errs) > 0 {
@@ -516,6 +530,7 @@ func (a *App) nudgePlex(ctx context.Context, typ string, externalID int) {
 func (a *App) checkPlexSoon(typ string, externalID int) {
 	nctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	a.nudgePlex(nctx, typ, externalID)
+	a.nudgeJellyfin(nctx, typ, externalID)
 	cancel()
 	for _, wait := range []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute} {
 		select {
@@ -535,7 +550,7 @@ func (a *App) checkPlexSoon(typ string, externalID int) {
 		if m == nil {
 			return
 		}
-		if a.findInPlex(a.ctx, *m) && a.mediaDone(m.ID) {
+		if a.findInLibrary(a.ctx, *m) && a.mediaDone(m.ID) {
 			return
 		}
 	}
@@ -580,7 +595,7 @@ func (a *App) findInPlex(ctx context.Context, m store.Media) bool {
 				continue
 			}
 			if m.Type == store.TypeMovie {
-				a.markAvailable(store.TypeMovie, m.TMDBID, it.RatingKey, nil)
+				a.markAvailable(srcPlex, store.TypeMovie, m.TMDBID, it.RatingKey, nil)
 			} else if err := a.refreshShow(ctx, srv, it.RatingKey); err != nil {
 				continue
 			}
@@ -618,7 +633,7 @@ func (a *App) checkApproved(ctx context.Context) int {
 		if m.Type == store.TypeTV {
 			m = a.refreshAired(ctx, m)
 		}
-		if a.findInPlex(ctx, m) {
+		if a.findInLibrary(ctx, m) {
 			found++
 		}
 	}

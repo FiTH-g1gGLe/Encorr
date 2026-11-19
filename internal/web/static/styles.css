@@ -1472,3 +1472,37 @@ input[type=text], input[type=url], input[type=password], input[type=number], inp
   .subform { grid-template-columns: 1fr; }
 }
 input[type=date] { color-scheme: dark; }
+
+/* ---------- Jellyfin ---------- */
+.btn.jf { background: linear-gradient(120deg, #aa5cc3, #00a4dc); color: #fff; border-color: transparent; font-weight: 800; border-radius: 16px; box-shadow: 0 8px 26px rgba(0,164,220,.28); }
+.btn.jf:hover { filter: brightness(1.08); }
+.btn.jf svg, .btn.plex svg { flex: none; }
+.signin-alt { display: grid; gap: 10px; }
+.jfsign h2 { margin: 0; }
+.jfhead { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+.jfmark, .srvic { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none; }
+.jfmark, .srvic.jf { background: linear-gradient(135deg, #aa5cc3, #00a4dc); color: #fff; }
+.srvic.plex { background: #e5a00d; color: #1d1300; }
+.jfmark svg, .srvic svg { width: 20px; height: 20px; }
+.jftabs { display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); margin-bottom: 16px; }
+.jftabs button { flex: 1; padding: 9px 10px; border-radius: 10px; border: 0; background: none; color: var(--text-2); font: inherit; font-weight: 700; cursor: pointer; }
+.jftabs button.on { background: var(--surface-3); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
+.jftabs button:focus-visible { outline: 2px solid var(--accent, #c0c1ff); outline-offset: 2px; }
+.jfcode { display: flex; justify-content: center; gap: 8px; margin: 18px 0 12px; min-height: 64px; align-items: center; }
+.jfcode span:not(.spinner) { width: 44px; height: 58px; border-radius: 14px; display: grid; place-items: center; font-size: 30px; font-weight: 800; letter-spacing: 0;
+  background: var(--surface-2); border: 1px solid color-mix(in srgb, #00a4dc 40%, var(--line)); box-shadow: 0 0 22px color-mix(in srgb, #00a4dc 18%, transparent); font-variant-numeric: tabular-nums; }
+.jfwait { text-align: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+.jfwait .notice { flex-basis: 100%; }
+.pickserver { display: grid; gap: 12px; }
+.srvopt { display: flex; gap: 14px; align-items: center; text-align: left; padding: 16px; border-radius: 20px; cursor: pointer; border: 1px solid var(--line); color: inherit; font: inherit; }
+.srvopt strong { display: block; font-size: 16px; margin-bottom: 2px; }
+.srvopt:hover, .srvopt.on { border-color: color-mix(in srgb, var(--accent, #c0c1ff) 50%, transparent); }
+.srvopt:focus-visible { outline: 2px solid var(--accent, #c0c1ff); outline-offset: 2px; }
+.libhead { display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 18px 0 8px; color: var(--text-2); }
+.libhead svg { width: 16px; height: 16px; }
+.jfform .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.danger-zone { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+@media (max-width: 560px) {
+  .jfform .grid2 { grid-template-columns: 1fr; }
+  .jfcode span:not(.spinner) { width: 38px; height: 50px; font-size: 26px; }
+}

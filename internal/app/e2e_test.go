@@ -1016,7 +1016,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 	for _, a := range tr.Apps {
-		if !a.Connected {
+		if !a.Connected && a.App != "jellyfin" { // not set up yet: shown so people know it can be checked
 			t.Fatalf("%s should be connected: %+v", a.App, a)
 		}
 	}
@@ -1343,7 +1343,293 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("owners only")
 	}
 
-	// 43. Owners only.
+	// 43. Jellyfin alongside Plex (its own block: its names stay here).
+	{
+		if st := owner.ok("GET", "/status", nil, nil); st["jellyfin"] != false || st["libraryName"] != "Plex" {
+			t.Fatalf("before Jellyfin: %v", st)
+		}
+		jfURL := fakeSrv.URL + "/jellyfin"
+		if code, _ := friend.call("POST", "/settings/jellyfin", map[string]any{"url": jfURL, "username": "jfadmin", "password": "jfpass"}, nil); code != 403 {
+			t.Fatal("only the owner connects Jellyfin")
+		}
+		if code, m := owner.call("POST", "/settings/jellyfin", map[string]any{"url": jfURL, "username": "jfadmin", "password": "nope"}, nil); code != 400 || !strings.Contains(fmt.Sprint(m["error"]), "Wrong Jellyfin username or password") {
+			t.Fatalf("wrong password: %d %v", code, m)
+		}
+		if code, m := owner.call("POST", "/settings/jellyfin", map[string]any{"url": jfURL, "username": "jfmate", "password": "matepass"}, nil); code != 400 || !strings.Contains(fmt.Sprint(m["error"]), "administrator") {
+			t.Fatalf("not an administrator: %d %v", code, m)
+		}
+		if code, m := owner.call("POST", "/settings/jellyfin", map[string]any{"url": fakeSrv.URL + "/nothing-here", "username": "jfadmin", "password": "jfpass"}, nil); code != 400 {
+			t.Fatalf("not a Jellyfin server: %d %v", code, m)
+		}
+		var jfOut struct {
+			Connected  bool
+			ServerName string
+			Libraries  []store.PlexLibrary
+		}
+		// Pasting the web app's address works too.
+		owner.ok("POST", "/settings/jellyfin", map[string]any{"url": jfURL + "/web/index.html", "username": " jfadmin ", "password": "jfpass"}, &jfOut)
+		if !jfOut.Connected || jfOut.ServerName != "Jelly Box" || len(jfOut.Libraries) != 2 || jfOut.Libraries[0].Type != "movie" || jfOut.Libraries[1].Type != "show" {
+			t.Fatalf("connected: %+v", jfOut)
+		}
+		if a.settings().Jellyfin.URL != jfURL {
+			t.Fatalf("address tidied: %q", a.settings().Jellyfin.URL)
+		}
+		// The API key is Encorr's own, kept secret; the password isn't kept at all.
+		sc, raw := owner.call("GET", "/settings", nil, nil)
+		if b, _ := json.Marshal(raw); sc != 200 || strings.Contains(string(b), "jf-api-key") || strings.Contains(string(b), "jfpass") {
+			t.Fatalf("settings leak: %s", b)
+		}
+		if strings.Contains(fmt.Sprint(a.settings()), "jfpass") {
+			t.Fatal("the Jellyfin password must never be saved")
+		}
+		st := owner.ok("GET", "/status", nil, nil)
+		if st["jellyfin"] != true || st["libraryName"] != "your library" || st["quickConnect"] != true || st["plex"] != true {
+			t.Fatalf("with both: %v", st)
+		}
+		if me := owner.ok("GET", "/me", nil, nil); me["jellyfin"] != true {
+			t.Fatalf("the administrator account used is linked to the owner: %v", me)
+		}
+
+		// Library: Jellyfin's half of the index sits next to Plex's.
+		fk.AddToJellyfin("movie", 105, nil) // also in Plex
+		fk.AddToJellyfin("movie", 106, nil) // only in Jellyfin
+		fk.AddToJellyfin("tv", 203, map[int]int{1: 3, 2: 5})
+		if msg, err := a.jobJellyfinFull(ctx); err != nil || !strings.Contains(msg, "2 films, 1 shows in Jellyfin") {
+			t.Fatalf("jellyfin full: %s %v", msg, err)
+		}
+		libOf := func(typ string, id int) (e store.LibEntry) {
+			a.Store.Read(func(d *store.Data) { e = d.Library[store.LibKey(typ, id)] })
+			return
+		}
+		if e := libOf(store.TypeMovie, 105); e.Key == "" || e.JF != "jm105" {
+			t.Fatalf("in both: %+v", e)
+		}
+		if e := libOf(store.TypeMovie, 106); e.Key != "" || e.JF != "jm106" {
+			t.Fatalf("only Jellyfin: %+v", e)
+		}
+		// Plex's nightly scan keeps Jellyfin's half, and the other way round.
+		if _, err := a.jobPlexFull(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if e := libOf(store.TypeMovie, 106); e.JF != "jm106" {
+			t.Fatalf("Plex's scan dropped a Jellyfin-only film: %+v", e)
+		}
+		if e := libOf(store.TypeMovie, 105); e.Key == "" || e.JF == "" {
+			t.Fatalf("both halves kept: %+v", e)
+		}
+		// Seasons: whichever server has more episodes counts.
+		a.markAvailable(srcJellyfin, store.TypeTV, 203, "js203", map[int]int{1: 3, 2: 5})
+		if e := libOf(store.TypeTV, 203); e.Have()[1] != 6 || e.Have()[2] != 5 || e.Seasons[1] != 6 {
+			t.Fatalf("merged seasons: %+v %v", e, e.Have())
+		}
+		// Films only in Jellyfin can't be requested again.
+		if code, m := owner.call("POST", "/requests", map[string]any{"type": "movie", "tmdbId": 106}, nil); code != 400 || !strings.Contains(fmt.Sprint(m["error"]), "already in your library") {
+			t.Fatalf("already in Jellyfin: %d %v", code, m)
+		}
+		// Title page: Play on Jellyfin, with quality from Jellyfin.
+		var title struct {
+			Status   statusInfo
+			Jellyfin *plexInfo
+			Plex     *plexInfo
+		}
+		owner.ok("GET", "/title/movie/106", nil, &title)
+		if title.Status.Status != store.MediaAvailable || title.Jellyfin == nil || !strings.Contains(title.Jellyfin.URL, "/web/index.html#!/details?id=jm106&serverId=jf-server-1") ||
+			title.Plex == nil || title.Plex.Quality != "4K DV" || title.Plex.Audio != "5.1" {
+			t.Fatalf("title page: %+v %+v %+v", title.Status, title.Jellyfin, title.Plex)
+		}
+
+		// A request that arrives in Jellyfin first completes, with a Play link at
+		// the address friends use.
+		owner.ok("PUT", "/settings/jellyfin/public", map[string]any{"publicUrl": "https://jelly.example.com/"}, nil)
+		var jr struct{ ID int }
+		const fresh = 107 // a new film nobody has asked for yet
+		fk.Lock()
+		fk.Movies = append(fk.Movies, fake.Movie{ID: fresh, Title: "Harbour Lights", Year: 2026, Overview: "A lighthouse keeper's last winter.", IMDB: "tt0000107"})
+		fk.Unlock()
+		owner.ok("POST", "/requests", map[string]any{"type": "movie", "tmdbId": fresh}, &jr)
+		fk.AddToJellyfin("movie", fresh, nil)
+		var mf store.Media
+		a.Store.Read(func(d *store.Data) { mf = *d.MediaByTMDB(store.TypeMovie, fresh) })
+		if !a.findInLibrary(ctx, mf) {
+			t.Fatal("found in Jellyfin by title")
+		}
+		var reqs struct{ Results []requestOut }
+		owner.ok("GET", "/requests?filter=all", nil, &reqs)
+		var got *requestOut
+		for i := range reqs.Results {
+			if reqs.Results[i].ID == jr.ID {
+				got = &reqs.Results[i]
+			}
+		}
+		if got == nil || got.Status != store.ReqCompleted || !strings.HasPrefix(got.JellyfinURL, "https://jelly.example.com/web/") || got.PlexURL != "" {
+			t.Fatalf("completed from Jellyfin: %+v", got)
+		}
+		var events []store.Event
+		a.Store.Read(func(d *store.Data) { events = d.RequestByID(jr.ID).Events })
+		var logged bool
+		for _, ev := range events {
+			logged = logged || ev.Text == "In Jellyfin and ready to watch"
+		}
+		if !logged {
+			t.Fatalf("timeline: %+v", events)
+		}
+
+		// After a download, Jellyfin is told about the folder straight away.
+		var radarrID int
+		a.Store.Read(func(d *store.Data) {
+			for _, m := range d.Media {
+				if m.Type == store.TypeMovie && m.ExternalID > 0 {
+					radarrID = m.ExternalID
+				}
+			}
+		})
+		a.nudgeJellyfin(ctx, store.TypeMovie, radarrID)
+		fk.Lock()
+		scans := append([]string(nil), fk.JFScans...)
+		fk.Unlock()
+		if len(scans) != 1 || !strings.HasPrefix(scans[0], `P:\Media\Films\`) {
+			t.Fatalf("jellyfin scan: %v", scans)
+		}
+
+		// Friends sign in with Jellyfin: password, or a Quick Connect code.
+		jfFriend := newClient(t, srv.URL)
+		if code, _ := jfFriend.call("POST", "/auth/jellyfin/login", map[string]any{"username": "jfmate", "password": "wrong"}, nil); code != 401 {
+			t.Fatalf("wrong Jellyfin password: %d", code)
+		}
+		if code, _ := jfFriend.call("POST", "/auth/jellyfin/login", map[string]any{"username": "jfgone", "password": "gonepass"}, nil); code != 401 {
+			t.Fatalf("turned-off account: %d", code)
+		}
+		if res := jfFriend.ok("POST", "/auth/jellyfin/login", map[string]any{"username": "jfmate", "password": "matepass"}, nil); res["role"] != store.RoleFriend {
+			t.Fatalf("jellyfin friend: %v", res)
+		}
+		me := jfFriend.ok("GET", "/me", nil, nil)
+		if me["username"] != "jfmate" || me["jellyfin"] != true || me["plex"] != false {
+			t.Fatalf("jellyfin friend: %v", me)
+		}
+		if code, _ := jfFriend.call("GET", "/settings", nil, nil); code != 403 {
+			t.Fatal("friends can't open settings")
+		}
+		qc := newClient(t, srv.URL)
+		start := qc.ok("POST", "/auth/jellyfin/quick", map[string]any{}, nil)
+		secret, codeStr := fmt.Sprint(start["secret"]), fmt.Sprint(start["code"])
+		if len(codeStr) != 6 {
+			t.Fatalf("quick connect code: %v", start)
+		}
+		if res := qc.ok("POST", "/auth/jellyfin/quick/check", map[string]any{"secret": secret}, nil); res["done"] != false {
+			t.Fatal("not approved yet")
+		}
+		if code, _ := qc.call("POST", "/auth/jellyfin/quick/check", map[string]any{"secret": "qs-made-up"}, nil); code != 410 {
+			t.Fatalf("made-up secrets are refused: %d", code)
+		}
+		fk.ApproveQuickConnect(codeStr, "jfmate")
+		if res := qc.ok("POST", "/auth/jellyfin/quick/check", map[string]any{"secret": secret}, nil); res["done"] != true {
+			t.Fatalf("quick connect: %v", res)
+		}
+		if me2 := qc.ok("GET", "/me", nil, nil); me2["id"] != me["id"] {
+			t.Fatalf("Quick Connect and password reach the same person: %v vs %v", me2["id"], me["id"])
+		}
+		if code, _ := qc.call("POST", "/auth/jellyfin/quick/check", map[string]any{"secret": secret}, nil); code != 410 {
+			t.Fatalf("a code works once: %d", code)
+		}
+		// The owner can sign in with the linked Jellyfin account.
+		jfOwner := newClient(t, srv.URL)
+		if res := jfOwner.ok("POST", "/auth/jellyfin/login", map[string]any{"username": "jfadmin", "password": "jfpass"}, nil); res["role"] != store.RoleAdmin {
+			t.Fatalf("owner by Jellyfin: %v", res)
+		}
+
+		// Health and jobs know about Jellyfin.
+		var hc struct{ Checks []Check }
+		owner.ok("GET", "/health", nil, &hc)
+		checks := hc.Checks
+		if len(checks) < 2 || checks[1].Name != "Jellyfin" || checks[1].Status != "ok" || !strings.Contains(checks[1].Message, "Jelly Box") {
+			t.Fatalf("health: %+v", checks[:2])
+		}
+		if msg, err := a.jobJellyfinRecent(ctx); err != nil || !strings.Contains(msg, "new or updated") {
+			t.Fatalf("jellyfin recent: %s %v", msg, err)
+		}
+
+		// Tune-up: per-library settings, applied and undone exactly.
+		var tune struct {
+			Findings []TuneFinding
+			Apps     []TuneApp
+			Changes  []store.TuneChange
+		}
+		owner.ok("GET", "/tune", nil, &tune)
+		jfFind := map[string]TuneFinding{}
+		for _, f := range tune.Findings {
+			if f.App == "jellyfin" {
+				jfFind[f.ID] = f
+			}
+		}
+		if f := jfFind["jf-realtime"]; f.Status != "change" || !f.CanApply || f.Current != "Off in Films" {
+			t.Fatalf("realtime off in one library: %+v", f)
+		}
+		if f := jfFind["jf-trickplay"]; f.Status != "change" {
+			t.Fatalf("trickplay during scans: %+v", f)
+		}
+		if f := jfFind["jf-chapters"]; f.Status != "ok" {
+			t.Fatalf("chapters already right: %+v", f)
+		}
+		if _, ok := jfFind["jf-quickconnect"]; ok {
+			t.Fatal("Quick Connect is on: nothing to say")
+		}
+		owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"jf-realtime"}}, nil)
+		fk.Lock()
+		films, tv := fk.JFLibOpts["lib-films"], fk.JFLibOpts["lib-tv"]
+		fk.Unlock()
+		if films["EnableRealtimeMonitor"] != true || tv["EnableRealtimeMonitor"] != true || films["PathInfos"] == nil || films["ExtractTrickplayImagesDuringLibraryScan"] != true {
+			t.Fatalf("applied to Films only, rest of its options kept: %v / %v", films, tv)
+		}
+		var hist struct{ Changes []store.TuneChange } // a new value: reused ones keep stale fields
+		owner.ok("GET", "/tune", nil, &hist)
+		var chID int
+		for _, c := range hist.Changes {
+			if c.Rule == "jf-realtime" && !c.Undone {
+				chID = c.ID
+			}
+		}
+		if chID == 0 {
+			t.Fatalf("no change recorded: %+v", hist.Changes)
+		}
+		owner.ok("POST", "/tune/undo/"+itoa(chID), map[string]any{}, nil)
+		fk.Lock()
+		films, tv = fk.JFLibOpts["lib-films"], fk.JFLibOpts["lib-tv"]
+		fk.Unlock()
+		if films["EnableRealtimeMonitor"] != false || tv["EnableRealtimeMonitor"] != true {
+			t.Fatalf("undo puts each library back as it was: %v / %v", films["EnableRealtimeMonitor"], tv["EnableRealtimeMonitor"])
+		}
+		fk.Lock()
+		fk.JFConfig["QuickConnectAvailable"] = false
+		fk.Unlock()
+		var tune2 struct{ Findings []TuneFinding }
+		owner.ok("GET", "/tune", nil, &tune2)
+		var qcTip *TuneFinding
+		for i := range tune2.Findings {
+			if tune2.Findings[i].ID == "jf-quickconnect" {
+				qcTip = &tune2.Findings[i]
+			}
+		}
+		if qcTip == nil || qcTip.CanApply || !strings.Contains(qcTip.Fix, "Enable Quick Connect") {
+			t.Fatalf("Quick Connect tip, never changed by Encorr: %+v", qcTip)
+		}
+
+		// Disconnecting forgets Jellyfin's half (Plex is still there).
+		owner.ok("DELETE", "/settings/jellyfin", nil, nil)
+		if e := libOf(store.TypeMovie, 106); !e.Empty() {
+			t.Fatalf("Jellyfin-only film forgotten: %+v", e)
+		}
+		if e := libOf(store.TypeMovie, 105); e.Key == "" || e.JF != "" {
+			t.Fatalf("Plex half kept: %+v", e)
+		}
+		if code, _ := newClient(t, srv.URL).call("POST", "/auth/jellyfin/login", map[string]any{"username": "jfmate", "password": "matepass"}, nil); code != 403 {
+			t.Fatalf("no Jellyfin sign-in once disconnected: %d", code)
+		}
+		if st := owner.ok("GET", "/status", nil, nil); st["libraryName"] != "Plex" || st["jellyfin"] != false {
+			t.Fatalf("back to Plex only: %v", st)
+		}
+	}
+
+	// 44. Owners only.
 	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
 		t.Fatalf("friends can't see Tune-up: %d", code)
 	}
