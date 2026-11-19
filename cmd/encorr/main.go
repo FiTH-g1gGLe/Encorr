@@ -169,7 +169,9 @@ func run(ctx context.Context, opts options) error {
 		logger.Printf("Encorr %s is running in the background. Open %s (data folder: %s)", app.Version, local, opts.configDir)
 	} else {
 		logger.Printf("Encorr %s is running. Open %s (data folder: %s)", app.Version, local, opts.configDir)
-		logger.Printf("Keep this window open while you use Encorr, or turn on \"Run in the background\" in Settings → General.")
+		if runtime.GOOS == "windows" {
+			logger.Printf("Keep this window open while you use Encorr, or turn on \"Run in the background\" in Settings → General.")
+		}
 	}
 	// Open the browser every time it's started by hand, so double-clicking
 	// the exe always takes you to Encorr. (-no-browser for background use.)

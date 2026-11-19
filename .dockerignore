@@ -1,0 +1,9 @@
+.git
+.github
+docs/screenshots
+dist
+out
+reports
+research_notes
+*.exe
+*.zip

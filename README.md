@@ -172,6 +172,16 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 | `encorr install` / `encorr uninstall` | Turn background mode on or off from the command line |
 | `-version` | Print the version |
 
+
+## Get started (Linux, Docker or Portainer) 🐧
+
+Encorr runs as a Docker container on Linux servers and ARM boards like a Raspberry Pi:
+
+```bash
+docker run -d --name encorr -p 5150:5150 -v encorr-data:/config --restart unless-stopped ghcr.io/fith-g1ggle/encorr:latest
+```
+
+Then open `http://YOUR-SERVER-IP:5150`. With Portainer, paste the ready-made stack from **[the Docker guide](docs/DOCKER.md)**, which also covers connecting to your other containers, updating, and running on Linux without Docker.
 ## What's been built so far ✅
 
 - [x] Setup wizard with Plex sign-in, auto-detected Radarr, Sonarr and SABnzbd, and a built-in TMDB key
@@ -191,6 +201,7 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 - [x] Tune-up: settings check for SABnzbd, Radarr, Sonarr, Prowlarr and Plex with apply and undo, a speed test, and fixers
 - [x] Subscriptions page: indexer VIP dates from Prowlarr, server expiry and block usage from SABnzbd, your own entries with costs, and reminders
 - [x] Jellyfin support, alongside Plex or on its own: Jellyfin and Quick Connect sign-in, library reading, instant scans, Play buttons, Health and Tune-up checks
+- [x] Linux: Docker image (amd64 and arm64) with a Portainer guide, plus Linux downloads
 - [x] Windows background service with one-click on/off and double-click updates
 - [x] Midnight or graphite themes with 8 accent colours
 - [x] Tested end to end against simulated Plex, Jellyfin, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server
@@ -201,7 +212,7 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 - [ ] IMDb and Rotten Tomatoes ratings for everything (optional OMDb key)
 - [ ] Android app (request, approve and get notified on your phone)
 - [ ] Discord bot (request from Discord)
-- [ ] Tray icon, code-signed builds and Mac support
+- [ ] Tray icon, code-signed builds and a Mac build
 
 ## Building from source 🛠️
 

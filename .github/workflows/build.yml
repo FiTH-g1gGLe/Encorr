@@ -1,8 +1,10 @@
 name: Test and build
 
 # Every push to main is tested, built and published as the newest release.
-# The download link never changes:
+# The download links never change:
 #   https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip
+#   https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Linux-amd64.tar.gz
+# and the Docker image is ghcr.io/fith-g1ggle/encorr:latest
 
 on:
   push:
@@ -64,10 +66,23 @@ jobs:
           go build -trimpath -ldflags "$LDF" -o out/encorr.exe ./cmd/encorr
           cp README.md TESTING.md LICENSE out/
           cd out && zip -9 ../dist/Encorr-Windows.zip *
+      - name: Build Linux (amd64 and arm64)
+        env:
+          CGO_ENABLED: "0"
+          TMDB_KEY: ${{ secrets.TMDB_READ_TOKEN || secrets.TMDB_API_KEY }}
+        run: |
+          LDF="-s -w -X github.com/FiTH-g1gGLe/encorr/internal/app.Version=${VERSION} -X github.com/FiTH-g1gGLe/encorr/internal/tmdb.BuiltInKey=${TMDB_KEY}"
+          for arch in amd64 arm64; do
+            rm -rf lin && mkdir -p lin
+            GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDF" -o lin/encorr ./cmd/encorr
+            cp README.md LICENSE docs/DOCKER.md lin/
+            tar -C lin -czf dist/Encorr-Linux-$arch.tar.gz .
+          done
+          ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: Encorr-${{ env.VERSION }}
-          path: dist/Encorr-Windows.zip
+          path: dist/*
       - name: Publish release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -79,7 +94,47 @@ jobs:
             git log -1 --format=%s
             git log -1 --format=%b | grep -E '^- ' | head -8 || true
             echo ""
-            echo "**Download:** Encorr-Windows.zip below. Unzip it and double-click encorr.exe."
+            echo "**Windows:** Encorr-Windows.zip below. Unzip it and double-click encorr.exe."
+            echo ""
+            echo "**Docker / Portainer:** \`ghcr.io/fith-g1ggle/encorr:latest\` (see docs/DOCKER.md). **Linux without Docker:** the Encorr-Linux tar.gz for your machine."
           } > notes.txt
-          gh release create "v${VERSION}" dist/Encorr-Windows.zip \
+          gh release create "v${VERSION}" dist/Encorr-Windows.zip dist/Encorr-Linux-amd64.tar.gz dist/Encorr-Linux-arm64.tar.gz \
             --title "Encorr ${VERSION}" --notes-file notes.txt --target "${GITHUB_SHA}" --latest
+
+  docker:
+    name: Docker image
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: 0.1.${{ github.run_number }}
+      IMAGE: ghcr.io/fith-g1ggle/encorr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ env.VERSION }}
+          secrets: |
+            tmdb=${{ secrets.TMDB_READ_TOKEN || secrets.TMDB_API_KEY }}
+          labels: |
+            org.opencontainers.image.title=Encorr
+            org.opencontainers.image.description=Request the encore: a media request app for Plex and Jellyfin
+            org.opencontainers.image.source=https://github.com/FiTH-g1gGLe/Encorr
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ env.VERSION }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ env.VERSION }}
