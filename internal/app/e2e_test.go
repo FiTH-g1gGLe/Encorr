@@ -1830,6 +1830,17 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// 45. Owners only.
+	var ui UpdateInfo
+	owner.ok("GET", "/update", nil, &ui)
+	if ui.Current == "" || ui.How == "" || ui.Available {
+		t.Fatalf("update info for a development build: %+v", ui)
+	}
+	if code, _ := owner.call("POST", "/update/install", map[string]any{}, nil); code != 400 {
+		t.Fatalf("nothing to install should be refused: %d", code)
+	}
+	if code, _ := friend.call("GET", "/update", nil, nil); code != 403 {
+		t.Fatalf("friends can't see updates: %d", code)
+	}
 	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
 		t.Fatalf("friends can't see Tune-up: %d", code)
 	}

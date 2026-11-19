@@ -216,6 +216,10 @@ func (s *Stack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.prowlarr(w, r, strings.TrimPrefix(p, "/prowlarr/api/v1"))
 	case strings.HasPrefix(p, "/speedtest"):
 		w.Write(make([]byte, 2_000_000))
+	case p == "/github/release":
+		writeJSON(w, map[string]any{"tag_name": "v0.1.60", "html_url": "https://github.com/FiTH-g1gGLe/Encorr/releases/tag/v0.1.60",
+			"published_at": time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339), "body": "## What's new\nUpdate Encorr from the browser\n- Update now button in Settings",
+			"assets": []any{}})
 	case strings.HasPrefix(p, "/jellyfin/"):
 		s.jellyfin(w, r, strings.TrimPrefix(p, "/jellyfin"))
 	case strings.HasPrefix(p, "/sonarr/api/v3/"):

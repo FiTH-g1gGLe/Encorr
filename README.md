@@ -164,6 +164,7 @@ The **[Docker guide](docs/DOCKER.md)** covers:
 - Discord messages for requests, approvals, problems and "your encore is ready".
 - Midnight or graphite themes with 8 accent colours.
 - Works on Windows, Linux and Docker.
+- **Updates in one click:** Encorr tells you when a new version is out, and Settings has an **Update now** button (it checks the download against GitHub's checksum first).
 
 ---
 

@@ -52,10 +52,13 @@ type App struct {
 	prowlarrTried bool
 	// Background is set by main: runs Encorr as a Windows service.
 	Background Background
-	quit       chan struct{}
-	quitOnce   sync.Once
-	jobs       map[string]*job
-	limiter    *rateLimiter
+	// Restart is set by main: starts the (just updated) program again.
+	Restart  func()
+	upd      updater
+	quit     chan struct{}
+	quitOnce sync.Once
+	jobs     map[string]*job
+	limiter  *rateLimiter
 	// Wrong passwords: 10 tries per 15 minutes per address.
 	loginLimiter *rateLimiter
 	wg           sync.WaitGroup

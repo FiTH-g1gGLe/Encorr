@@ -78,6 +78,8 @@ jobs:
             cp README.md LICENSE docs/DOCKER.md lin/
             tar -C lin -czf dist/Encorr-Linux-$arch.tar.gz .
           done
+          # Checksums: Encorr's "Update now" button refuses a download that doesn't match.
+          (cd dist && sha256sum Encorr-Windows.zip Encorr-Linux-amd64.tar.gz Encorr-Linux-arm64.tar.gz > SHA256SUMS.txt)
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
@@ -98,7 +100,7 @@ jobs:
             echo ""
             echo "**Docker / Portainer:** \`ghcr.io/fith-g1ggle/encorr:latest\` (see docs/DOCKER.md). **Linux without Docker:** the Encorr-Linux tar.gz for your machine."
           } > notes.txt
-          gh release create "v${VERSION}" dist/Encorr-Windows.zip dist/Encorr-Linux-amd64.tar.gz dist/Encorr-Linux-arm64.tar.gz \
+          gh release create "v${VERSION}" dist/Encorr-Windows.zip dist/Encorr-Linux-amd64.tar.gz dist/Encorr-Linux-arm64.tar.gz dist/SHA256SUMS.txt \
             --title "Encorr ${VERSION}" --notes-file notes.txt --target "${GITHUB_SHA}" --latest
 
   docker:

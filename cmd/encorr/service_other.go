@@ -30,3 +30,6 @@ func (background) Status() app.BackgroundStatus {
 }
 func (background) Install(func()) error { return errors.New("Windows only for now") }
 func (background) Remove(func()) error  { return errors.New("Windows only for now") }
+
+func spawnServiceRestart(string) error { return nil }
+func restartServiceHelper() error      { return errors.New("Windows only") }

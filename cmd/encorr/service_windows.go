@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -281,4 +282,39 @@ func (b background) Remove(quit func()) error {
 	}
 	go func() { time.Sleep(time.Second); quit() }()
 	return nil
+}
+
+// spawnServiceRestart starts a helper that waits for the service to stop
+// and starts it again, so an update finishes even if Windows' own
+// "restart on failure" setting isn't there.
+func spawnServiceRestart(exe string) error {
+	cmd := exec.Command(exe, "restart-service")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP}
+	return cmd.Start()
+}
+
+// restartServiceHelper is "encorr restart-service": wait for the service to
+// stop, then start it.
+func restartServiceHelper() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(svcName)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	for i := 0; i < 120; i++ {
+		st, err := s.Query()
+		if err == nil && st.State == svc.Running && i > 20 {
+			return nil // Windows already started it again
+		}
+		if err == nil && st.State == svc.Stopped {
+			return s.Start()
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return errors.New("the service didn't stop in time")
 }

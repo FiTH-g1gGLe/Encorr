@@ -48,6 +48,7 @@ func (a *App) setupJobs() {
 	add(&job{Name: "arr-info", Label: "Release dates from Radarr/Sonarr", Every: 20 * time.Minute, fn: a.jobArrInfo})
 	add(&job{Name: "autofix", Label: "Fix stuck downloads", Every: 5 * time.Minute, fn: a.jobAutoFix})
 	add(&job{Name: "subscriptions", Label: "Subscription reminders", Every: 6 * time.Hour, fn: a.jobSubscriptions})
+	add(&job{Name: "update-check", Label: "Check for a new version", Every: 6 * time.Hour, fn: a.jobUpdateCheck})
 }
 
 func (j *job) schedule() string {

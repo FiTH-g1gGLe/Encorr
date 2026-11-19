@@ -350,9 +350,10 @@ const menuIcon = (k) => MENU_ICONS[k] || (k === "subscriptions" ? I.calendar : k
 const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["jellyfin", "Jellyfin"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["subscriptions", "Subscriptions"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
-  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener" class="ghlink"><img src="/icons/github.png" alt="" width="13" height="13">What's new ↗</a></div></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener" class="ghlink"><img src="/icons/github.png" alt="" width="13" height="13">What's new ↗</a></div></div><div id="updbox"></div></div>
     <div class="settings"><nav class="glass menu">${SETTINGS_MENU.map(([k, l]) => `<a href="#/settings/${k}" class="${k === section ? "on" : ""}"><span class="mi">${menuIcon(k)}</span><span class="ml">${esc(l)}</span></a>`).join("")}</nav>
     <section class="glass panel" id="panel"><span class="spinner"></span></section></div>`;
+  updateBox();
   const panel = qs("#panel");
   let s;
   try { s = await api("/settings"); } catch (e) { panel.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; return; }
@@ -832,4 +833,43 @@ async function pageSettings(main, section) {
     load().catch((e) => (panel.innerHTML = `<div class="notice error">${esc(e.message)}</div>`));
     state.timers.push(setInterval(() => load().catch(() => {}), 15000));
   }
+}
+
+// ---------- updates ----------
+async function updateBox() {
+  const box = qs("#updbox");
+  if (!box || !isAdmin()) return;
+  let u;
+  try { u = await api("/update"); } catch { return; }
+  if (!u.available) return;
+  const notes = (u.notes || "").split("\n").filter((l) => l.trim() && !l.startsWith("**") && !l.startsWith("## ")).slice(0, 4).map((l) => esc(l.replace(/^- /, ""))).join("<br>");
+  if (u.how === "docker") {
+    box.innerHTML = `<div class="updpill glass"><span class="updic">${I.up}</span><div><strong>Version ${esc(u.latest)} is out</strong><span class="small dim">In Portainer, open the Encorr container and press Recreate with "Re-pull image" on.</span></div><a class="btn sm" href="${esc(u.url)}" target="_blank" rel="noopener">What's new</a></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="updpill glass"><span class="updic">${I.up}</span><div><strong>Version ${esc(u.latest)} is out</strong><span class="small dim"${notes ? tip(notes.replace(/<br>/g, " · ")) : ""}>You're on ${esc(u.current)}. Takes about a minute.</span></div>
+    ${u.how === "button" ? `<button class="btn sm primary" id="updGo">${I.download} Update now</button>` : `<a class="btn sm primary" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a>`}</div>`;
+  const go = qs("#updGo");
+  if (go) go.addEventListener("click", async () => {
+    if (!confirmBox(`Update Encorr to ${u.latest}? It restarts by itself and this page comes back in about a minute. Downloads keep going in SABnzbd meanwhile.`)) return;
+    busy(go, true, "Downloading…");
+    try {
+      await api("/update/install", { method: "POST", body: {} });
+    } catch (e) { toast(e.message, "error"); busy(go, false); return; }
+    const m = modal(`<div class="updwait"><span class="spinner"></span><h2>Updating to ${esc(u.latest)}</h2><p class="muted">Encorr is restarting with the new version. This page reloads by itself.</p></div>`);
+    const started = Date.now();
+    const poll = async () => {
+      try {
+        const st = await fetch("/api/v1/status", { cache: "no-store" }).then((r) => r.json());
+        if (st.version === u.latest) { location.reload(); return; }
+      } catch { /* still restarting */ }
+      if (Date.now() - started > 180000) {
+        m.close();
+        toast("Encorr hasn't come back yet. If it doesn't, start it again by hand: the new version is in place.", "error");
+        return;
+      }
+      setTimeout(poll, 2500);
+    };
+    setTimeout(poll, 4000);
+  });
 }

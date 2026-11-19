@@ -15,6 +15,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -60,6 +62,9 @@ func main() {
 	// Background-service commands come first: "encorr install" / "uninstall".
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "restart-service":
+			_ = restartServiceHelper()
+			return
 		case "install", "uninstall":
 			if err := serviceCommand(os.Args[1]); err != nil {
 				fmt.Fprintln(os.Stderr, err)
@@ -87,12 +92,26 @@ func main() {
 		plex.PlexTVURL, plex.DiscoverURL, plex.AppAuthURL = base+"/plextv", base+"/discover", base+"/plexauth"
 		tmdb.BaseURL = base + "/tmdb"
 		app.SpeedTestURL(base + "/speedtest")
+		app.UpdateAPIURL = base + "/github/release"
 	}
 	opts := options{port: *port, host: *host, configDir: *configDir, noBrowser: *noBrowser, service: *asService}
+	// Remember where the program is now: an update renames the running file.
+	exe, _ := os.Executable()
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	app.SetExePath(exe)
+	cleanOldExe(exe)
 
 	if *asService || isWindowsService() {
 		opts.service, opts.noBrowser = true, true
-		if err := runService(func(ctx context.Context) error { return run(ctx, opts) }); err != nil {
+		if err := runService(func(ctx context.Context) error {
+			err := run(ctx, opts)
+			if errors.Is(err, errRestart) {
+				_ = spawnServiceRestart(exe)
+			}
+			return err
+		}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -121,9 +140,37 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, opts); err != nil {
+		if errors.Is(err, errRestart) {
+			stop()
+			args := os.Args[1:]
+			if !slices.Contains(args, "-no-browser") && !slices.Contains(args, "--no-browser") {
+				args = append(args, "-no-browser") // the open page reloads by itself
+			}
+			fmt.Println("Starting the new version…")
+			_ = os.Setenv("ENCORR_RESTARTED", "1")
+			if err := restartSelf(exe, args); err != nil {
+				fmt.Fprintln(os.Stderr, "Couldn't start the new version:", err, "- start Encorr again by hand.")
+				pause()
+				os.Exit(1)
+			}
+			return
+		}
 		fmt.Fprintln(os.Stderr, err)
 		pause()
 		os.Exit(1)
+	}
+}
+
+// errRestart means Encorr stopped to start its new version. As a Windows
+// service, the non-zero exit makes Windows start it again (its recovery
+// settings); otherwise main starts it.
+var errRestart = errors.New("restarting for an update")
+
+// cleanOldExe removes the copy an earlier update left behind.
+func cleanOldExe(exe string) {
+	if exe != "" {
+		_ = os.Remove(exe + ".old")
+		_ = os.Remove(exe + ".update")
 	}
 }
 
@@ -151,8 +198,13 @@ func run(ctx context.Context, opts options) error {
 
 	a := app.New(st, logger)
 	a.Background = background{port: opts.port, service: opts.service}
+	restart := make(chan struct{})
+	var restartOnce sync.Once
+	a.Restart = func() { restartOnce.Do(func() { close(restart) }) }
 	addr := net.JoinHostPort(opts.host, fmt.Sprint(opts.port))
-	ln, err := listenRetry(addr, opts.service)
+	// After an update the old copy may still be letting go of the port.
+	ln, err := listenRetry(addr, opts.service || os.Getenv("ENCORR_RESTARTED") == "1")
+	_ = os.Unsetenv("ENCORR_RESTARTED")
 	if err != nil {
 		logger.Printf("Port %d is already in use: is Encorr already running? (or start it with -port 5151)", opts.port)
 		return fmt.Errorf("port %d is already in use", opts.port)
@@ -185,15 +237,22 @@ func run(ctx context.Context, opts options) error {
 		}
 	}()
 
+	restarting := false
 	select {
 	case <-ctx.Done():
 	case <-a.Quit(): // handing over to the background service
+	case <-restart:
+		restarting = true
 	}
 	logger.Printf("Stopping Encorr…")
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(sctx)
 	a.Stop()
+	if restarting {
+		logger.Printf("Restarting to finish the update…")
+		return errRestart
+	}
 	return nil
 }
 

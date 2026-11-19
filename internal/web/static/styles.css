@@ -1612,3 +1612,13 @@ input[type=text], input[type=url], input[type=password], input[type=number], inp
 .issue .ilast { margin-top: 4px; }
 .issue .iacts { gap: 8px; justify-content: flex-end; }
 @media (max-width: 760px) { .issue { grid-template-columns: 46px 1fr; } .issue .iacts { grid-column: 1 / -1; } }
+
+/* ---------- updates ---------- */
+.updpill { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 14px; border-radius: 14px; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: color-mix(in srgb, var(--accent) 9%, var(--glass, transparent)); }
+.updpill > div { display: grid; gap: 1px; }
+.updpill strong { font-size: 14px; }
+.updic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: var(--accent-ink); background: var(--accent); flex: none; }
+.updic svg { width: 16px; height: 16px; }
+.updwait { text-align: center; padding: 18px 8px 8px; }
+.updwait .spinner { width: 34px; height: 34px; margin: 0 auto 14px; display: block; }
+@media (max-width: 760px) { #updbox { width: 100%; } .updpill { margin-top: 10px; } }
