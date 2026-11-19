@@ -496,6 +496,38 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("quota: %d %v", code, m)
 	}
 
+	// 15b. People can see what's left, and the owner can set a limit per person.
+	type quotaOut struct {
+		Movie, TV Quota
+	}
+	var qo quotaOut
+	friend.ok("GET", "/me/quota", nil, &qo)
+	if qo.Movie.Limit != 2 || qo.Movie.Left != 0 || qo.Movie.NextFree == nil || qo.TV.Limit != 1 || qo.Movie.Custom {
+		t.Fatalf("friend quota: %+v", qo)
+	}
+	var fme publicUser
+	friend.ok("GET", "/me", nil, &fme)
+	owner.ok("PATCH", "/users/"+itoa(fme.ID), map[string]any{"limits": map[string]any{"custom": true, "movie": 5, "tv": 0}}, nil)
+	qo = quotaOut{}
+	friend.ok("GET", "/me/quota", nil, &qo)
+	if qo.Movie.Limit != 5 || qo.Movie.Left != 3 || !qo.Movie.Custom || qo.TV.Limit != 0 {
+		t.Fatalf("custom quota: %+v", qo)
+	}
+	if code, _ := owner.call("PATCH", "/users/"+itoa(fme.ID), map[string]any{"limits": map[string]any{"custom": true, "movie": -1}}, nil); code != 400 {
+		t.Fatalf("negative limit allowed: %d", code)
+	}
+	owner.ok("PATCH", "/users/"+itoa(fme.ID), map[string]any{"limits": map[string]any{"custom": false}}, nil)
+	qo = quotaOut{}
+	friend.ok("GET", "/me/quota", nil, &qo)
+	if qo.Movie.Limit != 2 || qo.Movie.Custom {
+		t.Fatalf("back to default: %+v", qo)
+	}
+	var oq quotaOut
+	owner.ok("GET", "/me/quota", nil, &oq)
+	if oq.Movie.Limit != 0 || oq.TV.Limit != 0 {
+		t.Fatalf("owners have no limit: %+v", oq)
+	}
+
 	// 16. Friend can cancel their own pending request; decline works for admins.
 	var pend struct{ Results []requestOut }
 	owner.ok("GET", "/requests?filter=pending", nil, &pend)

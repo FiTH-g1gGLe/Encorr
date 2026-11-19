@@ -264,12 +264,16 @@ type User struct {
 	JellyfinID string `json:"jellyfinId,omitempty"`
 	// Encorr's own sign-in (username + password). Only a salted, slow hash
 	// is kept, never the password itself.
-	PasswordHash       string    `json:"passwordHash,omitempty"`
-	MustChangePassword bool      `json:"mustChangePassword,omitempty"`
-	DiscordID          string    `json:"discordId"`
-	WatchlistSync      bool      `json:"watchlistSync"`
-	Created            time.Time `json:"created"`
-	LastSeen           time.Time `json:"lastSeen"`
+	PasswordHash       string `json:"passwordHash,omitempty"`
+	MustChangePassword bool   `json:"mustChangePassword,omitempty"`
+	DiscordID          string `json:"discordId"`
+	WatchlistSync      bool   `json:"watchlistSync"`
+	// MovieLimit and TVLimit override the Friend limits for this person.
+	// nil uses the default for their role; 0 means no limit.
+	MovieLimit *int      `json:"movieLimit,omitempty"`
+	TVLimit    *int      `json:"tvLimit,omitempty"`
+	Created    time.Time `json:"created"`
+	LastSeen   time.Time `json:"lastSeen"`
 	// ReadySeen is when they last looked at their ready requests, for the
 	// "new" badge.
 	ReadySeen time.Time `json:"readySeen,omitempty"`

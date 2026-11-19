@@ -38,13 +38,15 @@ type publicUser struct {
 	MustChange    bool   `json:"mustChangePassword,omitempty"`
 	Created       string `json:"created"`
 	Requests      int    `json:"requests,omitempty"`
+	MovieLimit    *int   `json:"movieLimit,omitempty"` // set for this person; nil = default
+	TVLimit       *int   `json:"tvLimit,omitempty"`
 }
 
 func toPublic(u *store.User) publicUser {
 	return publicUser{ID: u.ID, Username: u.Username, Email: u.Email, Thumb: u.Thumb, Role: u.Role,
 		DiscordID: u.DiscordID, WatchlistSync: u.WatchlistSync, SignedIn: u.PlexToken != "" || !u.LastSeen.IsZero(),
 		Plex: u.PlexID != 0, Jellyfin: u.JellyfinID != "", HasPassword: u.PasswordHash != "", MustChange: u.MustChangePassword,
-		Created: u.Created.Format(time.RFC3339)}
+		Created: u.Created.Format(time.RFC3339), MovieLimit: u.MovieLimit, TVLimit: u.TVLimit}
 }
 
 func (a *App) hStatus(w http.ResponseWriter, r *http.Request) {
@@ -1061,14 +1063,27 @@ func (a *App) hUsers(w http.ResponseWriter, r *http.Request, u *store.User) {
 
 func (a *App) hUpdateUser(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var body struct {
-		Role string `json:"role"`
+		Role   string `json:"role"`
+		Limits *struct {
+			Custom bool `json:"custom"` // false: go back to the default
+			Movie  int  `json:"movie"`  // 0 = no limit
+			TV     int  `json:"tv"`
+		} `json:"limits"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		fail(w, err)
 		return
 	}
-	if body.Role != store.RoleAdmin && body.Role != store.RoleTrusted && body.Role != store.RoleFriend {
+	if body.Role == "" && body.Limits == nil {
+		fail(w, userErr("Nothing to change."))
+		return
+	}
+	if body.Role != "" && body.Role != store.RoleAdmin && body.Role != store.RoleTrusted && body.Role != store.RoleFriend {
 		fail(w, userErr("Role must be admin, trusted or friend."))
+		return
+	}
+	if l := body.Limits; l != nil && (l.Movie < 0 || l.TV < 0 || l.Movie > 1000 || l.TV > 1000) {
+		fail(w, userErr("Limits must be between 0 (no limit) and 1000."))
 		return
 	}
 	id := pathInt(r, "id")
@@ -1077,18 +1092,28 @@ func (a *App) hUpdateUser(w http.ResponseWriter, r *http.Request, u *store.User)
 		if target == nil {
 			return userErr("User not found.")
 		}
-		if target.Role == store.RoleAdmin && body.Role != store.RoleAdmin {
-			admins := 0
-			for _, x := range d.Users {
-				if x.Role == store.RoleAdmin {
-					admins++
+		if body.Role != "" {
+			if target.Role == store.RoleAdmin && body.Role != store.RoleAdmin {
+				admins := 0
+				for _, x := range d.Users {
+					if x.Role == store.RoleAdmin {
+						admins++
+					}
+				}
+				if admins <= 1 {
+					return userErr("Encorr needs at least one admin.")
 				}
 			}
-			if admins <= 1 {
-				return userErr("Encorr needs at least one admin.")
+			target.Role = body.Role
+		}
+		if l := body.Limits; l != nil {
+			if l.Custom {
+				mv, tv := l.Movie, l.TV
+				target.MovieLimit, target.TVLimit = &mv, &tv
+			} else {
+				target.MovieLimit, target.TVLimit = nil, nil
 			}
 		}
-		target.Role = body.Role
 		return nil
 	})
 	if err != nil {

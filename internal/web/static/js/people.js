@@ -11,6 +11,8 @@ async function pageUsers(main) {
       <div class="row">${state.status && state.status.plex !== false ? `<button class="btn" id="import">${I.plex} Import Plex friends</button>` : ""}<button class="btn primary" id="add">${I.plus} Add a person</button></div></div>
     <div class="people" id="ulist"><span class="spinner"></span></div>
     <div class="glass roles">${Object.keys(ROLE_NAMES).map((r) => `<div><strong>${ROLE_NAMES[r]}</strong><span>${ROLE_HELP[r]}</span></div>`).join("")}</div>`;
+  let quotas = null;
+  try { quotas = (await api("/settings")).quotas; } catch { /* not the owner */ }
   const load = async () => {
     const r = await api("/users");
     const box = qs("#ulist");
@@ -22,15 +24,21 @@ async function pageUsers(main) {
         ${u.thumb ? `<img class="pic" src="${esc(u.thumb)}" alt="">` : `<span class="pic initial">${esc(u.username.slice(0, 1).toUpperCase())}</span>`}
         <div class="who"><strong>${esc(u.username)}</strong>${me ? ' <span class="dim small">(you)</span>' : ""}
           <div class="small dim">Signs in with ${esc(how || "nothing yet")}${u.signedIn ? "" : ", hasn't signed in yet"}${u.mustChangePassword && !me ? ", needs to pick a password" : ""}</div>
-          <div class="small dim">${u.requests || 0} request${u.requests === 1 ? "" : "s"}, joined ${when(u.created)}</div></div>
+          <div class="small dim">${u.requests || 0} request${u.requests === 1 ? "" : "s"}, joined ${when(u.created)}</div>
+          ${u.role === "admin" ? "" : `<div class="small limline">${I.clock || ""} ${esc(limitText(u, quotas))}</div>`}</div>
         <label class="rolepick"><span class="sr">Role for ${esc(u.username)}</span><select data-uid="${u.id}" ${me ? "disabled title='You can't change your own role'" : ""}>${Object.keys(ROLE_NAMES).map((k) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${ROLE_NAMES[k]}</option>`).join("")}</select></label>
         <div class="row acts">
+          ${u.role === "admin" ? "" : `<button class="btn sm" data-lim="${u.id}">Limits</button>`}
           <button class="btn sm" data-pw="${u.id}" data-name="${esc(u.username)}">${u.hasPassword ? "New password" : "Give a password"}</button>
           ${me ? "" : `<button class="btn sm danger" data-rm="${u.id}" data-name="${esc(u.username)}">Remove</button>`}
         </div></div>`;
     }).join("");
     qsa("select[data-uid]").forEach((sel) => sel.addEventListener("change", async () => {
       try { await api(`/users/${sel.dataset.uid}`, { method: "PATCH", body: { role: sel.value } }); toast("Role updated", "ok"); } catch (e) { toast(e.message, "error"); load(); }
+    }));
+    qsa("[data-lim]").forEach((b) => b.addEventListener("click", () => {
+      const u = r.results.find((x) => String(x.id) === b.dataset.lim);
+      if (u) limitsModal(u, quotas, load);
     }));
     qsa("[data-pw]").forEach((b) => b.addEventListener("click", async () => {
       if (!confirmBox(`Make a new password for ${b.dataset.name}? Their old one stops working and they'll be signed out.`)) return;
@@ -52,6 +60,49 @@ async function pageUsers(main) {
     busy(e.currentTarget, false);
   });
   load().catch((e) => { const b = qs("#ulist"); if (b) b.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; });
+}
+
+// limitText describes someone's request limit in a few words.
+function limitText(u, q) {
+  const days = (q && q.days) || 7;
+  const period = days === 7 ? "a week" : days === 1 ? "a day" : days === 30 ? "a month" : `every ${days} days`;
+  const part = (n, one, many) => (n ? `${n} ${n === 1 ? one : many}` : `unlimited ${many}`);
+  if (u.movieLimit != null || u.tvLimit != null) {
+    const m = u.movieLimit || 0, t = u.tvLimit || 0;
+    if (!m && !t) return "No request limit (set for them)";
+    return `${part(m, "film", "films")}, ${part(t, "show", "shows")} ${period} (set for them)`;
+  }
+  if (u.role !== "friend" || !q || (!q.friendMovieLimit && !q.friendTvLimit)) return "No request limit";
+  return `${part(q.friendMovieLimit, "film", "films")}, ${part(q.friendTvLimit, "show", "shows")} ${period} (the default)`;
+}
+
+function limitsModal(u, q, onDone) {
+  const days = (q && q.days) || 7;
+  const custom = u.movieLimit != null || u.tvLimit != null;
+  const defText = u.role === "friend" && q && (q.friendMovieLimit || q.friendTvLimit)
+    ? `${q.friendMovieLimit || "unlimited"} films and ${q.friendTvLimit || "unlimited"} shows every ${days} days`
+    : "no limit";
+  const m = modal(`<h2>Request limits for ${esc(u.username)}</h2>
+    <p class="muted" style="margin-top:-6px">Stops one person filling the server. Requests that were turned down don't count.</p>
+    <div class="limopts">
+      <label class="limopt"><input type="radio" name="lmode" value="def" ${custom ? "" : "checked"}><span><strong>Use the default</strong><span class="small dim">${esc(u.role === "friend" ? "Friends get " + defText : "Trusted people have " + defText)}. Change it in Settings → General.</span></span></label>
+      <label class="limopt"><input type="radio" name="lmode" value="own" ${custom ? "checked" : ""}><span><strong>Set a limit just for ${esc(u.username)}</strong><span class="small dim">Every ${days} days. 0 means no limit.</span></span></label>
+    </div>
+    <div class="row" id="lown" style="margin-top:10px">
+      <label class="field grow" style="margin:0"><span>Films</span><input type="number" min="0" max="1000" id="lm" value="${u.movieLimit ?? (q && q.friendMovieLimit) ?? 0}"></label>
+      <label class="field grow" style="margin:0"><span>TV shows</span><input type="number" min="0" max="1000" id="lt" value="${u.tvLimit ?? (q && q.friendTvLimit) ?? 0}"></label>
+    </div>
+    <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="lsave">Save</button></div>`);
+  const sync = () => { const own = qs("input[name=lmode]:checked", m.el).value === "own"; qsa("#lown input", m.el).forEach((i) => (i.disabled = !own)); qs("#lown", m.el).classList.toggle("off", !own); };
+  qsa("input[name=lmode]", m.el).forEach((r) => r.addEventListener("change", sync));
+  sync();
+  qs("#lsave", m.el).addEventListener("click", async (e) => {
+    const own = qs("input[name=lmode]:checked", m.el).value === "own";
+    const body = { limits: { custom: own, movie: Number(qs("#lm", m.el).value) || 0, tv: Number(qs("#lt", m.el).value) || 0 } };
+    busy(e.currentTarget, true, "Saving…");
+    try { await api(`/users/${u.id}`, { method: "PATCH", body }); m.close(); toast("Limits saved", "ok"); onDone(); }
+    catch (err) { toast(err.message, "error"); busy(e.currentTarget, false); }
+  });
 }
 
 function addPersonModal(onDone) {

@@ -1572,3 +1572,16 @@ input[type=text], input[type=url], input[type=password], input[type=number], inp
 .settings .menu a:hover .mi, .settings .menu a.on .mi { color: var(--accent, #c0c1ff); }
 .settings .menu a:hover .mi .aicon, .settings .menu a.on .mi .aicon { opacity: 1; filter: none; }
 .settings .menu .ml { min-width: 0; }
+
+/* ---------- request limits ---------- */
+.person .limline { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text-2); }
+.person .limline svg { width: 14px; height: 14px; opacity: .8; flex: none; }
+.limopts { display: grid; gap: 8px; }
+.limopt { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; cursor: pointer; }
+.limopt:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.limopt input { margin-top: 3px; accent-color: var(--accent); }
+.limopt > span { display: grid; gap: 2px; }
+#lown.off { opacity: .45; }
+.quotaline { display: flex; align-items: center; gap: 8px; margin: -6px 0 14px; font-size: .9rem; color: var(--text-2); }
+.quotaline svg { width: 15px; height: 15px; flex: none; }
+.quotaline.out { color: var(--warn); }

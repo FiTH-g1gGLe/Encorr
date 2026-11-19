@@ -241,9 +241,26 @@ function requestModal(type, d, s) {
   const m = modal(`
     <div class="mhead">${d.poster ? `<img src="${esc(img(d.poster, "w185"))}" alt="">` : ""}<div><div class="eyebrow">${type === "tv" ? "Request a show" : "Request a film"}</div><h2>${esc(d.title)} ${d.year ? `<span class="dim" style="font-weight:500">(${esc(d.year)})</span>` : ""}</h2></div></div>
     <div class="notice ${role === "friend" ? "" : "ok"}" style="margin:4px 0 14px">${role === "friend" ? "ℹ️ The owner will approve it, then it downloads by itself." : "This request will be approved automatically."}</div>
+    <div class="quotaline" id="quota" hidden></div>
     ${seasonHtml}
     <label class="field"><span>Note (optional)</span><input type="text" id="note" maxlength="300" placeholder="e.g. extended cut please"></label>
     <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="go">${I.plus} Request the encore</button></div>`);
+  api("/me/quota").then((q) => {
+    const k = q[type === "tv" ? "tv" : "movie"];
+    const box = qs("#quota", m.el);
+    if (!k || !k.limit || !box) return;
+    const kind = type === "tv" ? (k.left === 1 ? "show" : "shows") : (k.left === 1 ? "film" : "films");
+    const period = k.days === 7 ? "this week" : `in the last ${k.days} days`;
+    if (k.left > 0) {
+      box.innerHTML = `${I.clock} You can request ${k.left} more ${kind} ${period} (limit ${k.limit}).`;
+    } else {
+      const next = k.nextFree ? new Date(k.nextFree).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : "";
+      box.innerHTML = `${I.clock} You've used all ${k.limit} ${type === "tv" ? "show" : "film"} requests ${period}.${next ? ` You can ask again on ${esc(next)}.` : ""}`;
+      box.classList.add("out");
+      qs("#go", m.el).disabled = true;
+    }
+    box.hidden = false;
+  }).catch(() => {});
   const all = qs("#allS", m.el);
   if (all) {
     const boxes = qsa("#sList input:not([disabled])", m.el);
@@ -251,7 +268,7 @@ function requestModal(type, d, s) {
     const count = () => {
       const on = boxes.filter((b) => b.checked);
       qs("#sCount", m.el).textContent = on.length ? `${on.length} season${on.length === 1 ? "" : "s"}, ${on.reduce((n, b) => n + eps(b), 0)} episodes` : "Pick the seasons you want";
-      qs("#go", m.el).disabled = !on.length;
+      qs("#go", m.el).disabled = !on.length || qs("#quota", m.el).classList.contains("out");
     };
     all.addEventListener("change", () => { boxes.forEach((b) => (b.checked = all.checked)); count(); });
     boxes.forEach((b) => b.addEventListener("change", () => { all.checked = boxes.every((x) => x.checked); count(); }));

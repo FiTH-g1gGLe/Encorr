@@ -157,26 +157,17 @@ func (a *App) CreateRequest(ctx context.Context, userID int, nr NewRequest) (*st
 			nr.Seasons = left
 		}
 
-		// Quotas apply to Friends only.
-		if u.Role == store.RoleFriend {
-			q := d.Settings.Quotas
-			limit := q.FriendMovieLimit
+		// Request limits: the person's own, or the Friend default.
+		if q := quotaFor(d, u, nr.Type); q.Limit > 0 && q.Left == 0 {
 			kind := "films"
 			if nr.Type == store.TypeTV {
-				limit, kind = q.FriendTVLimit, "shows"
+				kind = "shows"
 			}
-			if limit > 0 && q.Days > 0 {
-				since := time.Now().AddDate(0, 0, -q.Days)
-				n := 0
-				for _, r := range d.Requests {
-					if r.RequestedBy == u.ID && r.Type == nr.Type && r.Created.After(since) && r.Status != store.ReqDeclined {
-						n++
-					}
-				}
-				if n >= limit {
-					return userErr("You've reached your limit of " + itoa(limit) + " " + kind + " every " + itoa(q.Days) + " days. Try again later, or ask an admin.")
-				}
+			msg := "You've reached your limit of " + itoa(q.Limit) + " " + kind + " every " + itoa(q.Days) + " days."
+			if q.NextFree != nil {
+				msg += " You can ask for another on " + q.NextFree.Format("Mon 2 Jan") + "."
 			}
+			return userErr(msg + " Or ask the owner.")
 		}
 
 		now := time.Now()
