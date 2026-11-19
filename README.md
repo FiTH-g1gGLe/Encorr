@@ -52,7 +52,7 @@ Encorr is a friendly front door to your media server. It does the same job as Ov
 
 ---
 
-## 🪟 Install on Windows
+## <img src="internal/web/static/icons/microsoft-windows.svg" width="22" alt=""> Install on Windows
 
 1. **[Download Encorr for Windows](https://github.com/FiTH-g1gGLe/Encorr/releases/latest/download/Encorr-Windows.zip)** and unzip it.
 2. **Double-click `encorr.exe`.** Your browser opens Encorr. If Windows asks about the firewall, allow **private networks**.
@@ -64,7 +64,7 @@ Encorr is a friendly front door to your media server. It does the same job as Ov
 
 ---
 
-## 🐧 Install on Linux (Docker / Portainer)
+## <img src="internal/web/static/icons/linux.svg" width="22" alt=""> Install on Linux (Docker / Portainer)
 
 Works on normal PCs and servers, and on ARM boards like a Raspberry Pi.
 

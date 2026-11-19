@@ -133,11 +133,11 @@ async function pageTitle(main, type, id) {
   if (P && (P.quality || P.audio)) fact("In " + YOUR_LIB(), [P.quality, P.audio].filter(Boolean).map((q) => `<span class="qual">${esc(q)}</span>`).join(" "));
   const providers = (d.providers || []).length ? `<div class="fblock"><div class="k">Currently streaming on</div><div class="provs">${d.providers.map((p) => `<a href="${esc(d.providersUrl || "#")}" target="_blank" rel="noopener" title="${esc(p.name)}"><img src="${esc(img(p.logo, "w92"))}" alt="${esc(p.name)}"></a>`).join("")}</div><div class="tiny dim">Streaming info from JustWatch</div></div>` : "";
   const links = [
-    `<a href="https://www.themoviedb.org/${type}/${esc(d.id)}" target="_blank" rel="noopener">TMDB</a>`,
-    d.imdbId ? `<a href="https://www.imdb.com/title/${esc(d.imdbId)}" target="_blank" rel="noopener">IMDb</a>` : "",
-    d.imdbId ? `<a href="https://trakt.tv/search/imdb/${esc(d.imdbId)}" target="_blank" rel="noopener">Trakt</a>` : "",
-    type === "movie" ? `<a href="https://letterboxd.com/tmdb/${esc(d.id)}" target="_blank" rel="noopener">Letterboxd</a>` : "",
-    type === "tv" && d.tvdbId ? `<a href="https://thetvdb.com/dereferrer/series/${esc(d.tvdbId)}" target="_blank" rel="noopener">TheTVDB</a>` : "",
+    `<a href="https://www.themoviedb.org/${type}/${esc(d.id)}" target="_blank" rel="noopener">${appIcon("tmdb", 16)}TMDB</a>`,
+    d.imdbId ? `<a href="https://www.imdb.com/title/${esc(d.imdbId)}" target="_blank" rel="noopener">${appIcon("imdb", 16)}IMDb</a>` : "",
+    d.imdbId ? `<a href="https://trakt.tv/search/imdb/${esc(d.imdbId)}" target="_blank" rel="noopener">${appIcon("trakt", 16)}Trakt</a>` : "",
+    type === "movie" ? `<a href="https://letterboxd.com/tmdb/${esc(d.id)}" target="_blank" rel="noopener">${appIcon("letterboxd", 16)}Letterboxd</a>` : "",
+    type === "tv" && d.tvdbId ? `<a href="https://thetvdb.com/dereferrer/series/${esc(d.tvdbId)}" target="_blank" rel="noopener">${appIcon("tvdb", 16)}TheTVDB</a>` : "",
     d.homepage ? `<a href="${esc(d.homepage)}" target="_blank" rel="noopener">Official site</a>` : "",
   ].filter(Boolean).join("");
 

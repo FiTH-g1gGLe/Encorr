@@ -120,10 +120,14 @@ const APP_BRAND = {
   plex: ["Plex", "#E5A00D"], prowlarr: ["Prowlarr", "#E6522C"], radarr: ["Radarr", "#FFC230"],
   "rotten-tomatoes": ["Rotten Tomatoes", "#FA320A", true], sabnzbd: ["SABnzbd", "#F5B800"],
   sonarr: ["Sonarr", "#35C5F4"], tmdb: ["TMDB", "#01B4E4"],
+  trakt: ["Trakt", "#9F42C6"], letterboxd: ["Letterboxd", "#40BCF4"], tvdb: ["TheTVDB", "#6CD591"],
+  emby: ["Emby", "#52B54B"], "microsoft-windows": ["Windows", "#0078D4"], linux: ["Linux", "#F5C021"],
 };
 const appKey = (name) => {
   const n = String(name || "").toLowerCase().trim();
   if (n.startsWith("rotten") || n === "rt" || n.startsWith("rt-")) return "rotten-tomatoes";
+  if (n === "thetvdb") return "tvdb";
+  if (n === "windows") return "microsoft-windows";
   return Object.keys(APP_BRAND).find((k) => n === k || n.startsWith(k)) || "";
 };
 // appIcon is just the logo; appBadge is logo + name on a tinted pill.
