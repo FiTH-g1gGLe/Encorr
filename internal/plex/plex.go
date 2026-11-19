@@ -407,6 +407,20 @@ func (s *Server) Ping(ctx context.Context) error {
 	return s.get(ctx, "/identity", 0, 0, &c)
 }
 
+// PlexPass reports whether the server owner has Plex Pass, which hardware
+// transcoding needs.
+func (s *Server) PlexPass(ctx context.Context) (bool, error) {
+	var c struct {
+		MediaContainer struct {
+			MyPlexSubscription bool `json:"myPlexSubscription"`
+		} `json:"MediaContainer"`
+	}
+	if err := s.get(ctx, "/", 0, 0, &c); err != nil {
+		return false, err
+	}
+	return c.MediaContainer.MyPlexSubscription, nil
+}
+
 func (s *Server) Libraries(ctx context.Context) ([]Item, error) {
 	var c container
 	if err := s.get(ctx, "/library/sections", 0, 0, &c); err != nil {

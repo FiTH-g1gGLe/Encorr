@@ -33,7 +33,7 @@ import (
 type TuneFinding struct {
 	ID          string `json:"id"`
 	App         string `json:"app"`  // sabnzbd | radarr | sonarr | prowlarr | plex | jellyfin
-	Area        string `json:"area"` // Reliability | Speed | Library | Housekeeping | Indexers
+	Area        string `json:"area"` // Reliability | Speed | Library | Playback | Housekeeping | Indexers
 	Title       string `json:"title"`
 	Why         string `json:"why"`
 	Level       string `json:"level"`  // safe | review | info | warn
@@ -80,6 +80,7 @@ type tuneEnv struct {
 	region    string
 	libraries []store.PlexLibrary
 	jfNames   map[string]string // Jellyfin library id -> name
+	plexPass  bool              // the Plex owner has Plex Pass (hardware transcoding needs it)
 }
 
 type prowlarrInfo struct {
@@ -382,8 +383,10 @@ func (a *App) readPlex(ctx context.Context, e *tuneEnv, srv *plex.Server) error 
 		e.enums[p.ID] = p.EnumValues
 		e.mu.Unlock()
 	}
+	pass, _ := srv.PlexPass(ctx)
 	e.mu.Lock()
 	e.apps["plex"].Connected = true
+	e.plexPass = pass
 	e.mu.Unlock()
 	var fut []futureItem
 	for _, lib := range e.libraries {
@@ -785,6 +788,44 @@ func tuneRules() []tuneRule {
 			title: "Analyse loudness overnight",
 			why:   "Same idea: heavy work moves to maintenance hours.",
 			want:  scheduledIfASAP("LoudnessAnalysisBehavior"), show: behave},
+		tuneRule{id: "plex-hwaccel", app: "plex", area: "Playback", level: "review", key: "pref.HardwareAcceleratedCodecs",
+			title: "Use the graphics chip for transcoding",
+			why:   "When a device can't play a file as it is, Plex converts it on the fly. The graphics chip (Intel Quick Sync, NVIDIA or AMD) does this many times faster than the processor, so several people can stream at once without stutter. If this computer has no usable graphics chip, Plex just carries on using the processor.",
+			want: func(e *tuneEnv, cur any) (any, bool) {
+				return true, e.plexPass && !truthy(cur)
+			}, show: onOff},
+		tuneRule{id: "plex-hwencode", app: "plex", area: "Playback", level: "review", key: "pref.HardwareAcceleratedEncoders",
+			title: "Let the graphics chip do the encoding too",
+			why:   "Without this, the graphics chip only reads the original and the processor still does the heavy half of the work.",
+			want: func(e *tuneEnv, cur any) (any, bool) {
+				return true, e.plexPass && !truthy(cur)
+			}, show: onOff},
+		tuneRule{id: "plex-tonemap", app: "plex", area: "Playback", level: "safe", key: "pref.TranscoderToneMapping",
+			title: "Fix washed-out colours on HDR films",
+			why:   "When an HDR film is converted for a screen that isn't HDR, it looks grey and dull unless Plex adjusts the colours (tone mapping).",
+			want:  always(true), show: onOff},
+		tuneRule{id: "plex-nopass", app: "plex", area: "Playback",
+			check: func(e *tuneEnv) []TuneFinding {
+				v, ok := e.get("plex", "pref.HardwareAcceleratedCodecs")
+				if !ok || e.plexPass || truthy(v) {
+					return nil
+				}
+				return []TuneFinding{{ID: "plex-nopass", App: "plex", Area: "Playback", Level: "info", Status: "notice",
+					Title: "Hardware transcoding needs Plex Pass",
+					Why:   "Without it, Plex converts video using the processor only, which limits how many people can stream something that needs converting at the same time. Everything else works as normal.",
+					Fix:   "Optional: Plex Pass from plex.tv, then turn on hardware acceleration in Plex → Settings → Transcoder"}}
+			}},
+		tuneRule{id: "plex-lan", app: "plex", area: "Playback",
+			check: func(e *tuneEnv) []TuneFinding {
+				v, ok := e.get("plex", "pref.LanNetworksBandwidth")
+				if !ok || strings.TrimSpace(canon(v)) != "" {
+					return nil
+				}
+				return []TuneFinding{{ID: "plex-lan", App: "plex", Area: "Playback", Level: "info", Status: "notice",
+					Title: "Tell Plex which addresses are your home network",
+					Why:   "If Plex can't tell a device is at home, it may treat it as remote and lower the quality. Listing your home network fixes that. Encorr leaves this to you because it's part of Plex's network settings.",
+					Fix:   "Plex → Settings → Network → Show Advanced → LAN Networks: your network, e.g. 192.168.1.0/24 if your devices' addresses start 192.168.1"}}
+			}},
 		tuneRule{id: "plex-future", app: "plex", area: "Library", level: "safe",
 			title: "Fix items dated in the future",
 			check: func(e *tuneEnv) []TuneFinding {
@@ -1576,4 +1617,13 @@ func (a *App) undoMinScore(ctx context.Context, app string, data map[string]any)
 		}
 	}
 	return nil
+}
+
+// truthy reads an on/off value that may arrive as a bool, 1/0 or true/false.
+func truthy(v any) bool {
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	c := strings.ToLower(canon(v))
+	return c == "1" || c == "true"
 }

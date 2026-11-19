@@ -1022,11 +1022,18 @@ func TestEndToEnd(t *testing.T) {
 	}
 	wantChange := []string{"sab-pwrar", "sab-unwanted-action", "sab-unwanted-list", "sab-unrar-dates", "sab-cache", "sab-pipelining:news.example.com",
 		"radarr-redownload", "radarr-propers", "radarr-filedate", "radarr-freespace", "radarr-hardsubs", "radarr-foreign-subs",
-		"sonarr-illegal", "sonarr-foreign-subs", "plex-fsevents", "plex-lowprio", "plex-bif"}
+		"sonarr-illegal", "sonarr-foreign-subs", "plex-fsevents", "plex-lowprio", "plex-bif",
+		"plex-hwaccel", "plex-hwencode", "plex-tonemap"}
 	for _, id := range wantChange {
 		if f, ok := byID[id]; !ok || f.Status != "change" || !f.CanApply {
 			t.Fatalf("expected %s to need changing: %+v", id, f)
 		}
+	}
+	if f, ok := byID["plex-lan"]; !ok || f.Level != "info" || f.CanApply {
+		t.Fatalf("an empty LAN networks list should be advice only: %+v", f)
+	}
+	if _, ok := byID["plex-nopass"]; ok {
+		t.Fatal("the Plex Pass note is only for owners without it")
 	}
 	if _, ok := byID["sonarr-propers"]; ok {
 		t.Fatal("the repacks advice only applies when TRaSH-style custom formats are in use")
@@ -1122,6 +1129,10 @@ func TestEndToEnd(t *testing.T) {
 	if applied.Changed != 3 || fk.ArrConfig["radarr"]["mediamanagement"]["minimumFreeSpaceWhenImporting"] != 1024.0 ||
 		fk.ArrConfig["radarr"]["mediamanagement"]["fileDate"] != "none" || fk.PlexPrefs["GenerateBIFBehavior"] != "scheduled" {
 		t.Fatalf("number/text settings: %+v %v %v", applied, fk.ArrConfig["radarr"]["mediamanagement"], fk.PlexPrefs["GenerateBIFBehavior"])
+	}
+	owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"plex-hwaccel", "plex-hwencode", "plex-tonemap"}}, &applied)
+	if applied.Changed != 3 || fk.PlexPrefs["HardwareAcceleratedCodecs"] != true || fk.PlexPrefs["HardwareAcceleratedEncoders"] != true || fk.PlexPrefs["TranscoderToneMapping"] != true {
+		t.Fatalf("Plex playback settings: %+v %v", applied, fk.PlexPrefs)
 	}
 	owner.ok("GET", "/tune", nil, &tr)
 

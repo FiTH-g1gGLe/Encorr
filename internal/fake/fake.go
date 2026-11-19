@@ -80,9 +80,10 @@ type Stack struct {
 	QProfiles     map[string][]map[string]any
 	ReleaseProfs  []map[string]any
 	PlexPrefs     map[string]any
+	PlexPass      bool
 	SABMisc       map[string]any
 	SABServers    []map[string]any
-	ProwlarrVIP   string // vipExpiration for the fake indexer
+	ProwlarrVIP   string            // vipExpiration for the fake indexer
 	ArrRefuse     map[string]string // "sonarr.mediamanagement" -> validation message, to refuse changes
 	// Jellyfin (see jellyfin.go).
 	JFMovies        map[int]time.Time   // tmdb id -> added
@@ -136,7 +137,9 @@ func New() *Stack {
 		},
 		CustomFormats: map[string][]map[string]any{"radarr": {{"id": 1, "name": "Repack/Proper", "specifications": []any{}}}, "sonarr": {}},
 		PlexPrefs: map[string]any{"FSEventLibraryUpdatesEnabled": false, "FSEventLibraryPartialScanEnabled": true, "ScannerLowPriority": false,
-			"GenerateBIFBehavior": "asap", "ScheduledLibraryUpdatesEnabled": true, "secureConnections": 1},
+			"GenerateBIFBehavior": "asap", "ScheduledLibraryUpdatesEnabled": true, "secureConnections": 1,
+			"HardwareAcceleratedCodecs": false, "HardwareAcceleratedEncoders": false, "TranscoderToneMapping": false, "LanNetworksBandwidth": ""},
+		PlexPass: true,
 		SABMisc: map[string]any{"pause_on_pwrar": 1, "action_on_unwanted_extensions": 0, "unwanted_extensions_mode": 0, "unwanted_extensions": []any{},
 			"fail_hopeless_jobs": 1, "fast_fail": 1, "safe_postproc": 1, "ignore_unrar_dates": 0, "deobfuscate_final_filenames": 1,
 			"enable_par_cleanup": 1, "cache_limit": "450M", "bandwidth_max": "", "host": "127.0.0.1", "api_key": "secret",
@@ -362,6 +365,8 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 		s.Calls = append(s.Calls, "addedAt:"+q.Get("id"))
 		w.WriteHeader(200)
 		return
+	case p == "/":
+		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"myPlexSubscription": s.PlexPass}})
 	case p == "/identity":
 		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"machineIdentifier": "machine-1"}})
 	case p == "/library/sections":
