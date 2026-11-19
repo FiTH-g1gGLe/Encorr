@@ -339,11 +339,19 @@ async function renderWizard(stepName) {
 }
 
 // ---------- settings pages ----------
+// Settings menu icons: apps show their own logo; Encorr's own pages use
+// thin line icons in the theme colour.
+const MENU_ICONS = {
+  general: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>',
+  health: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 13.6 12 21l-7.5-7.4A5 5 0 0 1 12 6.6a5 5 0 0 1 7.5 7z"/><path d="M3.5 12h4l1.5-3 3 6 1.5-3h7"/></svg>',
+  tune: '<svg viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="m412.3 227.1c-1.6-3.1-4.8-5.1-8.2-5.1H267.5l46.8-210.8c1-4.3-1.2-8.6-5.2-10.4s-8.7-.6-11.3 3L100.5 275.2c-2 2.8-2.3 6.5-.8 9.6 1.6 3.1 4.8 5.1 8.2 5.1h136.5l-46.8 210.8c-1 4.3 1.2 8.6 5.2 10.4 1.2.6 2.5.8 3.8.8 2.9 0 5.7-1.4 7.5-3.8l197.4-271.4c2.1-2.7 2.4-6.5.8-9.6"/></svg>',
+};
+const menuIcon = (k) => MENU_ICONS[k] || (k === "subscriptions" ? I.calendar : k === "jobs" ? I.refresh : appIcon(k, 16));
 const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["jellyfin", "Jellyfin"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["subscriptions", "Subscriptions"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
   main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener" class="ghlink"><img src="/icons/github.png" alt="" width="13" height="13">What's new ↗</a></div></div></div>
-    <div class="settings"><nav class="glass menu">${SETTINGS_MENU.map(([k, l]) => `<a href="#/settings/${k}" class="${k === section ? "on" : ""}">${esc(l)}</a>`).join("")}</nav>
+    <div class="settings"><nav class="glass menu">${SETTINGS_MENU.map(([k, l]) => `<a href="#/settings/${k}" class="${k === section ? "on" : ""}"><span class="mi">${menuIcon(k)}</span><span class="ml">${esc(l)}</span></a>`).join("")}</nav>
     <section class="glass panel" id="panel"><span class="spinner"></span></section></div>`;
   const panel = qs("#panel");
   let s;
