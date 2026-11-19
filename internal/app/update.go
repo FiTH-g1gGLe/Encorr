@@ -171,7 +171,10 @@ func (a *App) updateInfo() UpdateInfo {
 }
 
 func (a *App) hUpdate(w http.ResponseWriter, r *http.Request, u *store.User) {
-	if r.URL.Query().Get("check") == "1" {
+	a.upd.mu.Lock()
+	stale := time.Since(a.upd.checked) > 30*time.Minute
+	a.upd.mu.Unlock()
+	if r.URL.Query().Get("check") == "1" || stale && Version != dumbVersion {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		_ = a.checkUpdate(ctx)
 		cancel()
