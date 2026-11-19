@@ -65,6 +65,10 @@ type tuneEnv struct {
 	relProf   []map[string]any                     // Sonarr release profiles
 	clients   map[string][]map[string]any          // app -> download clients
 	roots     map[string][]string                  // app -> library root folders
+	profiles  map[string][]map[string]any          // app -> quality profiles
+	arrIdx    map[string][]string                  // app -> indexer names set up in Radarr/Sonarr
+	backups   map[string][]time.Time               // app -> backup times
+	logLevel  map[string]string                    // app -> log level
 	apps      map[string]*TuneApp
 	sabSrv    []map[string]any
 	orphans   int
@@ -93,7 +97,8 @@ type futureItem struct {
 func newEnv() *tuneEnv {
 	return &tuneEnv{vals: map[string]map[string]any{}, raw: map[string]map[string]map[string]any{},
 		enums: map[string]string{}, cfNames: map[string][]string{}, cfRegex: map[string][]string{},
-		clients: map[string][]map[string]any{}, roots: map[string][]string{}, apps: map[string]*TuneApp{}}
+		clients: map[string][]map[string]any{}, roots: map[string][]string{}, apps: map[string]*TuneApp{},
+		profiles: map[string][]map[string]any{}, arrIdx: map[string][]string{}, backups: map[string][]time.Time{}, logLevel: map[string]string{}}
 }
 
 func (e *tuneEnv) set(app, key string, v any) {
@@ -271,6 +276,44 @@ func (a *App) readArr(ctx context.Context, e *tuneEnv, app string, c *arr.Client
 		}
 		e.mu.Lock()
 		e.cfNames[app], e.cfRegex[app] = names, rx
+		e.mu.Unlock()
+	}
+	var profs []map[string]any
+	if c.GetJSON(ctx, "/qualityprofile", &profs) == nil {
+		e.mu.Lock()
+		e.profiles[app] = profs
+		e.mu.Unlock()
+	}
+	var idx []map[string]any
+	if c.GetJSON(ctx, "/indexer", &idx) == nil {
+		var names []string
+		for _, ix := range idx {
+			names = append(names, canon(ix["name"]))
+		}
+		e.mu.Lock()
+		e.arrIdx[app] = names
+		e.mu.Unlock()
+	}
+	var bks []map[string]any
+	if c.GetJSON(ctx, "/system/backup", &bks) == nil {
+		var times []time.Time
+		for _, b := range bks {
+			if t, err := time.Parse(time.RFC3339, canon(b["time"])); err == nil {
+				times = append(times, t)
+			}
+		}
+		e.mu.Lock()
+		e.backups[app] = times
+		if times == nil {
+			e.backups[app] = []time.Time{}
+		}
+		e.mu.Unlock()
+	}
+	// Host settings hold the API key and password: only the log level is kept.
+	var host map[string]any
+	if c.GetJSON(ctx, "/config/host", &host) == nil {
+		e.mu.Lock()
+		e.logLevel[app] = strings.ToLower(canon(host["logLevel"]))
 		e.mu.Unlock()
 	}
 	if rf, err := c.RootFolders(ctx); err == nil {
@@ -641,6 +684,13 @@ func tuneRules() []tuneRule {
 				why:   "Titles with : or ? would otherwise fail to import on Windows.",
 				want:  always(true), show: onOff},
 			tuneRule{id: app + "-extras", app: app, check: func(e *tuneEnv) []TuneFinding { return checkArrExtras(e, app) }},
+			tuneRule{id: app + "-minscore", app: app, area: "Reliability", level: "safe",
+				title: "Make \"never want\" scores actually block releases",
+				check: func(e *tuneEnv) []TuneFinding { return checkMinScore(e, app) },
+				action: func(ctx context.Context, a *App, e *tuneEnv) (map[string]any, string, error) {
+					return a.fixMinScore(ctx, e, app)
+				},
+				undo: func(ctx context.Context, a *App, data map[string]any) error { return a.undoMinScore(ctx, app, data) }},
 			tuneRule{id: app + "-foreign-subs", app: app, area: "Reliability", level: "review",
 				title: "Skip releases with foreign hard-coded subtitles",
 				check: func(e *tuneEnv) []TuneFinding { return checkForeignSubs(e, app) },
@@ -663,6 +713,17 @@ func tuneRules() []tuneRule {
 				}},
 		)
 	}
+	rules = append(rules,
+		tuneRule{id: "radarr-rename", app: "radarr", area: "Library", level: "review", key: "naming.renameMovies",
+			title: "Rename films when importing",
+			why:   "Gives every file a clean, consistent name with the title and year, so Plex matches it first time instead of guessing from a release name.",
+			want:  always(true), show: onOff},
+		tuneRule{id: "sonarr-rename", app: "sonarr", area: "Library", level: "review", key: "naming.renameEpisodes",
+			title: "Rename episodes when importing",
+			why:   "Gives every file a clean, consistent name with the show, season and episode, so Plex matches it first time.",
+			want:  always(true), show: onOff},
+		tuneRule{id: "arr-categories", app: "radarr", check: checkCategories},
+	)
 	rules = append(rules, tuneRule{id: "radarr-hardsubs", app: "radarr", area: "Reliability", level: "safe", key: "indexer.allowHardcodedSubs",
 		title: "Skip releases with burned-in subtitles",
 		why:   "Releases flagged as having hard-coded subtitles can't have them turned off.",
@@ -789,6 +850,44 @@ func checkArrExtras(e *tuneEnv, app string) []TuneFinding {
 			Title: "Turn on a recycle bin", Current: "Off (deleted files are gone for good)",
 			Why: "Upgrades and deletes go to a folder you can restore from for a week, instead of disappearing.",
 			Fix: name + " → Settings → Media Management → Recycling Bin: pick a folder on the same drive as your media."})
+	}
+	if e.prowlarr != nil {
+		var manual []string
+		for _, n := range e.arrIdx[app] {
+			if !strings.HasSuffix(n, "(Prowlarr)") {
+				manual = append(manual, n)
+			}
+		}
+		if len(manual) > 0 {
+			out = append(out, TuneFinding{ID: app + "-manual-indexers", App: app, Area: "Indexers", Level: "info", Status: "notice",
+				Title: "Indexers set up outside Prowlarr", Current: strings.Join(manual, ", "),
+				Why: "These were added straight into " + name + ", so they miss Prowlarr's syncing, limits and health checks, and may be searched twice.",
+				Fix: "Add them in Prowlarr instead, then delete them from " + name + " → Settings → Indexers."})
+		}
+	}
+	if times, ok := e.backups[app]; ok {
+		newest := time.Time{}
+		for _, t := range times {
+			if t.After(newest) {
+				newest = t
+			}
+		}
+		if newest.IsZero() || time.Since(newest) > 14*24*time.Hour {
+			cur := "None found"
+			if !newest.IsZero() {
+				cur = "Last one " + newest.Format("2 Jan 2006")
+			}
+			out = append(out, TuneFinding{ID: app + "-backups", App: app, Area: "Housekeeping", Level: "warn", Status: "notice",
+				Title: name + " hasn't backed up recently", Current: cur,
+				Why: "A backup holds your whole setup (profiles, custom formats, history). Without one, a broken database means starting again.",
+				Fix: name + " → System → Backup → Backup now, and check Settings → General → Backups (every 7 days is the default)."})
+		}
+	}
+	if lv := e.logLevel[app]; lv == "debug" || lv == "trace" {
+		out = append(out, TuneFinding{ID: app + "-loglevel", App: app, Area: "Housekeeping", Level: "info", Status: "notice",
+			Title: name + " is keeping very detailed logs", Current: map[string]string{"debug": "Debug", "trace": "Trace"}[lv],
+			Why: "Debug and Trace logging is for chasing a problem. Left on, it writes a lot to disk and slows things down.",
+			Fix: name + " → Settings → General → Log Level: Info."})
 	}
 	for _, c := range e.clients[app] {
 		if !strings.EqualFold(fmt.Sprint(c["implementation"]), "Sabnzbd") {
@@ -1327,4 +1426,134 @@ func checkSameDrive(e *tuneEnv) []TuneFinding {
 		Current: "Completed folder on " + complete + ", library on " + strings.Join(list, ", "),
 		Why:     "Moving a file within the same drive is instant. Between drives, every film is copied and then deleted, which takes minutes and wears the disks. If you can, put SABnzbd's Completed folder on the same drive as your library, and keep the temporary download folder on your fastest drive. With pooled drives (like DrivePool) this may not be possible, which is fine.",
 		Fix:     "SABnzbd → Config → Folders → Completed Download Folder."}}
+}
+
+// fieldValue reads a named field from a Radarr/Sonarr "fields" list.
+func fieldValue(obj map[string]any, name string) (any, bool) {
+	fields, _ := obj["fields"].([]any)
+	for _, f := range fields {
+		fm, _ := f.(map[string]any)
+		if fm["name"] == name {
+			return fm["value"], true
+		}
+	}
+	return nil, false
+}
+
+// checkCategories makes sure Radarr and Sonarr each send SABnzbd their own
+// category, so downloads don't collide or land in the wrong folder.
+func checkCategories(e *tuneEnv) []TuneFinding {
+	cats := map[string]string{}
+	for app, field := range map[string]string{"radarr": "movieCategory", "sonarr": "tvCategory"} {
+		for _, c := range e.clients[app] {
+			if !strings.EqualFold(canon(c["implementation"]), "Sabnzbd") || canon(c["enable"]) == "0" {
+				continue
+			}
+			if v, ok := fieldValue(c, field); ok {
+				cats[app] = strings.ToLower(canon(v))
+			}
+		}
+	}
+	var out []TuneFinding
+	for _, app := range []string{"radarr", "sonarr"} {
+		v, ok := cats[app]
+		if ok && v == "" {
+			out = append(out, TuneFinding{ID: app + "-category", App: app, Area: "Reliability", Level: "warn", Status: "notice",
+				Title: tuneAppNames[app] + " doesn't give SABnzbd a category", Current: "No category",
+				Why: "Without its own category, " + tuneAppNames[app] + "'s downloads mix with everything else in SABnzbd and can end up in the wrong folder or be picked up by the wrong app.",
+				Fix: tuneAppNames[app] + " → Settings → Download Clients → SABnzbd → Category (for example \"" + map[string]string{"radarr": "movies", "sonarr": "tv"}[app] + "\")."})
+		}
+	}
+	if r, s := cats["radarr"], cats["sonarr"]; r != "" && r == s {
+		out = append(out, TuneFinding{ID: "arr-category-clash", App: "sonarr", Area: "Reliability", Level: "warn", Status: "notice",
+			Title: "Radarr and Sonarr share a SABnzbd category", Current: "Both use \"" + r + "\"",
+			Why: "Each app then sees the other's downloads, which leads to failed or wrong imports.",
+			Fix: "Give each its own category in Settings → Download Clients → SABnzbd (for example \"movies\" and \"tv\")."})
+	}
+	return out
+}
+
+// lowestScore is the most negative custom format score in a profile.
+func lowestScore(p map[string]any) float64 {
+	low := 0.0
+	items, _ := p["formatItems"].([]any)
+	for _, it := range items {
+		im, _ := it.(map[string]any)
+		if sc := num(im["score"]); sc < low {
+			low = sc
+		}
+	}
+	return low
+}
+
+// badMinScore lists profiles whose minimum score lets "never want" formats
+// (scored -10000 or so) through anyway.
+func badMinScore(e *tuneEnv, app string) []map[string]any {
+	var bad []map[string]any
+	for _, p := range e.profiles[app] {
+		low := lowestScore(p)
+		if low <= -1000 && num(p["minFormatScore"]) <= low {
+			bad = append(bad, p)
+		}
+	}
+	return bad
+}
+
+func checkMinScore(e *tuneEnv, app string) []TuneFinding {
+	if len(e.profiles[app]) == 0 {
+		return nil
+	}
+	bad := badMinScore(e, app)
+	if len(bad) == 0 {
+		return []TuneFinding{{Status: "ok", Why: "Releases with a big negative custom format score are rejected."}}
+	}
+	var names []string
+	for _, p := range bad {
+		names = append(names, fmt.Sprintf("%s (%s)", canon(p["name"]), canon(p["minFormatScore"])))
+	}
+	return []TuneFinding{{Status: "change", Current: strings.Join(names, ", "), Recommended: "0",
+		Why: "Custom formats scored -10000 mean \"never download this\", but only if the profile's minimum score is above that. Here it's so low that those releases still get through."}}
+}
+
+func (a *App) fixMinScore(ctx context.Context, e *tuneEnv, app string) (map[string]any, string, error) {
+	c := a.Radarr()
+	if app == "sonarr" {
+		c = a.Sonarr()
+	}
+	var undo []any
+	for _, p := range badMinScore(e, app) {
+		old := num(p["minFormatScore"])
+		p["minFormatScore"] = 0
+		if err := c.PutJSON(ctx, "/qualityprofile/"+canon(p["id"]), p); err != nil {
+			if len(undo) == 0 {
+				return nil, "", err
+			}
+			break
+		}
+		undo = append(undo, map[string]any{"id": canon(p["id"]), "old": old})
+	}
+	return map[string]any{"profiles": undo}, fmt.Sprintf("%d profile(s) set to 0", len(undo)), nil
+}
+
+func (a *App) undoMinScore(ctx context.Context, app string, data map[string]any) error {
+	c := a.Radarr()
+	if app == "sonarr" {
+		c = a.Sonarr()
+	}
+	if c == nil {
+		return fmt.Errorf("%s isn't connected", tuneAppNames[app])
+	}
+	list, _ := data["profiles"].([]any)
+	for _, x := range list {
+		m, _ := x.(map[string]any)
+		var p map[string]any
+		if err := c.GetJSON(ctx, "/qualityprofile/"+canon(m["id"]), &p); err != nil {
+			return err
+		}
+		p["minFormatScore"] = num(m["old"])
+		if err := c.PutJSON(ctx, "/qualityprofile/"+canon(m["id"]), p); err != nil {
+			return err
+		}
+	}
+	return nil
 }

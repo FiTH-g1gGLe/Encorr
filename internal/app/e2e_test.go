@@ -1082,12 +1082,14 @@ func TestEndToEnd(t *testing.T) {
 
 	// 36. Undo puts the old value back, but won't silently overwrite a later change.
 	changeFor := func(rule string) store.TuneChange {
-		for _, c := range tr.Changes {
+		var fresh tuneResp
+		owner.ok("GET", "/tune", nil, &fresh)
+		for _, c := range fresh.Changes {
 			if c.Rule == rule && !c.Undone {
 				return c
 			}
 		}
-		t.Fatalf("no change recorded for %s: %+v", rule, tr.Changes)
+		t.Fatalf("no change recorded for %s: %+v", rule, fresh.Changes)
 		return store.TuneChange{}
 	}
 	owner.ok("POST", "/tune/undo/"+itoa(changeFor("plex-fsevents").ID), map[string]any{}, nil)
@@ -1230,7 +1232,55 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("should restore the original when downloads stop: %+v %v", ct, fk.SABServers[0]["connections"])
 	}
 
-	// 41. Owners only.
+	// 41. Radarr/Sonarr hygiene checks.
+	owner.ok("GET", "/tune", nil, &tr)
+	byID = map[string]TuneFinding{}
+	for _, f := range tr.Findings {
+		byID[f.ID] = f
+	}
+	if f := byID["radarr-minscore"]; f.Status != "change" || !f.CanApply || !strings.Contains(f.Current, "HD-1080p (-10000)") {
+		t.Fatalf("a -10000 minimum lets never-want formats through: %+v", f)
+	}
+	if f := byID["sonarr-minscore"]; f.Status != "ok" {
+		t.Fatalf("sonarr's profiles are fine: %+v", f)
+	}
+	if f := byID["sonarr-rename"]; f.Status != "change" || f.Level != "review" {
+		t.Fatalf("renaming episodes: %+v", f)
+	}
+	if f := byID["radarr-rename"]; f.Status != "ok" {
+		t.Fatalf("radarr already renames: %+v", f)
+	}
+	if f := byID["sonarr-category"]; f.Level != "warn" {
+		t.Fatalf("an empty category should be flagged: %+v", f)
+	}
+	if f := byID["radarr-manual-indexers"]; f.Current != "Hand Added" {
+		t.Fatalf("indexers outside Prowlarr: %+v", f)
+	}
+	if f := byID["radarr-backups"]; f.Level != "warn" || f.Current != "None found" {
+		t.Fatalf("no backups should be flagged: %+v", f)
+	}
+	if _, ok := byID["sonarr-backups"]; ok {
+		t.Fatal("a backup from two days ago is fine")
+	}
+	if f := byID["radarr-loglevel"]; f.Current != "Trace" {
+		t.Fatalf("trace logging: %+v", f)
+	}
+	for _, f := range tr.Findings {
+		if strings.Contains(f.Current+f.Why, "hunter2") || strings.Contains(f.Current+f.Why, "radarr-key") {
+			t.Fatal("host secrets must never surface")
+		}
+	}
+	owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"radarr-minscore"}}, &applied)
+	if applied.Changed != 1 || num(fk.QProfiles["radarr"][1]["minFormatScore"]) != 0 {
+		t.Fatalf("minimum score fix: %+v %v", applied, fk.QProfiles["radarr"][1])
+	}
+	owner.ok("GET", "/tune", nil, &tr)
+	owner.ok("POST", "/tune/undo/"+itoa(changeFor("radarr-minscore").ID), map[string]any{}, nil)
+	if num(fk.QProfiles["radarr"][1]["minFormatScore"]) != -10000 {
+		t.Fatalf("undo should restore -10000: %v", fk.QProfiles["radarr"][1])
+	}
+
+	// 42. Owners only.
 	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
 		t.Fatalf("friends can't see Tune-up: %d", code)
 	}

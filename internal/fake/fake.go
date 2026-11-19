@@ -77,6 +77,7 @@ type Stack struct {
 	ArrConfig     map[string]map[string]map[string]any // app -> resource -> object
 	CustomFormats map[string][]map[string]any
 	ProfilesPut   []map[string]any
+	QProfiles     map[string][]map[string]any
 	ReleaseProfs  []map[string]any
 	PlexPrefs     map[string]any
 	SABMisc       map[string]any
@@ -105,13 +106,19 @@ func New() *Stack {
 				"downloadclient":  {"id": 1, "enableCompletedDownloadHandling": true, "autoRedownloadFailed": false},
 				"indexer":         {"id": 1, "rssSyncInterval": 15, "allowHardcodedSubs": true},
 				"naming":          {"id": 1, "replaceIllegalCharacters": true, "renameMovies": true},
+				"host":            {"id": 1, "logLevel": "trace", "apiKey": "radarr-key", "password": "hunter2"},
 			},
 			"sonarr": {
 				"mediamanagement": {"id": 1, "fileDate": "none", "enableMediaInfo": true, "minimumFreeSpaceWhenImporting": 2048, "downloadPropersAndRepacks": "doNotPrefer", "recycleBin": `D:\Recycle`},
 				"downloadclient":  {"id": 1, "enableCompletedDownloadHandling": true, "autoRedownloadFailed": true},
 				"indexer":         {"id": 1, "rssSyncInterval": 15},
-				"naming":          {"id": 1, "replaceIllegalCharacters": false},
+				"naming":          {"id": 1, "replaceIllegalCharacters": false, "renameEpisodes": false},
+				"host":            {"id": 1, "logLevel": "info"},
 			},
+		},
+		QProfiles: map[string][]map[string]any{
+			"radarr": {{"id": 1, "name": "Any", "minFormatScore": 0, "formatItems": []any{}}, {"id": 4, "name": "HD-1080p", "minFormatScore": -10000, "formatItems": []any{map[string]any{"format": 1, "score": -10000}}}, {"id": 5, "name": "Ultra-HD", "minFormatScore": 0, "formatItems": []any{}}},
+			"sonarr": {{"id": 1, "name": "Any", "minFormatScore": 0, "formatItems": []any{}}, {"id": 4, "name": "HD-1080p", "minFormatScore": 0, "formatItems": []any{}}, {"id": 5, "name": "Ultra-HD", "minFormatScore": 0, "formatItems": []any{}}},
 		},
 		CustomFormats: map[string][]map[string]any{"radarr": {{"id": 1, "name": "Repack/Proper", "specifications": []any{}}}, "sonarr": {}},
 		PlexPrefs: map[string]any{"FSEventLibraryUpdatesEnabled": false, "FSEventLibraryPartialScanEnabled": true, "ScannerLowPriority": false,
@@ -596,7 +603,19 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 	case p == "/system/status":
 		writeJSON(w, map[string]any{"appName": strings.ToUpper(app[:1]) + app[1:], "version": "5.9.1", "urlBase": "/" + app})
 	case p == "/qualityprofile":
-		writeJSON(w, []any{map[string]any{"id": 1, "name": "Any"}, map[string]any{"id": 4, "name": "HD-1080p"}, map[string]any{"id": 5, "name": "Ultra-HD"}})
+		writeJSON(w, s.QProfiles[app])
+	case strings.HasPrefix(p, "/qualityprofile/") && r.Method == http.MethodGet:
+		for _, qp := range s.QProfiles[app] {
+			if fmt.Sprint(qp["id"]) == strings.TrimPrefix(p, "/qualityprofile/") {
+				writeJSON(w, qp)
+				return true
+			}
+		}
+		http.NotFound(w, r)
+	case p == "/indexer":
+		writeJSON(w, map[string][]any{"radarr": {map[string]any{"name": "NZBgeek (Prowlarr)"}, map[string]any{"name": "Hand Added"}}, "sonarr": {}}[app])
+	case p == "/system/backup":
+		writeJSON(w, map[string][]any{"radarr": {}, "sonarr": {map[string]any{"time": time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)}}}[app])
 	case p == "/rootfolder":
 		path := map[string]string{"radarr": `P:\Media\Films`, "sonarr": `P:\Media\TV`}[app]
 		writeJSON(w, []any{map[string]any{"id": 1, "path": path, "accessible": true, "freeSpace": 41.3e12}})
@@ -646,8 +665,15 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 		s.CustomFormats[app] = kept
 		w.WriteHeader(200)
 	case strings.HasPrefix(p, "/qualityprofile/") && r.Method == http.MethodPut:
-		s.ProfilesPut = append(s.ProfilesPut, readBody(r))
-		writeJSON(w, map[string]any{})
+		b := readBody(r)
+		s.ProfilesPut = append(s.ProfilesPut, b)
+		for i, qp := range s.QProfiles[app] {
+			if fmt.Sprint(qp["id"]) == strings.TrimPrefix(p, "/qualityprofile/") {
+				b["id"] = qp["id"]
+				s.QProfiles[app][i] = b
+			}
+		}
+		writeJSON(w, b)
 	case p == "/releaseprofile" && r.Method == http.MethodGet:
 		writeJSON(w, s.ReleaseProfs)
 	case p == "/releaseprofile" && r.Method == http.MethodPost:
@@ -666,7 +692,8 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 		s.ReleaseProfs = kept
 		w.WriteHeader(200)
 	case p == "/downloadclient" && r.Method == http.MethodGet:
-		writeJSON(w, []any{map[string]any{"id": 1, "name": "SABnzbd", "implementation": "Sabnzbd", "removeCompletedDownloads": app == "sonarr", "removeFailedDownloads": true}})
+		cat := map[string][]any{"radarr": {map[string]any{"name": "movieCategory", "value": "movies"}}, "sonarr": {map[string]any{"name": "tvCategory", "value": ""}}}[app]
+		writeJSON(w, []any{map[string]any{"id": 1, "name": "SABnzbd", "implementation": "Sabnzbd", "enable": true, "removeCompletedDownloads": app == "sonarr", "removeFailedDownloads": true, "fields": cat}})
 	case p == "/queue":
 		writeJSON(w, map[string]any{"records": s.Queue[app]})
 	case strings.HasPrefix(p, "/queue/") && r.Method == http.MethodDelete:
