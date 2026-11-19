@@ -1328,11 +1328,13 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("yearly total: %v", subR.Yearly)
 	}
 	// Reminders go out once per milestone.
+	fk.Lock()
 	before = len(fk.Discord)
+	fk.Unlock()
 	if msg, _ := a.jobSubscriptions(ctx); msg != "3 reminder(s)" {
 		t.Fatalf("Plex Pass tomorrow, GeekFake in 10 days and the block at 80%% should each remind: %s", msg)
 	}
-	waitFor(t, "subscription reminders on Discord", func() bool { return len(fk.Discord)-before >= 3 })
+	waitFor(t, "subscription reminders on Discord", func() bool { fk.Lock(); defer fk.Unlock(); return len(fk.Discord)-before >= 3 })
 	if msg, _ := a.jobSubscriptions(ctx); msg != "nothing due" {
 		t.Fatalf("no repeats: %s", msg)
 	}
