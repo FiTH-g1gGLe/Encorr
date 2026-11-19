@@ -1,0 +1,424 @@
+// Settings, the setup wizard and the health page.
+"use strict";
+
+// ---------- shared settings forms ----------
+function arrForm(app, saved) {
+  const isR = app === "radarr";
+  const name = isR ? "Radarr" : "Sonarr";
+  const fresh = !saved || !saved.url;
+  const s = Object.assign({}, saved || {}, fresh ? { searchOnAdd: true, tagRequests: true, seasonFolders: true } : {});
+  return `
+    <div class="row between"><div><strong>Use ${name}</strong><div class="small muted">${isR ? "Approved film requests are sent here." : "Approved TV requests are sent here."}</div></div>
+      <label class="switch"><input type="checkbox" data-f="enabled" ${s.enabled || fresh ? "checked" : ""}><span class="slider"></span></label></div>
+    <div class="row" style="margin-top:14px"><button class="btn sm" data-a="detect">Find ${name} automatically</button><span class="small dim" data-out="detect"></span></div>
+    <label class="field"><span>Address</span><input type="url" data-f="url" value="${esc(s.url || "")}" placeholder="http://localhost:${isR ? 7878 : 8989}"></label>
+    <label class="field"><span>API key</span><input type="password" data-f="apiKey" value="" placeholder="${s.hasKey ? "Saved (" + esc(s.apiKeyHint) + "). Leave blank to keep it." : "Paste the API key"}" autocomplete="off">
+      <small>In ${name}: Settings → General → Security → API Key.</small></label>
+    <div class="row"><button class="btn" data-a="test">Test connection</button><span data-out="test" class="small"></span></div>
+    <div data-out="opts" ${s.qualityProfileId ? "" : "hidden"}>
+      <label class="field"><span>Quality profile</span><select data-f="qualityProfileId">${s.qualityProfileId ? `<option value="${s.qualityProfileId}">${esc(s.qualityProfileName)}</option>` : ""}</select></label>
+      <label class="field"><span>Save to folder</span><select data-f="rootFolder">${s.rootFolder ? `<option>${esc(s.rootFolder)}</option>` : ""}</select></label>
+      ${isR ? `<label class="field"><span>Grab films when they are</span><select data-f="minimumAvailability">${[["released", "Released (digital or disc)"], ["inCinemas", "In cinemas"], ["announced", "Announced"]].map(([v, l]) => `<option value="${v}" ${(s.minimumAvailability || "released") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`
+    : `<label class="field" data-out="lang" hidden><span>Language profile (Sonarr v3)</span><select data-f="languageProfileId"></select></label>
+         <label class="check"><input type="checkbox" data-f="seasonFolders" ${s.seasonFolders ? "checked" : ""}> Put episodes in season folders</label>`}
+      <label class="check"><input type="checkbox" data-f="searchOnAdd" ${s.searchOnAdd ? "checked" : ""}> Start searching as soon as a request is approved</label>
+      <label class="check"><input type="checkbox" data-f="tagRequests" ${s.tagRequests ? "checked" : ""}> Tag each request with the requester's name in ${name}</label>
+    </div>`;
+}
+
+function bindArrForm(root, app, saved, onSaved) {
+  const name = app === "radarr" ? "Radarr" : "Sonarr";
+  const f = (k) => qs(`[data-f="${k}"]`, root);
+  const out = (k) => qs(`[data-out="${k}"]`, root);
+  const fill = (res) => {
+    const prevP = Number(f("qualityProfileId").value) || saved?.qualityProfileId;
+    const prevR = f("rootFolder").value || saved?.rootFolder;
+    const pick = res.profiles.find((p) => p.id === prevP) || res.profiles.find((p) => /1080|hd/i.test(p.name)) || res.profiles[0];
+    f("qualityProfileId").innerHTML = res.profiles.map((p) => `<option value="${p.id}" ${pick && p.id === pick.id ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+    f("rootFolder").innerHTML = (res.rootFolders || []).map((r) => `<option value="${esc(r.path)}" ${r.path === prevR ? "selected" : ""}>${esc(r.path)}${r.freeSpace ? ` (${(r.freeSpace / 1e12).toFixed(1)} TB free)` : ""}</option>`).join("");
+    if (app === "sonarr" && res.languageProfiles && res.languageProfiles.length) {
+      out("lang").hidden = false;
+      f("languageProfileId").innerHTML = res.languageProfiles.map((p) => `<option value="${p.id}" ${p.id === saved?.languageProfileId ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+    }
+    out("opts").hidden = false;
+  };
+  const test = async (btn) => {
+    busy(btn, true, "Testing…");
+    const o = out("test");
+    o.innerHTML = "";
+    try {
+      const res = await api(`/settings/${app}/test`, { method: "POST", body: { url: f("url").value, apiKey: f("apiKey").value } });
+      if (res.ok) {
+        o.innerHTML = `<span class="pill ok"><span class="dot"></span>Connected to ${name} ${esc(res.version)}</span>${res.error ? `<div class="notice warn">${esc(res.error)}</div>` : ""}`;
+        fill(res);
+        return true;
+      }
+      o.innerHTML = `<div class="notice error">${esc(res.error)}</div>`;
+    } catch (e) {
+      o.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
+    } finally { busy(btn, false); }
+    return false;
+  };
+  qs('[data-a="test"]', root).addEventListener("click", (e) => test(e.currentTarget));
+  qs('[data-a="detect"]', root).addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true, "Looking…");
+    try {
+      const d = await api(`/settings/detect/${app}`);
+      if (d.found) {
+        f("url").value = d.url;
+        f("apiKey").value = d.apiKey;
+        out("detect").textContent = d.note || `Found it (${d.configPath}).`;
+        busy(btn, false);
+        await test(qs('[data-a="test"]', root));
+        return;
+      }
+      if (!f("url").value) f("url").value = d.url || "";
+      out("detect").textContent = d.note || "Not found.";
+    } catch (err) { out("detect").textContent = err.message; }
+    busy(btn, false);
+  });
+  if (saved && saved.url) {
+    // Load dropdown options quietly when a saved connection exists.
+    api(`/settings/${app}/test`, { method: "POST", body: { url: saved.url, apiKey: "" } }).then((res) => res.ok && fill(res)).catch(() => {});
+  }
+  return async function save() {
+    const sel = f("qualityProfileId");
+    const body = {
+      enabled: f("enabled").checked,
+      url: f("url").value,
+      apiKey: f("apiKey").value,
+      qualityProfileId: Number(sel.value) || 0,
+      qualityProfileName: sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : "",
+      rootFolder: f("rootFolder").value,
+      searchOnAdd: f("searchOnAdd").checked,
+      tagRequests: f("tagRequests").checked,
+    };
+    if (app === "radarr") body.minimumAvailability = f("minimumAvailability").value;
+    else { body.seasonFolders = f("seasonFolders").checked; body.languageProfileId = Number(f("languageProfileId").value) || 0; }
+    if (!body.enabled) { body.qualityProfileId = body.qualityProfileId || 0; }
+    await api(`/settings/arr/${app}`, { method: "PUT", body });
+    if (onSaved) onSaved();
+  };
+}
+
+function discordForm(saved) {
+  const s = saved || {};
+  return `
+    <div class="row between"><div><strong>Send notifications to Discord</strong><div class="small muted">New requests, approvals, and “Your encore is ready”.</div></div>
+      <label class="switch"><input type="checkbox" id="dEnabled" ${s.enabled ? "checked" : ""}><span class="slider"></span></label></div>
+    <label class="field"><span>Channel webhook address</span><input type="url" id="dHook" placeholder="${s.hasWebhook ? "Saved (" + esc(s.webhookHint) + "). Leave blank to keep it." : "https://discord.com/api/webhooks/…"}">
+      <small>In Discord: open the channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.</small></label>
+    <div class="row"><button class="btn" id="dTest">Send test message</button></div>`;
+}
+
+function bindDiscord(root) {
+  qs("#dTest", root).addEventListener("click", async (e) => {
+    busy(e.currentTarget, true, "Sending…");
+    try { await api("/settings/discord/test", { method: "POST", body: { webhookUrl: qs("#dHook", root).value } }); toast("Test sent: check your Discord channel", "ok"); }
+    catch (err) { toast(err.message, "error"); }
+    busy(e.currentTarget, false);
+  });
+  return () => api("/settings/discord", { method: "PUT", body: { enabled: qs("#dEnabled", root).checked, webhookUrl: qs("#dHook", root).value } });
+}
+
+function tmdbForm(saved) {
+  const builtIn = saved && saved.builtIn;
+  return `<label class="field"><span>${builtIn ? "Your own TMDB key (optional)" : "TMDB API key"}</span><input type="password" id="tmdbKey" placeholder="${saved && saved.hasKey ? "Saved (" + esc(saved.keyHint) + "). Paste a new one to replace it." : builtIn ? "Leave blank to use Encorr's built-in key" : "Paste your TMDB API key"}" autocomplete="off">
+    <small>${builtIn ? "Encorr has its own key built in, so you don't need one. Only add yours if you'd rather use your own." : `Free: sign up at <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a>, then Settings → API → create a key (either the “API Key” or the “Read Access Token” works).`}</small></label>
+    ${builtIn && saved.hasKey ? `<button class="btn sm" id="tmdbReset" type="button">Use the built-in key instead</button>` : ""}`;
+}
+
+async function serverPicker(root, onPicked) {
+  root.innerHTML = `<div class="row"><span class="spinner"></span> Looking for your Plex servers…</div>`;
+  try {
+    const r = await api("/settings/plex/servers");
+    const owned = r.servers.filter((s) => s.owned);
+    if (!owned.length) { root.innerHTML = `<div class="notice warn">No servers you own were found on this Plex account. Sign in with the account that owns the server.</div>`; return; }
+    root.innerHTML = `<div class="list">${owned.map((s) => `<button class="glass lib" style="cursor:pointer;text-align:left;border:1px solid var(--glass-border)" data-mid="${esc(s.machineId)}"><span><strong>${esc(s.name)}</strong><div class="small dim">${s.local ? "On your network" : "Remote"}</div></span><span class="btn sm primary">Use this</span></button>`).join("")}</div>
+      <details style="margin-top:14px"><summary class="small muted" style="cursor:pointer">Enter the address yourself</summary>
+        <label class="field"><span>Plex address</span><input type="url" id="manualUrl" placeholder="http://localhost:32400"></label><small class="hint">Then press “Use this” on your server above.</small></details>
+      <div id="pickOut"></div>`;
+    qsa("[data-mid]", root).forEach((b) => b.addEventListener("click", async () => {
+      const lbl = qs(".btn", b);
+      busy(lbl, true, "Connecting…");
+      try {
+        const res = await api("/settings/plex/server", { method: "POST", body: { machineId: b.dataset.mid, url: (qs("#manualUrl", root) || {}).value || "" } });
+        toast(`Connected to ${res.serverName}`, "ok");
+        onPicked(res);
+      } catch (e) {
+        qs("#pickOut", root).innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
+        busy(lbl, false);
+      }
+    }));
+  } catch (e) {
+    root.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
+  }
+}
+
+function librariesForm(libs) {
+  if (!libs || !libs.length) return `<div class="notice warn">No film or TV libraries found on this server.</div>`;
+  return `<div class="liblist">${libs.map((l) => `<label class="glass lib"><span><strong>${esc(l.title)}</strong> <span class="dim small">${l.type === "show" ? "TV" : "Films"}</span></span><label class="switch"><input type="checkbox" data-lib="${esc(l.key)}" ${l.enabled ? "checked" : ""}><span class="slider"></span></label></label>`).join("")}</div>`;
+}
+const saveLibraries = (root) => api("/settings/plex/libraries", { method: "PUT", body: { enabled: qsa("[data-lib]", root).filter((c) => c.checked).map((c) => c.dataset.lib) } });
+
+// ---------- setup wizard ----------
+const STEPS = ["signin", "server", "libraries", "tmdb", "radarr", "sonarr", "discord", "done"];
+const STEPS_BACK = {};
+
+async function renderWizard(stepName) {
+  setBackdrop(null);
+  let step = stepName || (state.user ? "server" : "signin");
+  let settings = null;
+  if (state.user) {
+    try { settings = await api("/settings"); } catch { /* not admin */ }
+  }
+  const idx = STEPS.indexOf(step);
+  const go = (s) => renderWizard(s);
+  const shell = (title, lead, body, { back = true, next = "Continue", skip = false } = {}) => {
+    $app.innerHTML = `<div class="center"><div class="glass wizard">
+      <div class="logo"><div>${LOCKUP(34)}<div class="tag">Request the encore.</div></div></div>
+      <div class="steps">${STEPS.map((_, i) => `<i class="${i < idx ? "done" : i === idx ? "now" : ""}"></i>`).join("")}</div>
+      <h1>${esc(title)}</h1><p class="lead">${lead}</p>
+      <div id="wbody">${body}</div>
+      <div class="nav-btns">
+        <div>${back && idx > 1 ? `<button class="btn" id="wBack">Back</button>` : ""}</div>
+        <div class="row">${skip ? `<button class="btn" id="wSkip">Skip for now</button>` : ""}${next ? `<button class="btn primary" id="wNext">${esc(next)}</button>` : ""}</div>
+      </div></div></div>`;
+    const b = qs("#wBack"); if (b) b.addEventListener("click", () => go(STEPS_BACK[step] || STEPS[idx - 1]));
+    const s = qs("#wSkip"); if (s) s.addEventListener("click", () => go(STEPS[idx + 1]));
+    return qs("#wbody");
+  };
+  const onNext = (fn) => {
+    const btn = qs("#wNext");
+    btn.addEventListener("click", async () => {
+      busy(btn, true, "Saving…");
+      try { await fn(); } catch (e) { toast(e.message, "error"); busy(btn, false); }
+    });
+  };
+
+  if (step === "signin") {
+    shell("Welcome to Encorr", "Let's get you set up. It takes about five minutes. First, sign in with the Plex account that owns your server: you'll be the admin.",
+      `<button class="btn plex" id="signin">${I.plex} Sign in with Plex</button><p class="hint" style="margin-top:14px">A Plex window opens. Approve it, and you'll come straight back here.</p>`, { back: false, next: "" });
+    qs("#signin").addEventListener("click", (e) => plexSignIn(e.currentTarget, async () => { state.status = await api("/status"); state.user = state.status.user; go("server"); }));
+    return;
+  }
+  if (step === "server") {
+    const body = shell("Choose your Plex server", `Signed in as <strong>${esc(state.user.username)}</strong>. Pick the server whose libraries people will request for.`,
+      `<div id="picker"></div>${settings && settings.plex.serverName ? `<div class="notice ok" style="margin-top:14px">Currently using <strong>${esc(settings.plex.serverName)}</strong>.</div>` : ""}`,
+      { next: settings && settings.plex.serverName ? "Continue" : "" });
+    serverPicker(qs("#picker", body), () => go("libraries"));
+    if (qs("#wNext")) onNext(async () => go("libraries"));
+    return;
+  }
+  if (step === "libraries") {
+    const body = shell("Which libraries?", "Encorr watches these to know what's already in Plex. Most people leave them all on.", librariesForm(settings.plex.libraries));
+    onNext(async () => { await saveLibraries(body); go(settings.tmdb.builtIn ? "radarr" : "tmdb"); });
+    return;
+  }
+  if (step === "tmdb") {
+    const has = settings.tmdb.hasKey;
+    const body = shell("Film and TV information", "Encorr gets posters, trailers and details from TMDB, which is free. Paste your key below.", tmdbForm(settings.tmdb));
+    onNext(async () => {
+      const key = qs("#tmdbKey", body).value.trim();
+      if (!key && has) return go("radarr");
+      if (!key) throw new Error("Paste your TMDB key to continue.");
+      await api("/settings/tmdb", { method: "PUT", body: { key } });
+      toast("TMDB key works", "ok");
+      go("radarr");
+    });
+    return;
+  }
+  if (step === "radarr" || step === "sonarr") {
+    const name = step === "radarr" ? "Radarr" : "Sonarr";
+    if (step === "radarr" && settings.tmdb.builtIn) STEPS_BACK.radarr = "libraries";
+    const body = shell(`Connect ${name}`, `${step === "radarr" ? "Films" : "TV shows"} get downloaded through ${name}. If it's on this computer, Encorr can find it for you.`, arrForm(step, settings[step]), { skip: true });
+    const save = bindArrForm(body, step, settings[step]);
+    if (!settings[step].url) qs('[data-a="detect"]', body).click();
+    onNext(async () => { await save(); toast(`${name} saved`, "ok"); go(step === "radarr" ? "sonarr" : "discord"); });
+    return;
+  }
+  if (step === "discord") {
+    const body = shell("Discord notifications", "Optional: post to a Discord channel when something is requested, approved, or ready to watch.", discordForm(settings.discord), { skip: true });
+    const save = bindDiscord(body);
+    onNext(async () => { await save(); go("done"); });
+    return;
+  }
+  if (step === "done") {
+    shell("You're all set", `Encorr will scan your Plex libraries now. Share this address with your friends: <span class="code">${esc(location.origin)}</span>. They sign in with their own Plex accounts.<br><br>Tip: on your phone, open Encorr in Chrome and choose <strong>Add to Home screen</strong> for an app icon.`, "", { next: "Start using Encorr" });
+    onNext(async () => {
+      await api("/settings/complete", { method: "POST", body: {} });
+      state.status = await api("/status");
+      location.hash = "#/discover";
+      boot();
+    });
+  }
+}
+
+// ---------- settings pages ----------
+const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["jobs", "Jobs & backup"]];
+
+async function pageSettings(main, section) {
+  main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener">What's new ↗</a></div></div></div>
+    <div class="settings"><nav class="glass menu">${SETTINGS_MENU.map(([k, l]) => `<a href="#/settings/${k}" class="${k === section ? "on" : ""}">${esc(l)}</a>`).join("")}</nav>
+    <section class="glass panel" id="panel"><span class="spinner"></span></section></div>`;
+  const panel = qs("#panel");
+  let s;
+  try { s = await api("/settings"); } catch (e) { panel.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; return; }
+
+  const saveBar = (label = "Save changes") => `<div class="row" style="margin-top:22px"><button class="btn primary" id="save">${label}</button></div>`;
+  const onSave = (fn, msg = "Saved") => qs("#save").addEventListener("click", async (e) => {
+    busy(e.currentTarget, true, "Saving…");
+    try { await fn(); toast(msg, "ok"); } catch (err) { toast(err.message, "error"); }
+    busy(e.currentTarget, false);
+  });
+
+  if (section === "general") {
+    panel.innerHTML = `<div id="bgCard"></div><h2>Look</h2><div class="field-label">Accent colour</div>
+      <div class="swatches">${ACCENTS.map(([k, c, l]) => `<button type="button" class="swatch ${(s.accent || "violet") === k ? "on" : ""}" data-acc="${k}"><span class="sw" style="background:${c}"></span>${l}</button>`).join("")}</div>
+      <div class="field-label" style="margin-top:18px">Background</div>
+      <div class="themes">${[["navy", "Midnight", "Deep navy with soft colour highlights"], ["black", "Graphite", "Neutral dark grey: lets the posters bring the colour"]].map(([k, l, d]) => `<button type="button" class="theme-opt ${(s.theme || "navy") === k ? "on" : ""}" data-theme-opt="${k}"><span class="tprev ${k}"><i></i><i></i><i></i></span><span><strong>${l}</strong><span class="small dim">${d}</span></span></button>`).join("")}</div>
+      <h2>Requests</h2>
+      <p class="lead">Limits for Friends. Trusted users and admins have no limit. Use 0 for no limit.</p>
+      <div class="row"><label class="field grow"${tip("How many films each Friend can ask for in the period. 0 = no limit")}><span>Films per period</span><input type="number" min="0" id="qm" value="${s.quotas.friendMovieLimit}"></label>
+        <label class="field grow"${tip("How many shows each Friend can ask for in the period. 0 = no limit")}><span>TV shows per period</span><input type="number" min="0" id="qt" value="${s.quotas.friendTvLimit}"></label>
+        <label class="field grow"${tip("The limits reset after this many days")}><span>Period (days)</span><input type="number" min="1" id="qd" value="${s.quotas.days}"></label></div>
+      <h2>Address and region</h2>
+      <label class="field"><span>Public address (optional)</span><input type="url" id="appUrl" value="${esc(s.appUrl)}" placeholder="https://encorr.example.com"><small>Used for links in Discord messages, e.g. your Cloudflare Tunnel address.</small></label>
+      <label class="field"><span>Region</span><select id="region">${[["GB", "United Kingdom"], ["IE", "Ireland"], ["US", "United States"], ["CA", "Canada"], ["AU", "Australia"], ["NZ", "New Zealand"]].map(([k, l]) => `<option value="${k}" ${s.region === k ? "selected" : ""}>${l}</option>`).join("")}</select><small>Sets release dates, age ratings and “coming soon”.</small></label>
+      <h2>TMDB</h2>${tmdbForm(s.tmdb)}${saveBar()}`;
+    loadBackgroundCard(qs("#bgCard"));
+    let accent = s.accent || "violet";
+    let theme = s.theme || "navy";
+    qsa("[data-theme-opt]").forEach((el) => el.addEventListener("click", () => {
+      theme = el.dataset.themeOpt;
+      document.documentElement.dataset.theme = theme;
+      qsa("[data-theme-opt]").forEach((x) => x.classList.toggle("on", x === el));
+    }));
+    qsa("[data-acc]").forEach((el) => el.addEventListener("click", () => {
+      accent = el.dataset.acc;
+      qsa("[data-acc]").forEach((x) => x.classList.toggle("on", x === el));
+      document.documentElement.dataset.accent = accent;
+    }));
+    const rb = qs("#tmdbReset");
+    if (rb) rb.addEventListener("click", async () => {
+      try { await api("/settings/tmdb", { method: "PUT", body: { key: "" } }); toast("Using the built-in TMDB key", "ok"); route(); } catch (e) { toast(e.message, "error"); }
+    });
+    onSave(async () => {
+      await api("/settings/general", { method: "PUT", body: { accent, theme, appUrl: qs("#appUrl").value, region: qs("#region").value, quotas: { friendMovieLimit: Number(qs("#qm").value), friendTvLimit: Number(qs("#qt").value), days: Number(qs("#qd").value) } } });
+      const k = qs("#tmdbKey").value.trim();
+      if (k) await api("/settings/tmdb", { method: "PUT", body: { key: k } });
+    });
+  }
+  if (section === "plex") {
+    panel.innerHTML = `<h2>Server</h2>
+      <div class="row between"><div><strong>${esc(s.plex.serverName || "Not chosen")}</strong><div class="small dim">${esc(s.plex.url || "")}</div></div><button class="btn sm" id="change">Change server</button></div>
+      <div id="picker" style="margin-top:14px"></div>
+      <h2>Libraries</h2><p class="lead">Encorr watches these to know what's already in Plex.</p><div id="libs">${librariesForm(s.plex.libraries)}</div>${saveBar()}
+      <h2>People</h2><p class="lead">Add everyone you share Plex with, so you can set their role before they sign in.</p><a class="btn" href="#/users">Go to Users</a>`;
+    qs("#change").addEventListener("click", () => serverPicker(qs("#picker"), (res) => { qs("#libs").innerHTML = librariesForm(res.libraries); qs("#picker").innerHTML = ""; }));
+    onSave(async () => { await saveLibraries(panel); await api("/jobs/plex-full/run", { method: "POST", body: {} }); }, "Saved: rescanning Plex");
+  }
+  if (section === "radarr" || section === "sonarr") {
+    const name = section === "radarr" ? "Radarr" : "Sonarr";
+    panel.innerHTML = `<h2>${name}</h2>${arrForm(section, s[section])}${saveBar()}`;
+    const save = bindArrForm(panel, section, s[section]);
+    onSave(save, `${name} saved`);
+  }
+  if (section === "sabnzbd") {
+    const z = s.sabnzbd || {};
+    panel.innerHTML = `<h2>SABnzbd <span class="dim small" style="font-weight:500">optional</span></h2>
+      <p class="lead">Radarr and Sonarr only update their download list about once a minute. Connect SABnzbd and progress bars, speed and time left come straight from it, live.</p>
+      ${z.detected ? `<div class="notice ok">Encorr found SABnzbd on this machine and connected it for you.</div>` : ""}
+      <div class="row between"><div><strong>Live progress from SABnzbd</strong></div>
+        <label class="switch"><input type="checkbox" id="zOn" ${z.enabled ? "checked" : ""}><span class="slider"></span></label></div>
+      <label class="field"><span>Address</span><input type="url" id="zUrl" value="${esc(z.url || "")}" placeholder="http://localhost:8080/sabnzbd"></label>
+      <label class="field"><span>API key</span><input type="text" id="zKey" autocomplete="off" placeholder="${z.hasKey ? "Saved (" + esc(z.keyHint) + "). Leave blank to keep it." : "SABnzbd → Config → General → API Key"}"></label>
+      <div class="row"><button class="btn" id="zDetect">Find it automatically</button><button class="btn" id="zTest">Test</button></div>
+      <div id="zMsg" style="margin-top:12px"></div>${saveBar()}`;
+    const msg = (html) => (qs("#zMsg").innerHTML = html);
+    qs("#zDetect").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Looking…");
+      try {
+        const d = await api("/settings/detect/sabnzbd");
+        if (d.found) { qs("#zUrl").value = d.url; qs("#zKey").value = d.apiKey; qs("#zOn").checked = true; }
+        msg(d.found && !d.note ? `<div class="notice ok">Found it at ${esc(d.url)}. Press Save.</div>` : `<div class="notice warn">${esc(d.note || "Not found.")}</div>`);
+      } catch (err) { msg(`<div class="notice error">${esc(err.message)}</div>`); }
+      busy(e.currentTarget, false);
+    });
+    qs("#zTest").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Testing…");
+      try {
+        const r = await api("/settings/sabnzbd/test", { method: "POST", body: { url: qs("#zUrl").value, apiKey: qs("#zKey").value } });
+        msg(r.ok ? `<div class="notice ok">Connected to SABnzbd ${esc(r.version)}.</div>` : `<div class="notice error">${esc(r.error)}</div>`);
+      } catch (err) { msg(`<div class="notice error">${esc(err.message)}</div>`); }
+      busy(e.currentTarget, false);
+    });
+    onSave(() => api("/settings/sabnzbd", { method: "PUT", body: { enabled: qs("#zOn").checked, url: qs("#zUrl").value, apiKey: qs("#zKey").value } }), "SABnzbd saved");
+  }
+  if (section === "discord") {
+    panel.innerHTML = `<h2>Discord</h2>${discordForm(s.discord)}<p class="hint">Each person can add their Discord user ID on their profile to get @mentioned when their encore is ready.</p>${saveBar()}`;
+    onSave(bindDiscord(panel));
+  }
+  if (section === "health") {
+    const ACTIONS = {
+      "sab-pause": ["Pause downloads", "pause"], "sab-resume": ["Resume downloads", "play"], "sab-restart": ["Restart SABnzbd", "refresh"],
+      "sab-orphans": ["Clear leftovers", "trash"], "sab-warnings": ["Clear warnings", "check"], autofix: ["Run auto-fix now", "wrench"],
+    };
+    const ACT_ICON = { fix: "wrench", warn: "warn", action: "hand" };
+    const run = async () => {
+      panel.innerHTML = `<div class="row between"><h2 style="margin:0">Health</h2><button class="btn sm" id="recheck">${I.refresh} Re-check</button></div>
+        <p class="lead" style="margin-top:8px">Checking everything Encorr depends on…</p>
+        <div class="glass hset"><div><strong>Auto-fix stuck downloads</strong><div class="small dim">Every 5 minutes: imports downloads stuck before Plex, swaps failed or stalled ones for another copy, and clears SABnzbd's leftovers. You'll see everything it does below.</div></div><label class="switch"><input type="checkbox" id="autofix" ${s.autoFix !== false ? "checked" : ""}><span class="slider"></span></label></div>
+        <div class="hacts"><button class="btn" data-hact="search-missing"${tip("Ask Radarr and Sonarr to look for every missing film and episode now")}>${I.search} Search for everything missing</button></div>
+        <div class="checks"><span class="spinner"></span></div>
+        <h2>What Encorr has been doing</h2><div class="alog"><span class="spinner"></span></div>`;
+      qs("#recheck").addEventListener("click", run);
+      qs("#autofix").addEventListener("change", async (e) => {
+        try { await api("/settings/general", { method: "PUT", body: { autoFix: e.target.checked } }); s.autoFix = e.target.checked; toast(e.target.checked ? "Auto-fix is on" : "Auto-fix is off", "ok"); } catch (err) { toast(err.message, "error"); e.target.checked = !e.target.checked; }
+      });
+      const bindActs = (root) => qsa("[data-hact]", root).forEach((b) => b.addEventListener("click", async () => {
+        const act = b.dataset.hact;
+        if (act === "sab-restart" && !confirmBox("Restart SABnzbd? Downloads pick up where they left off.")) return;
+        if (act === "search-missing" && !confirmBox("Search for every missing film and episode now? With a big library this keeps the indexers busy for a while.")) return;
+        busy(b, true, "Working…");
+        try { const r = await api(`/health/${act}`, { method: "POST", body: {} }); toast(r.message, "ok"); setTimeout(run, act === "sab-restart" ? 8000 : 1200); } catch (e) { toast(e.message, "error"); busy(b, false); }
+      }));
+      bindActs(panel);
+      try {
+        const r = await api("/health");
+        const sym = { ok: I.check, warn: "!", error: "!", off: "–" };
+        const bad = r.checks.filter((c) => c.status === "error").length;
+        const warn = r.checks.filter((c) => c.status === "warn").length;
+        qs(".lead", panel).textContent = bad ? `${bad} thing${bad > 1 ? "s need" : " needs"} attention.` : warn ? `Working, with ${warn} thing${warn > 1 ? "s" : ""} to keep an eye on.` : "Everything's looking good.";
+        qs(".checks", panel).innerHTML = r.checks.map((c) => `<div class="glass checkrow ${c.status}"><div class="ic ${c.status}">${sym[c.status] || "?"}</div><div class="cbody"><strong>${esc(c.name)}</strong><div class="small">${esc(c.message)}</div>${c.fix && c.status !== "ok" ? `<div class="fix">${esc(c.fix)}</div>` : ""}${(c.actions || []).length ? `<div class="cacts">${c.actions.map((a) => ACTIONS[a] ? `<button class="btn sm" data-hact="${a}">${I[ACTIONS[a][1]]} ${ACTIONS[a][0]}</button>` : "").join("")}</div>` : ""}</div></div>`).join("");
+        bindActs(qs(".checks", panel));
+      } catch (e) { qs(".checks", panel).innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
+      try {
+        const lg = await api("/activity");
+        qs(".alog", panel).innerHTML = lg.items.length ? `<ol class="tlist">${lg.items.map((it) => `<li class="k-${esc(it.kind)}"><span class="tdot">${I[ACT_ICON[it.kind]] || ""}</span><div><strong>${esc(it.title)}</strong>${it.detail ? `<span class="td">${esc(it.detail)}</span>` : ""}<span class="tt">${esc(exact(it.at))}${it.requestId ? ` · <a href="#/requests?filter=all">request</a>` : ""}</span></div></li>`).join("")}</ol>` : `<p class="muted">Nothing yet. When Encorr fixes a download or something needs you, it's listed here.</p>`;
+      } catch (e) { qs(".alog", panel).innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
+    };
+    run();
+  }
+  if (section === "jobs") {
+    const load = async () => {
+      const r = await api("/jobs");
+      panel.innerHTML = `<h2>Background jobs</h2><p class="lead">These run on their own. Use Run now after changing something.</p>
+        <div class="list">${r.jobs.map((j) => `<div class="glass lib"><div><strong>${esc(j.label)}</strong><div class="small dim">${esc(j.schedule)} · ${j.info.lastRun && !j.info.lastRun.startsWith("0001") ? "last run " + esc(ago(j.info.lastRun)) + (j.info.lastOk ? "" : " (failed)") : "not run yet"}</div>${j.info.message ? `<div class="small ${j.info.lastOk ? "muted" : ""}" style="${j.info.lastOk ? "" : "color:#fca5a5"}">${esc(j.info.message)}</div>` : ""}</div>
+          <button class="btn sm" data-job="${esc(j.name)}" ${j.running ? "disabled" : ""}>${j.running ? "Running…" : "Run now"}</button></div>`).join("")}</div>
+        <h2>Backup</h2><p class="lead">Saves a copy of Encorr's data and key to the backups folder in Encorr's data folder. Encorr also keeps the previous copy automatically.</p>
+        <button class="btn" id="backup">Back up now</button>`;
+      qsa("[data-job]").forEach((b) => b.addEventListener("click", async () => {
+        try { await api(`/jobs/${b.dataset.job}/run`, { method: "POST", body: {} }); toast("Started"); setTimeout(load, 2500); } catch (e) { toast(e.message, "error"); }
+      }));
+      qs("#backup").addEventListener("click", async (e) => {
+        busy(e.currentTarget, true, "Backing up…");
+        try { const r2 = await api("/backup", { method: "POST", body: {} }); toast("Saved to " + r2.path, "ok"); } catch (err) { toast(err.message, "error"); }
+        busy(e.currentTarget, false);
+      });
+    };
+    load().catch((e) => (panel.innerHTML = `<div class="notice error">${esc(e.message)}</div>`));
+    state.timers.push(setInterval(() => load().catch(() => {}), 15000));
+  }
+}

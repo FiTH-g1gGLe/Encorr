@@ -110,10 +110,8 @@ func (a *App) Handler(static fs.FS) http.Handler {
 		}
 		// Stamp the script and stylesheet addresses with this build, so phones
 		// and Cloudflare always fetch the new look after an update.
-		html := strings.NewReplacer(
-			`href="/styles.css"`, `href="/styles.css?v=`+assetStamp+`"`,
-			`src="/app.js"`, `src="/app.js?v=`+assetStamp+`"`,
-		).Replace(string(b))
+		html := strings.ReplaceAll(string(b), `href="/styles.css"`, `href="/styles.css?v=`+assetStamp+`"`)
+		html = strings.ReplaceAll(html, `.js" defer>`, `.js?v=`+assetStamp+`" defer>`)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write([]byte(html))

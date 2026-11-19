@@ -214,7 +214,7 @@ Use TMDB key `good-key`. For Radarr use `http://localhost:5199/radarr` and key `
 | `internal/tmdb` | Film and TV information from TMDB |
 | `internal/notify` | Discord notifications |
 | `internal/store` | The data file, with encrypted secrets and backups |
-| `internal/web` | The web interface (built into the program) |
+| `internal/web` | The web interface, built into the program: `js/` has one file per area (core, shell, browse, title, requests, people, settings) |
 | `internal/fake` | Pretend services for tests and previews |
 
 ## Credits 🙏

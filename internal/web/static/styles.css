@@ -1331,3 +1331,4 @@ input[type=text], input[type=url], input[type=password], input[type=number], inp
 @media (max-width: 760px) { .modal { padding: 18px; } }
 .modal.wide.sheet { padding: 24px; overflow: auto; max-width: 760px; }
 @media (max-width: 760px) { .modal.wide.sheet { padding: 18px; } }
+.btn svg { flex: none; }
