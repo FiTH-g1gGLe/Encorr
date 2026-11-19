@@ -316,7 +316,11 @@ type Item struct {
 		AudioCodec      string `json:"audioCodec"`
 		AudioChannels   int    `json:"audioChannels"`
 		VideoDynamic    string `json:"videoDynamicRangeType,omitempty"`
+		Part            []struct {
+			File string `json:"file"`
+		} `json:"Part,omitempty"`
 	} `json:"Media,omitempty"`
+	LibrarySectionID int `json:"librarySectionID,omitempty"`
 }
 
 type container struct {
@@ -537,4 +541,77 @@ func (c *Client) Watchlist(ctx context.Context) ([]Item, error) {
 		}
 	}
 	return items, nil
+}
+
+// ---------- server settings (Tune-up) ----------
+
+// Pref is one Plex server setting from /:/prefs.
+type Pref struct {
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Summary    string `json:"summary"`
+	Type       string `json:"type"` // bool | int | text | double
+	Default    any    `json:"default"`
+	Value      any    `json:"value"`
+	Hidden     bool   `json:"hidden"`
+	Advanced   bool   `json:"advanced"`
+	Group      string `json:"group"`
+	EnumValues string `json:"enumValues"`
+}
+
+// Prefs reads every server setting.
+func (s *Server) Prefs(ctx context.Context) ([]Pref, error) {
+	var c struct {
+		MediaContainer struct {
+			Setting []Pref `json:"Setting"`
+		} `json:"MediaContainer"`
+	}
+	if err := s.get(ctx, "/:/prefs", 0, 0, &c); err != nil {
+		return nil, err
+	}
+	return c.MediaContainer.Setting, nil
+}
+
+// put sends a PUT with no body (Plex takes everything in the query).
+func (s *Server) put(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, strings.TrimRight(s.URL, "/")+path, nil)
+	if err != nil {
+		return err
+	}
+	s.client().headers(req)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return friendlyNetErr(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return errors.New("Plex didn't allow that change: only the server owner can change server settings")
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("Plex answered %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// SetPref changes one server setting.
+func (s *Server) SetPref(ctx context.Context, id, value string) error {
+	return s.put(ctx, "/:/prefs?"+url.QueryEscape(id)+"="+url.QueryEscape(value))
+}
+
+// FutureItems lists movies (type 1) or episodes (type 4) whose "added" date
+// is in the future: they sit at the top of Recently Added for ever.
+func (s *Server) FutureItems(ctx context.Context, libKey string, plexType int) ([]Item, error) {
+	var c container
+	p := fmt.Sprintf("/library/sections/%s/all?type=%d&sort=addedAt:desc&addedAt>>=%d", libKey, plexType, time.Now().Add(time.Hour).Unix())
+	if err := s.get(ctx, p, 0, 300, &c); err != nil {
+		return nil, err
+	}
+	return c.MediaContainer.Metadata, nil
+}
+
+// SetAddedAt changes an item's "added" date (and locks it, so a refresh
+// doesn't put the wrong one back).
+func (s *Server) SetAddedAt(ctx context.Context, libKey string, plexType int, ratingKey string, t time.Time) error {
+	return s.put(ctx, fmt.Sprintf("/library/sections/%s/all?type=%d&id=%s&addedAt.value=%d&addedAt.locked=1",
+		url.PathEscape(libKey), plexType, url.QueryEscape(ratingKey), t.Unix()))
 }

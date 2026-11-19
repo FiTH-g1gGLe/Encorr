@@ -45,7 +45,8 @@ type App struct {
 	lastProgress   time.Time // when any download last moved (auto-fix)
 	stallWarned    time.Time
 
-	sabTried bool
+	sabTried      bool
+	prowlarrTried bool
 	// Background is set by main: runs Encorr as a Windows service.
 	Background Background
 	quit       chan struct{}
@@ -125,6 +126,15 @@ func arrClient(name string, s store.ArrSettings) *arr.Client {
 
 func (a *App) Radarr() *arr.Client { return arrClient("Radarr", a.settings().Radarr) }
 func (a *App) Sonarr() *arr.Client { return arrClient("Sonarr", a.settings().Sonarr) }
+
+// Prowlarr is optional: Tune-up uses it to check indexers.
+func (a *App) Prowlarr() *arr.Client {
+	c := arrClient("Prowlarr", a.settings().Prowlarr)
+	if c != nil {
+		c.APIVersion = "v1"
+	}
+	return c
+}
 
 // PlexServer returns the configured server, or nil if not set up yet.
 // SAB returns the SABnzbd client, or nil when it isn't set up.

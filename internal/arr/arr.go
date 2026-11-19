@@ -24,10 +24,16 @@ type Client struct {
 	Name   string // "Radarr" or "Sonarr", used in messages
 	URL    string // base, e.g. http://localhost:7878 (may include a URL base)
 	APIKey string
+	// APIVersion is "v3" (Radarr/Sonarr, the default) or "v1" (Prowlarr).
+	APIVersion string
 }
 
 func (c *Client) endpoint(path string, q url.Values) string {
-	u := strings.TrimRight(c.URL, "/") + "/api/v3" + path
+	v := c.APIVersion
+	if v == "" {
+		v = "v3"
+	}
+	u := strings.TrimRight(c.URL, "/") + "/api/" + v + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}

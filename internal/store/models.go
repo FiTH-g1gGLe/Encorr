@@ -50,6 +50,49 @@ type Data struct {
 	WatchlistSkip map[string]bool `json:"watchlistSkip,omitempty"`
 	// Activity is the auto-fix log, newest last, capped at 200.
 	Activity []Activity `json:"activity,omitempty"`
+	// TuneChanges are settings Tune-up changed, with the old value for Undo.
+	TuneChanges []TuneChange `json:"tuneChanges,omitempty"`
+	// SpeedTests are saved speed test results, newest last, capped at 50.
+	SpeedTests []SpeedTest `json:"speedTests,omitempty"`
+}
+
+// TuneChange is one setting Tune-up changed in another app.
+type TuneChange struct {
+	ID     int       `json:"id"`
+	At     time.Time `json:"at"`
+	Rule   string    `json:"rule"`
+	App    string    `json:"app"`
+	Key    string    `json:"key"`
+	Title  string    `json:"title"`
+	Old    any       `json:"old"`
+	New    any       `json:"new"`
+	By     string    `json:"by"`
+	Undone bool      `json:"undone,omitempty"`
+	// Undo describes how to reverse actions that aren't a single setting
+	// (e.g. "delete customformat 12"). Empty for plain settings.
+	Undo    map[string]any `json:"undo,omitempty"`
+	CanUndo bool           `json:"canUndo"`
+}
+
+// SpeedTest is one run of the Tune-up speed test.
+type SpeedTest struct {
+	At          time.Time      `json:"at"`
+	CPU         float64        `json:"cpu"`            // SABnzbd pystone score
+	DownloadDir float64        `json:"downloadDirMBs"` // MB/s
+	CompleteDir float64        `json:"completeDirMBs"`
+	Internet    float64        `json:"internetMBs"` // best of SABnzbd's and Encorr's own test
+	InternetBy  string         `json:"internetBy,omitempty"`
+	Servers     []ServerResult `json:"servers,omitempty"`
+	Bottleneck  string         `json:"bottleneck"` // internet | provider | disk | cpu | settings | unknown
+	Advice      []string       `json:"advice,omitempty"`
+}
+
+// ServerResult is how a news server did over the last two weeks.
+type ServerResult struct {
+	Name        string  `json:"name"`
+	Connections int     `json:"connections"`
+	Tried       int64   `json:"tried"`
+	Rate        float64 `json:"rate"`
 }
 
 // SkipKey is the WatchlistSkip key for one user's title.
@@ -78,6 +121,7 @@ type Settings struct {
 	Sonarr        ArrSettings    `json:"sonarr"`
 	Discord       DiscordSetting `json:"discord"`
 	SABnzbd       SabSettings    `json:"sabnzbd"`
+	Prowlarr      ArrSettings    `json:"prowlarr"`
 	Quotas        QuotaSettings  `json:"quotas"`
 	// AutoFix lets Encorr sort out stuck downloads by itself. nil means on.
 	AutoFix *bool `json:"autoFix,omitempty"`

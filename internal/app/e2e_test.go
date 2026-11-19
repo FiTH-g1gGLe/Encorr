@@ -998,6 +998,189 @@ func TestEndToEnd(t *testing.T) {
 	if code, _ := friend.call("POST", "/health/sab-restart", map[string]any{}, nil); code != 403 {
 		t.Fatalf("friends can't use fix buttons: %d", code)
 	}
+
+	// 34. Tune-up reads every app and lists recommendations.
+	owner.ok("PUT", "/settings/prowlarr", map[string]any{"enabled": true, "url": fk.URL + "/prowlarr", "apiKey": "prowlarr-key"}, nil)
+	type tuneResp struct {
+		Findings []TuneFinding
+		Apps     []TuneApp
+		Changes  []store.TuneChange
+	}
+	var tr tuneResp
+	owner.ok("GET", "/tune", nil, &tr)
+	byID := map[string]TuneFinding{}
+	for _, f := range tr.Findings {
+		byID[f.ID] = f
+		if secretKey.MatchString(f.ID) && !strings.HasPrefix(f.ID, "sab-") && !strings.HasPrefix(f.ID, "prowlarr-") {
+			t.Fatalf("Tune-up must never touch connection settings: %s", f.ID)
+		}
+	}
+	for _, a := range tr.Apps {
+		if !a.Connected {
+			t.Fatalf("%s should be connected: %+v", a.App, a)
+		}
+	}
+	wantChange := []string{"sab-pwrar", "sab-unwanted-action", "sab-unwanted-list", "sab-unrar-dates", "sab-cache", "sab-pipelining:news.example.com",
+		"radarr-redownload", "radarr-propers", "radarr-filedate", "radarr-freespace", "radarr-hardsubs", "radarr-foreign-subs",
+		"sonarr-illegal", "sonarr-foreign-subs", "plex-fsevents", "plex-lowprio", "plex-bif"}
+	for _, id := range wantChange {
+		if f, ok := byID[id]; !ok || f.Status != "change" || !f.CanApply {
+			t.Fatalf("expected %s to need changing: %+v", id, f)
+		}
+	}
+	if _, ok := byID["sonarr-propers"]; ok {
+		t.Fatal("the repacks advice only applies when TRaSH-style custom formats are in use")
+	}
+	for _, id := range []string{"sab-hopeless", "sonarr-redownload", "plex-partial"} {
+		if f, ok := byID[id]; !ok || f.Status != "ok" {
+			t.Fatalf("expected %s to be fine: %+v", id, f)
+		}
+	}
+	for _, id := range []string{"sab-connections:news.example.com", "prowlarr-vip:GeekFake", "prowlarr-down:GeekFake", "prowlarr-sync:Sonarr", "radarr-recycle", "radarr-removecompleted"} {
+		if f, ok := byID[id]; !ok || f.CanApply {
+			t.Fatalf("expected advice %s: %+v", id, f)
+		}
+	}
+	if _, ok := byID["sab-bandwidth"]; ok {
+		t.Fatal("line speed needs a speed test first")
+	}
+
+	// 35. Applying changes writes them, and checks they took.
+	var applied struct {
+		Results []struct {
+			ID    string
+			OK    bool
+			Error string
+		}
+		Changed int
+	}
+	owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"sab-pwrar", "sab-unwanted-list", "radarr-redownload", "plex-fsevents", "sab-pipelining:news.example.com", "sonarr-illegal", "nope"}}, &applied)
+	if applied.Changed != 6 || applied.Results[6].OK {
+		t.Fatalf("apply: %+v", applied)
+	}
+	if fk.SABMisc["pause_on_pwrar"] != 2 || fk.ArrConfig["radarr"]["downloadclient"]["autoRedownloadFailed"] != true ||
+		fk.PlexPrefs["FSEventLibraryUpdatesEnabled"] != true || fk.SABServers[0]["pipelining_requests"] != 4 ||
+		fk.ArrConfig["sonarr"]["naming"]["replaceIllegalCharacters"] != true {
+		t.Fatalf("changes didn't land: sab=%v radarr=%v plex=%v server=%v", fk.SABMisc["pause_on_pwrar"], fk.ArrConfig["radarr"]["downloadclient"], fk.PlexPrefs, fk.SABServers[0])
+	}
+	if l, _ := fk.SABMisc["unwanted_extensions"].([]any); len(l) < 5 {
+		t.Fatalf("unwanted list: %v", fk.SABMisc["unwanted_extensions"])
+	}
+	owner.ok("GET", "/tune", nil, &tr)
+	for _, f := range tr.Findings {
+		if (f.ID == "sab-pwrar" || f.ID == "plex-fsevents" || f.ID == "radarr-redownload") && f.Status != "ok" {
+			t.Fatalf("%s should be fine now: %+v", f.ID, f)
+		}
+	}
+
+	owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"radarr-freespace", "radarr-filedate", "plex-bif"}}, &applied)
+	if applied.Changed != 3 || fk.ArrConfig["radarr"]["mediamanagement"]["minimumFreeSpaceWhenImporting"] != 1024.0 ||
+		fk.ArrConfig["radarr"]["mediamanagement"]["fileDate"] != "none" || fk.PlexPrefs["GenerateBIFBehavior"] != "scheduled" {
+		t.Fatalf("number/text settings: %+v %v %v", applied, fk.ArrConfig["radarr"]["mediamanagement"], fk.PlexPrefs["GenerateBIFBehavior"])
+	}
+	owner.ok("GET", "/tune", nil, &tr)
+
+	// 36. Undo puts the old value back, but won't silently overwrite a later change.
+	changeFor := func(rule string) store.TuneChange {
+		for _, c := range tr.Changes {
+			if c.Rule == rule && !c.Undone {
+				return c
+			}
+		}
+		t.Fatalf("no change recorded for %s: %+v", rule, tr.Changes)
+		return store.TuneChange{}
+	}
+	owner.ok("POST", "/tune/undo/"+itoa(changeFor("plex-fsevents").ID), map[string]any{}, nil)
+	if fk.PlexPrefs["FSEventLibraryUpdatesEnabled"] != false {
+		t.Fatal("undo should switch it back off")
+	}
+	fk.SABMisc["pause_on_pwrar"] = 0 // someone changed it in SABnzbd since
+	pw := changeFor("sab-pwrar").ID
+	if code, m := owner.call("POST", "/tune/undo/"+itoa(pw), map[string]any{}, nil); code != 409 || !strings.Contains(m["error"].(string), "changed again") {
+		t.Fatalf("undo over a later change should ask first: %d %v", code, m)
+	}
+	owner.ok("POST", "/tune/undo/"+itoa(pw), map[string]any{"force": true}, nil)
+	if fk.SABMisc["pause_on_pwrar"] != 1 {
+		t.Fatalf("forced undo: %v", fk.SABMisc["pause_on_pwrar"])
+	}
+	if code, _ := owner.call("POST", "/tune/undo/"+itoa(pw), map[string]any{}, nil); code != 400 {
+		t.Fatal("can't undo twice")
+	}
+
+	// 37. Blocking foreign-subtitle releases, and undoing it.
+	owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"radarr-foreign-subs", "sonarr-foreign-subs"}}, &applied)
+	if applied.Changed != 2 || len(fk.ReleaseProfs) != 1 {
+		t.Fatalf("foreign subs: %+v %v", applied, fk.ReleaseProfs)
+	}
+	var cfID any
+	for _, cf := range fk.CustomFormats["radarr"] {
+		if cf["name"] == foreignSubsName {
+			cfID = cf["id"]
+		}
+	}
+	scored := false
+	for _, p := range fk.ProfilesPut {
+		items, _ := p["formatItems"].([]any)
+		for _, it := range items {
+			im := it.(map[string]any)
+			if fmt.Sprint(im["format"]) == fmt.Sprint(cfID) && im["score"].(float64) == -10000 {
+				scored = true
+			}
+		}
+	}
+	if cfID == nil || !scored {
+		t.Fatalf("custom format should be added and scored -10000: %v %v", cfID, fk.ProfilesPut)
+	}
+	owner.ok("GET", "/tune", nil, &tr)
+	owner.ok("POST", "/tune/undo/"+itoa(changeFor("radarr-foreign-subs").ID), map[string]any{}, nil)
+	for _, cf := range fk.CustomFormats["radarr"] {
+		if cf["name"] == foreignSubsName {
+			t.Fatal("undo should remove the custom format")
+		}
+	}
+
+	// 38. Speed test: finds the slow part and feeds the recommendations.
+	cloudflareURL = fk.URL + "/speedtest"
+	var sp struct{ Result store.SpeedTest }
+	owner.ok("POST", "/tune/speedtest", map[string]any{}, &sp)
+	if sp.Result.Bottleneck != "disk" || sp.Result.Internet < 120 || len(sp.Result.Servers) != 1 || sp.Result.Servers[0].Rate != 60 || sp.Result.Servers[0].Connections != 4 && sp.Result.Servers[0].Connections != 60 {
+		t.Fatalf("speed test: %+v", sp.Result)
+	}
+	owner.ok("GET", "/tune", nil, &tr)
+	byID = map[string]TuneFinding{}
+	for _, f := range tr.Findings {
+		byID[f.ID] = f
+	}
+	if f := byID["sab-bandwidth"]; f.Status != "change" || !strings.HasSuffix(f.Recommended, "MB/s") {
+		t.Fatalf("line speed should be suggested after a test: %+v", f)
+	}
+	if f, ok := byID["sab-completion:news.example.com"]; !ok || f.Level != "warn" {
+		t.Fatalf("a provider missing 40%% of articles should be flagged: %+v", f)
+	}
+
+	// 39. Items dated in the future get reset.
+	fk.Lock()
+	fk.PlexMovies[105] = time.Now().AddDate(70, 0, 0)
+	fk.Unlock()
+	owner.ok("GET", "/tune", nil, &tr)
+	found = false
+	for _, f := range tr.Findings {
+		if f.ID == "plex-future" && f.Status == "change" && strings.Contains(f.Current, "The Orchard Line") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("future-dated item should be found: %+v", tr.Findings)
+	}
+	owner.ok("POST", "/tune/apply", map[string]any{"ids": []string{"plex-future"}}, &applied)
+	if applied.Changed != 1 || fk.PlexMovies[105].After(time.Now().Add(time.Hour)) {
+		t.Fatalf("future date should be reset: %+v %v", applied, fk.PlexMovies[105])
+	}
+
+	// 40. Owners only.
+	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
+		t.Fatalf("friends can't see Tune-up: %d", code)
+	}
 }
 
 func ownerID(st *store.Store) int {

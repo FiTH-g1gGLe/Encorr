@@ -73,7 +73,16 @@ type Stack struct {
 	ArrHealth    map[string][]map[string]any
 	SABCalls     []string // SABnzbd control calls: "pause:nzo", "switch:nzo"...
 	SABOrphans   []string
-	nextID       int
+	// Tune-up: settings the fake apps report and accept.
+	ArrConfig     map[string]map[string]map[string]any // app -> resource -> object
+	CustomFormats map[string][]map[string]any
+	ProfilesPut   []map[string]any
+	ReleaseProfs  []map[string]any
+	PlexPrefs     map[string]any
+	SABMisc       map[string]any
+	SABServers    []map[string]any
+	ProwlarrVIP   string // vipExpiration for the fake indexer
+	nextID        int
 }
 
 func New() *Stack {
@@ -90,7 +99,29 @@ func New() *Stack {
 		Queue:        map[string][]map[string]any{"radarr": {}, "sonarr": {}},
 		History:      map[string][]map[string]any{"radarr": {}, "sonarr": {}},
 		ArrHealth:    map[string][]map[string]any{"radarr": {}, "sonarr": {}},
-		nextID:       100,
+		ArrConfig: map[string]map[string]map[string]any{
+			"radarr": {
+				"mediamanagement": {"id": 1, "fileDate": "cinemas", "enableMediaInfo": true, "minimumFreeSpaceWhenImporting": 100, "downloadPropersAndRepacks": "preferAndUpgrade", "recycleBin": ""},
+				"downloadclient":  {"id": 1, "enableCompletedDownloadHandling": true, "autoRedownloadFailed": false},
+				"indexer":         {"id": 1, "rssSyncInterval": 15, "allowHardcodedSubs": true},
+				"naming":          {"id": 1, "replaceIllegalCharacters": true, "renameMovies": true},
+			},
+			"sonarr": {
+				"mediamanagement": {"id": 1, "fileDate": "none", "enableMediaInfo": true, "minimumFreeSpaceWhenImporting": 2048, "downloadPropersAndRepacks": "doNotPrefer", "recycleBin": `D:\Recycle`},
+				"downloadclient":  {"id": 1, "enableCompletedDownloadHandling": true, "autoRedownloadFailed": true},
+				"indexer":         {"id": 1, "rssSyncInterval": 15},
+				"naming":          {"id": 1, "replaceIllegalCharacters": false},
+			},
+		},
+		CustomFormats: map[string][]map[string]any{"radarr": {{"id": 1, "name": "Repack/Proper", "specifications": []any{}}}, "sonarr": {}},
+		PlexPrefs: map[string]any{"FSEventLibraryUpdatesEnabled": false, "FSEventLibraryPartialScanEnabled": true, "ScannerLowPriority": false,
+			"GenerateBIFBehavior": "asap", "ScheduledLibraryUpdatesEnabled": true, "secureConnections": 1},
+		SABMisc: map[string]any{"pause_on_pwrar": 1, "action_on_unwanted_extensions": 0, "unwanted_extensions_mode": 0, "unwanted_extensions": []any{},
+			"fail_hopeless_jobs": 1, "fast_fail": 1, "safe_postproc": 1, "ignore_unrar_dates": 0, "deobfuscate_final_filenames": 1,
+			"enable_par_cleanup": 1, "cache_limit": "450M", "bandwidth_max": "", "host": "127.0.0.1", "api_key": "secret"},
+		SABServers:  []map[string]any{{"name": "news.example.com", "displayname": "Example News", "enable": 1, "connections": 60, "pipelining_requests": 1, "ssl": 1, "ssl_ciphers": "", "password": "*****"}},
+		ProwlarrVIP: time.Now().AddDate(0, 0, 10).Format("2006-01-02"),
+		nextID:      100,
 	}
 	s.Movies = []Movie{
 		{101, "The Last Lighthouse", 2026, "A keeper on a remote island discovers the light has been signalling someone.", "/p101.jpg", "/b101.jpg", "tt0000101"},
@@ -152,6 +183,10 @@ func (s *Stack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.tmdb(w, r, strings.TrimPrefix(p, "/tmdb"))
 	case strings.HasPrefix(p, "/radarr/api/v3/"):
 		s.radarr(w, r, strings.TrimPrefix(p, "/radarr/api/v3"))
+	case strings.HasPrefix(p, "/prowlarr/api/v1/"):
+		s.prowlarr(w, r, strings.TrimPrefix(p, "/prowlarr/api/v1"))
+	case strings.HasPrefix(p, "/speedtest"):
+		w.Write(make([]byte, 2_000_000))
 	case strings.HasPrefix(p, "/sonarr/api/v3/"):
 		s.sonarr(w, r, strings.TrimPrefix(p, "/sonarr/api/v3"))
 	case strings.HasPrefix(p, "/_test/plex/movie/") && r.Method == http.MethodPost:
@@ -257,6 +292,45 @@ func (s *Stack) pms(w http.ResponseWriter, r *http.Request, p string) {
 	}
 	q := r.URL.Query()
 	switch {
+	case p == "/:/prefs" && r.Method == http.MethodPut:
+		for k, v := range q {
+			if strings.HasPrefix(k, "X-Plex") {
+				continue
+			}
+			if old, ok := s.PlexPrefs[k]; ok {
+				if _, isBool := old.(bool); isBool {
+					s.PlexPrefs[k] = v[0] == "1" || v[0] == "true"
+					continue
+				}
+			}
+			s.PlexPrefs[k] = v[0]
+		}
+		w.WriteHeader(200)
+		return
+	case p == "/:/prefs":
+		var set []any
+		for k, v := range s.PlexPrefs {
+			typ := "text"
+			if _, ok := v.(bool); ok {
+				typ = "bool"
+			}
+			enum := ""
+			if strings.HasSuffix(k, "Behavior") {
+				enum = "never:never|scheduled:as a scheduled task|asap:as soon as possible"
+			}
+			set = append(set, map[string]any{"id": k, "type": typ, "value": v, "enumValues": enum})
+		}
+		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"Setting": set}})
+		return
+	case strings.HasSuffix(p, "/all") && strings.HasPrefix(p, "/library/sections/") && r.Method == http.MethodPut:
+		id, _ := strconv.Atoi(strings.TrimPrefix(q.Get("id"), "m"))
+		ts, _ := strconv.ParseInt(q.Get("addedAt.value"), 10, 64)
+		if _, ok := s.PlexMovies[id]; ok && ts > 0 {
+			s.PlexMovies[id] = time.Unix(ts, 0)
+		}
+		s.Calls = append(s.Calls, "addedAt:"+q.Get("id"))
+		w.WriteHeader(200)
+		return
 	case p == "/identity":
 		writeJSON(w, map[string]any{"MediaContainer": map[string]any{"machineIdentifier": "machine-1"}})
 	case p == "/library/sections":
@@ -539,6 +613,59 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 	case p == "/command":
 		s.Commands = append(s.Commands, readBody(r))
 		writeJSON(w, map[string]any{"id": s.id()})
+	case strings.HasPrefix(p, "/config/"):
+		res := strings.Split(strings.TrimPrefix(p, "/config/"), "/")[0]
+		obj := s.ArrConfig[app][res]
+		if obj == nil {
+			http.NotFound(w, r)
+			return true
+		}
+		if r.Method == http.MethodPut {
+			b := readBody(r)
+			for k, v := range b {
+				obj[k] = v
+			}
+		}
+		writeJSON(w, obj)
+	case p == "/customformat" && r.Method == http.MethodGet:
+		writeJSON(w, s.CustomFormats[app])
+	case p == "/customformat" && r.Method == http.MethodPost:
+		b := readBody(r)
+		b["id"] = s.id()
+		s.CustomFormats[app] = append(s.CustomFormats[app], b)
+		writeJSON(w, b)
+	case strings.HasPrefix(p, "/customformat/") && r.Method == http.MethodDelete:
+		id := strings.TrimPrefix(p, "/customformat/")
+		kept := s.CustomFormats[app][:0]
+		for _, cf := range s.CustomFormats[app] {
+			if fmt.Sprint(cf["id"]) != id {
+				kept = append(kept, cf)
+			}
+		}
+		s.CustomFormats[app] = kept
+		w.WriteHeader(200)
+	case strings.HasPrefix(p, "/qualityprofile/") && r.Method == http.MethodPut:
+		s.ProfilesPut = append(s.ProfilesPut, readBody(r))
+		writeJSON(w, map[string]any{})
+	case p == "/releaseprofile" && r.Method == http.MethodGet:
+		writeJSON(w, s.ReleaseProfs)
+	case p == "/releaseprofile" && r.Method == http.MethodPost:
+		b := readBody(r)
+		b["id"] = s.id()
+		s.ReleaseProfs = append(s.ReleaseProfs, b)
+		writeJSON(w, b)
+	case strings.HasPrefix(p, "/releaseprofile/") && r.Method == http.MethodDelete:
+		id := strings.TrimPrefix(p, "/releaseprofile/")
+		kept := s.ReleaseProfs[:0]
+		for _, rp := range s.ReleaseProfs {
+			if fmt.Sprint(rp["id"]) != id {
+				kept = append(kept, rp)
+			}
+		}
+		s.ReleaseProfs = kept
+		w.WriteHeader(200)
+	case p == "/downloadclient" && r.Method == http.MethodGet:
+		writeJSON(w, []any{map[string]any{"id": 1, "name": "SABnzbd", "implementation": "Sabnzbd", "removeCompletedDownloads": app == "sonarr", "removeFailedDownloads": true}})
 	case p == "/queue":
 		writeJSON(w, map[string]any{"records": s.Queue[app]})
 	case strings.HasPrefix(p, "/queue/") && r.Method == http.MethodDelete:
@@ -782,7 +909,42 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 	case "switch":
 		s.SABCalls = append(s.SABCalls, "switch:"+q.Get("value"))
 		writeJSON(w, map[string]any{"result": map[string]any{"position": 0}})
+	case "get_config":
+		writeJSON(w, map[string]any{"config": map[string]any{"misc": s.SABMisc, "servers": s.SABServers}})
+	case "set_config":
+		sec, kw, val := q.Get("section"), q.Get("keyword"), q.Get("value")
+		s.SABCalls = append(s.SABCalls, "set:"+sec+"."+kw+"="+val)
+		if sec == "servers" {
+			for _, sv := range s.SABServers {
+				if sv["name"] == q.Get("name") {
+					if n, err := strconv.Atoi(val); err == nil {
+						sv[kw] = n
+					} else {
+						sv[kw] = val
+					}
+				}
+			}
+		} else if kw == "unwanted_extensions" {
+			parts := []any{}
+			for _, x := range strings.Split(val, ",") {
+				parts = append(parts, x)
+			}
+			s.SABMisc[kw] = parts
+		} else if n, err := strconv.Atoi(val); err == nil {
+			s.SABMisc[kw] = n
+		} else {
+			s.SABMisc[kw] = val
+		}
+		writeJSON(w, map[string]any{"status": true})
+	case "server_stats":
+		day := time.Now().Format("2006-01-02")
+		writeJSON(w, map[string]any{"total": 1, "servers": map[string]any{"news.example.com": map[string]any{
+			"articles_tried": map[string]any{day: 200000}, "articles_success": map[string]any{day: 120000}}}})
 	case "status":
+		if q.Get("calculate_performance") == "1" {
+			writeJSON(w, map[string]any{"status": map[string]any{"pystone": 250000, "downloaddirspeed": 60.5, "completedirspeed": 300.0, "internetbandwidth": 120.0, "downloaddir": `D:\incomplete`, "completedir": `D:\complete`}})
+			return
+		}
 		if q.Get("name") == "delete_all_orphan" {
 			s.SABCalls = append(s.SABCalls, "orphans")
 			s.SABOrphans = nil
@@ -838,4 +1000,24 @@ func fakeCredits() map[string]any {
 		map[string]any{"id": 402, "name": "Sam Hale", "job": "Producer"},
 		map[string]any{"id": 403, "name": "Noor Quinn", "job": "Original Music Composer"},
 	}}
+}
+
+// prowlarr serves just enough of Prowlarr for Tune-up's indexer checks.
+func (s *Stack) prowlarr(w http.ResponseWriter, r *http.Request, p string) {
+	if r.Header.Get("X-Api-Key") != "prowlarr-key" {
+		w.WriteHeader(401)
+		return
+	}
+	switch p {
+	case "/system/status":
+		writeJSON(w, map[string]any{"appName": "Prowlarr", "version": "2.7.0"})
+	case "/applications":
+		writeJSON(w, []any{map[string]any{"name": "Radarr", "syncLevel": "fullSync"}, map[string]any{"name": "Sonarr", "syncLevel": "addOnly"}})
+	case "/indexer":
+		writeJSON(w, []any{map[string]any{"id": 1, "name": "GeekFake", "enable": true, "fields": []any{map[string]any{"name": "vipExpiration", "value": s.ProwlarrVIP}}}})
+	case "/indexerstatus":
+		writeJSON(w, []any{map[string]any{"indexerId": 1, "disabledTill": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)}})
+	default:
+		http.NotFound(w, r)
+	}
 }

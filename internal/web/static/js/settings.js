@@ -256,7 +256,7 @@ async function renderWizard(stepName) {
 }
 
 // ---------- settings pages ----------
-const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["jobs", "Jobs & backup"]];
+const SETTINGS_MENU = [["general", "General"], ["plex", "Plex"], ["radarr", "Radarr"], ["sonarr", "Sonarr"], ["sabnzbd", "SABnzbd"], ["discord", "Discord"], ["health", "Health"], ["tune", "Tune-up"], ["jobs", "Jobs & backup"]];
 
 async function pageSettings(main, section) {
   main.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="small dim">Encorr ${esc((state.status && state.status.version) || "")} · <a href="https://github.com/FiTH-g1gGLe/Encorr/releases/latest" target="_blank" rel="noopener">What's new ↗</a></div></div></div>
@@ -370,7 +370,7 @@ async function pageSettings(main, section) {
       panel.innerHTML = `<div class="row between"><h2 style="margin:0">Health</h2><button class="btn sm" id="recheck">${I.refresh} Re-check</button></div>
         <p class="lead" style="margin-top:8px">Checking everything Encorr depends on…</p>
         <div class="glass hset"><div><strong>Auto-fix stuck downloads</strong><div class="small dim">Every 5 minutes: imports downloads stuck before Plex, swaps failed or stalled ones for another copy, and clears SABnzbd's leftovers. You'll see everything it does below.</div></div><label class="switch"><input type="checkbox" id="autofix" ${s.autoFix !== false ? "checked" : ""}><span class="slider"></span></label></div>
-        <div class="hacts"><button class="btn" data-hact="search-missing"${tip("Ask Radarr and Sonarr to look for every missing film and episode now")}>${I.search} Search for everything missing</button></div>
+        <div class="hacts"><a class="btn" href="#/settings/tune"${tip("Check your apps' settings against recommended ones")}>${I.wrench} Open Tune-up</a><button class="btn" data-hact="search-missing"${tip("Ask Radarr and Sonarr to look for every missing film and episode now")}>${I.search} Search for everything missing</button></div>
         <div class="checks"><span class="spinner"></span></div>
         <h2>What Encorr has been doing</h2><div class="alog"><span class="spinner"></span></div>`;
       qs("#recheck").addEventListener("click", run);
@@ -400,6 +400,106 @@ async function pageSettings(main, section) {
       } catch (e) { qs(".alog", panel).innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
     };
     run();
+  }
+  if (section === "tune") {
+    const APPS = { sabnzbd: "SABnzbd", radarr: "Radarr", sonarr: "Sonarr", prowlarr: "Prowlarr", plex: "Plex" };
+    const LEVEL = { safe: ["Safe", "Standard advice for every setup"], review: ["Your call", "Good for most setups, but worth a read first"], warn: ["Needs a look", ""], info: ["Advice", ""] };
+    const BOTTLE = { internet: "Your internet line", provider: "Your news server", disk: "The download folder's drive", cpu: "The CPU", settings: "Settings or the provider", unknown: "Not sure yet" };
+    const mbs = (v) => (v ? `${Math.round(v)} MB/s` : "–");
+    const speedCard = (t) => {
+      if (!t) return `<div class="glass tspeed empty"><div><strong>Speed test</strong><div class="small dim">Measures your internet line, the download folders and the CPU, and how much your news server actually has. Takes about 20 seconds. The results tune the recommendations below to this computer.</div></div><button class="btn primary" id="speedRun">${I.refresh} Run speed test</button></div>`;
+      const srv = (t.servers || []).filter((x) => x.tried > 0);
+      const tile = (k, v, sub, bad) => `<div class="tst ${bad ? "bad" : ""}"><span>${k}</span><b>${v}</b><i>${sub || ""}</i></div>`;
+      return `<div class="glass tspeed">
+        <div class="tshead"><div><strong>Speed test</strong><div class="small dim">${esc(ago(t.at))}${t.internetBy ? ` · internet measured by ${esc(t.internetBy)}` : ""}</div></div><button class="btn sm" id="speedRun">${I.refresh} Run again</button></div>
+        <div class="tstiles">
+          ${tile("Internet", mbs(t.internetMBs), `${Math.round((t.internetMBs || 0) * 8)} Mb/s`, t.bottleneck === "internet")}
+          ${tile("Download folder", mbs(t.downloadDirMBs), "writing speed", t.bottleneck === "disk")}
+          ${tile("Complete folder", mbs(t.completeDirMBs), "writing speed", t.completeDirMBs && t.completeDirMBs < 60)}
+          ${tile("CPU score", t.cpu ? Math.round(t.cpu).toLocaleString() : "–", "100,000+ is ideal", t.bottleneck === "cpu")}
+          ${srv.map((x) => tile("News server", `${Math.round(x.rate)}%`, "of articles found", x.rate < 80 && x.tried > 50000)).join("")}
+        </div>
+        <div class="tsverdict b-${esc(t.bottleneck)}"><span class="ri-ic">${t.bottleneck === "settings" ? I.check : "!"}</span><div><strong>Slowest part: ${esc(BOTTLE[t.bottleneck] || t.bottleneck)}</strong>${(t.advice || []).map((a) => `<span>${esc(a)}</span>`).join("")}</div></div>
+      </div>`;
+    };
+    const row = (f) => {
+      const [lv, lvTip] = LEVEL[f.level] || ["", ""];
+      const change = f.status === "change";
+      return `<div class="tfind ${esc(f.status)} l-${esc(f.level)}">
+        <div class="tfmain"><div class="tftop"><span class="tapp">${esc(APPS[f.app] || f.app)}</span><strong>${esc(f.title)}</strong>${change || f.level === "warn" ? `<span class="tlv l-${esc(f.level)}"${lvTip ? tip(lvTip) : ""}>${lv}</span>` : ""}</div>
+          <div class="tfwhy">${esc(f.why)}</div>
+          ${f.current || f.recommended ? `<div class="tfvals">${f.current ? `<span class="cur">${esc(f.current)}</span>` : ""}${f.recommended ? `<span class="arrow">→</span><span class="rec">${esc(f.recommended)}</span>` : ""}</div>` : ""}
+          ${f.fix ? `<div class="tffix">${I.hand} ${esc(f.fix)}</div>` : ""}</div>
+        ${f.canApply ? `<button class="btn sm ${f.level === "safe" ? "primary" : ""}" data-apply="${esc(f.id)}">Apply</button>` : f.status === "ok" ? `<span class="tok">${I.check}</span>` : ""}
+      </div>`;
+    };
+    const load = async () => {
+      panel.innerHTML = `<div class="row between"><h2 style="margin:0">Tune-up</h2><button class="btn sm" id="recheck">${I.refresh} Check again</button></div>
+        <p class="lead" style="margin-top:8px">Checks your apps' settings against recommended ones and explains each in plain English. Nothing changes until you press Apply, and every change can be undone.</p>
+        <div class="tbody"><div class="rwait"><span class="spinner"></span> Reading settings from your apps…</div></div>`;
+      qs("#recheck").addEventListener("click", load);
+      let r;
+      try { r = await api("/tune"); } catch (e) { qs(".tbody", panel).innerHTML = `<div class="notice error">${esc(e.message)}</div>`; return; }
+      const fs = r.findings;
+      const todo = fs.filter((f) => f.status === "change");
+      const safe = todo.filter((f) => f.level === "safe" && f.canApply);
+      const warn = fs.filter((f) => f.level === "warn");
+      const advice = fs.filter((f) => f.status === "notice" && f.level !== "warn");
+      const good = fs.filter((f) => f.status === "ok");
+      const appsHtml = r.apps.map((a) => `<span class="tappchip ${a.connected ? "on" : a.error ? "bad" : ""}"${tip(a.error || (a.connected ? "Connected" : "Not connected"))}><i></i>${esc(APPS[a.app])}${a.version ? ` <em>${esc(a.version)}</em>` : ""}</span>`).join("");
+      const prow = r.apps.find((a) => a.app === "prowlarr");
+      const prowForm = prow && !prow.connected ? `<details class="glass tprow"><summary><strong>Connect Prowlarr</strong> <span class="small dim">to check your indexers too (optional)</span></summary>
+        <div class="grid2"><label class="field"><span>Address</span><input id="pUrl" type="url" placeholder="http://localhost:9696" value="${esc((s.prowlarr || {}).url || "")}"></label>
+        <label class="field"><span>API key</span><input id="pKey" type="password" placeholder="${(s.prowlarr || {}).hasKey ? "Saved" : "Prowlarr → Settings → General"}"></label></div>
+        <button class="btn" id="pSave">Connect</button></details>` : "";
+      const section = (title, list, extra = "") => list.length ? `<h3 class="tsec">${title}${extra}</h3><div class="tlist2">${list.map(row).join("")}</div>` : "";
+      const changes = (r.changes || []).slice(0, 12);
+      qs(".tbody", panel).innerHTML = `
+        ${speedCard(r.speed)}
+        <div class="tapps">${appsHtml}</div>
+        ${prowForm}
+        <div class="glass tsum"><div><b>${todo.length}</b> recommended change${todo.length === 1 ? "" : "s"}${warn.length ? ` · <b class="w">${warn.length}</b> to look at` : ""} · <b class="g">${good.length}</b> already good</div>
+          ${safe.length ? `<button class="btn primary" id="applySafe"${tip("Only the ones marked Safe. The rest are your call")}>${I.check} Apply ${safe.length} safe change${safe.length === 1 ? "" : "s"}</button>` : ""}</div>
+        ${section("Needs a look", warn)}
+        ${section("Recommended", todo.filter((f) => f.level !== "warn"))}
+        ${section("Advice", advice)}
+        ${good.length ? `<details class="tgood"><summary>${good.length} setting${good.length === 1 ? " is" : "s are"} already as recommended</summary><div class="tlist2">${good.map(row).join("")}</div></details>` : ""}
+        ${changes.length ? `<h3 class="tsec">Changes made by Tune-up</h3><div class="tlist2">${changes.map((c) => `<div class="tfind chg ${c.undone ? "undone" : ""}"><div class="tfmain"><div class="tftop"><span class="tapp">${esc(APPS[c.app] || c.app)}</span><strong>${esc(c.title)}</strong></div><div class="tfwhy">${esc(exact(c.at))} by ${esc(c.by || "someone")}${c.undone ? " · undone" : ""}</div></div>${c.canUndo && !c.undone ? `<button class="btn sm" data-undo="${c.id}">${I.refresh} Undo</button>` : ""}</div>`).join("")}</div>` : ""}`;
+      const apply = async (ids, btn) => {
+        busy(btn, true, "Applying…");
+        try {
+          const res = await api("/tune/apply", { method: "POST", body: { ids } });
+          const bad = res.results.filter((x) => !x.ok);
+          if (res.changed) toast(`Changed ${res.changed} setting${res.changed === 1 ? "" : "s"}`, "ok");
+          bad.forEach((b) => toast(b.error, "error"));
+          load();
+        } catch (e) { toast(e.message, "error"); busy(btn, false); }
+      };
+      qsa("[data-apply]", panel).forEach((b) => b.addEventListener("click", () => apply([b.dataset.apply], b)));
+      const as = qs("#applySafe", panel);
+      if (as) as.addEventListener("click", () => apply(safe.map((f) => f.id), as));
+      qsa("[data-undo]", panel).forEach((b) => b.addEventListener("click", async () => {
+        busy(b, true, "Undoing…");
+        try { await api(`/tune/undo/${b.dataset.undo}`, { method: "POST", body: {} }); toast("Undone", "ok"); load(); }
+        catch (e) {
+          if (/changed again/.test(e.message) && confirmBox(e.message)) {
+            try { await api(`/tune/undo/${b.dataset.undo}`, { method: "POST", body: { force: true } }); toast("Undone", "ok"); load(); return; } catch (e2) { toast(e2.message, "error"); }
+          } else if (!/changed again/.test(e.message)) toast(e.message, "error");
+          busy(b, false);
+        }
+      }));
+      const sr = qs("#speedRun", panel);
+      if (sr) sr.addEventListener("click", async () => {
+        busy(sr, true, "Testing… about 20 seconds");
+        try { await api("/tune/speedtest", { method: "POST", body: {} }); toast("Speed test done", "ok"); load(); } catch (e) { toast(e.message, "error"); busy(sr, false); }
+      });
+      const ps = qs("#pSave", panel);
+      if (ps) ps.addEventListener("click", async () => {
+        busy(ps, true, "Connecting…");
+        try { await api("/settings/prowlarr", { method: "PUT", body: { enabled: true, url: qs("#pUrl").value, apiKey: qs("#pKey").value } }); toast("Prowlarr connected", "ok"); s = await api("/settings"); load(); } catch (e) { toast(e.message, "error"); busy(ps, false); }
+      });
+    };
+    load();
   }
   if (section === "jobs") {
     const load = async () => {

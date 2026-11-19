@@ -356,3 +356,113 @@ func (c *Client) DeleteOrphans(ctx context.Context) error {
 func (c *Client) ClearWarnings(ctx context.Context) error {
 	return c.simple(ctx, "warnings", url.Values{"name": {"clear"}})
 }
+
+// ---------- settings and performance (Tune-up) ----------
+
+// Config is SABnzbd's whole configuration as it reports it (passwords and
+// keys come back masked).
+type Config struct {
+	Misc    map[string]any   `json:"misc"`
+	Servers []map[string]any `json:"servers"`
+}
+
+func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
+	var out struct {
+		Config Config `json:"config"`
+	}
+	if err := c.call(ctx, "get_config", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out.Config, nil
+}
+
+// SetConfig changes one setting. For a server, section is "servers" and
+// name is the server's name; otherwise name is empty.
+func (c *Client) SetConfig(ctx context.Context, section, name, keyword, value string) error {
+	q := url.Values{"section": {section}, "keyword": {keyword}, "value": {value}}
+	if name != "" {
+		q.Set("name", name)
+	}
+	return c.simple(ctx, "set_config", q)
+}
+
+// Performance is SABnzbd's own system test: CPU score and disk and internet
+// speeds in MB/s.
+type Performance struct {
+	Pystone      float64 `json:"pystone"`
+	DownloadDir  float64 `json:"downloadDirMBs"`
+	CompleteDir  float64 `json:"completeDirMBs"`
+	Internet     float64 `json:"internetMBs"`
+	DownloadPath string  `json:"downloadPath"`
+	CompletePath string  `json:"completePath"`
+}
+
+// perfClient waits for the test, which takes several seconds.
+var perfClient = &http.Client{Timeout: 90 * time.Second}
+
+// RunPerformance runs SABnzbd's built-in performance test (Status → System).
+func (c *Client) RunPerformance(ctx context.Context) (*Performance, error) {
+	q := url.Values{"mode": {"status"}, "calculate_performance": {"1"}, "skip_dashboard": {"0"}, "output": {"json"}, "apikey": {c.APIKey}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.URL, "/")+"/api?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := perfClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("can't reach SABnzbd at %s", c.URL)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Status struct {
+			Pystone           float64 `json:"pystone"`
+			DownloadDirSpeed  float64 `json:"downloaddirspeed"`
+			CompleteDirSpeed  float64 `json:"completedirspeed"`
+			InternetBandwidth float64 `json:"internetbandwidth"`
+			DownloadDir       string  `json:"downloaddir"`
+			CompleteDir       string  `json:"completedir"`
+		} `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, errors.New("SABnzbd sent something unexpected")
+	}
+	st := out.Status
+	return &Performance{Pystone: st.Pystone, DownloadDir: st.DownloadDirSpeed, CompleteDir: st.CompleteDirSpeed,
+		Internet: st.InternetBandwidth, DownloadPath: st.DownloadDir, CompletePath: st.CompleteDir}, nil
+}
+
+// ServerHealth is how often a news server actually had the articles asked for.
+type ServerHealth struct {
+	Name    string  `json:"name"`
+	Tried   int64   `json:"tried"`
+	Success int64   `json:"success"`
+	Rate    float64 `json:"rate"` // percent, 0 when nothing was tried
+}
+
+// ArticleSuccess sums the last `days` days of article stats per server.
+func (c *Client) ArticleSuccess(ctx context.Context, days int) ([]ServerHealth, error) {
+	var out struct {
+		Servers map[string]struct {
+			Tried   map[string]float64 `json:"articles_tried"`
+			Success map[string]float64 `json:"articles_success"`
+		} `json:"servers"`
+	}
+	if err := c.call(ctx, "server_stats", nil, &out); err != nil {
+		return nil, err
+	}
+	since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	var res []ServerHealth
+	for name, s := range out.Servers {
+		h := ServerHealth{Name: name}
+		for d, n := range s.Tried {
+			if d >= since {
+				h.Tried += int64(n)
+				h.Success += int64(s.Success[d])
+			}
+		}
+		if h.Tried > 0 {
+			h.Rate = float64(h.Success) / float64(h.Tried) * 100
+		}
+		res = append(res, h)
+	}
+	return res, nil
+}

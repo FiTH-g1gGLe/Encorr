@@ -147,3 +147,23 @@ func (c *Client) SearchSeason(ctx context.Context, seriesID, season int) error {
 func (c *Client) SearchEpisodes(ctx context.Context, ids []int) error {
 	return c.Command(ctx, map[string]any{"name": "EpisodeSearch", "episodeIds": ids})
 }
+
+// ---------- raw resources (Tune-up) ----------
+
+// GetJSON / PutJSON / PostJSON / DeleteJSON work on any API resource, for
+// settings Encorr reads and writes as whole objects.
+func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
+	return c.do(ctx, http.MethodGet, path, nil, nil, out)
+}
+
+func (c *Client) PutJSON(ctx context.Context, path string, body any) error {
+	return c.do(ctx, http.MethodPut, path, nil, body, nil)
+}
+
+func (c *Client) PostJSON(ctx context.Context, path string, body, out any) error {
+	return c.do(ctx, http.MethodPost, path, nil, body, out)
+}
+
+func (c *Client) DeleteJSON(ctx context.Context, path string) error {
+	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+}

@@ -66,6 +66,17 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | ⚡ **Instant "ready"** | When a download finishes, Encorr asks Plex to scan just that folder, so requests turn green within seconds. |
 | 👀 **Plex watchlists** | Add something to your Plex watchlist and Encorr requests it. Remove the request and it stays removed. |
 
+### Tune-up
+
+| | |
+| --- | --- |
+| 🔧 **Settings check** | Reads the live settings of SABnzbd, Radarr, Sonarr, Prowlarr and Plex and compares them with recommendations from SABnzbd's own guide, the Servarr wiki, TRaSH Guides and Plex. Each one is explained in plain English, current value → recommended value. |
+| ✅ **Safe or your call** | Standard advice for every setup is marked **Safe** and can be applied in one go; anything that depends on taste or hardware is marked **Your call**. Connection, password and remote-access settings are never touched. |
+| ↩️ **Undo everything** | Every change is read back to confirm it took, and saved with its old value. Undo puts it back, and asks first if someone changed it again since. |
+| 🚀 **Speed test** | Measures your internet line, the download folders and the CPU (using SABnzbd's own test) and how many articles your news server actually has, then names the slowest part and sizes the recommendations to your machine. |
+| 🧹 **Fixers** | Resets items dated in the future that stick at the top of Recently Added, and (in English-speaking regions) skips releases with foreign burned-in subtitles. |
+| 🧭 **Indexer checks** | With Prowlarr connected (found automatically when it's on the same computer): VIP about to expire, indexers paused after failures, sync settings. |
+
 ### Running it
 
 | | |
@@ -96,6 +107,8 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | **See all** for any row | **Live progress** on a film's page |
 | <img src="docs/screenshots/people.png" alt="The People page with accounts and roles"> | <img src="docs/screenshots/settings-look.png" alt="Settings with 8 accent colours and two backgrounds"> |
 | **People:** accounts and what each person can do | **Your colours:** 8 accents, black or navy |
+| <img src="docs/screenshots/tune-speed.png" alt="Tune-up with speed test results and the slowest part named"> | <img src="docs/screenshots/tune.png" alt="Tune-up recommendations with Apply buttons"> |
+| **Tune-up:** speed test and what's slowing you down | **Tune-up:** recommendations you can apply and undo |
 | <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard connected to Radarr"> | <img src="docs/screenshots/health.png" alt="The health page with plain-English checks"> |
 | **Setup wizard** | **Health:** what's working, fix buttons, and what auto-fix did |
 
@@ -167,6 +180,7 @@ Only Encorr goes on the internet: Radarr, Sonarr, Prowlarr and SABnzbd stay priv
 - [x] Encorr accounts (username + password) alongside Plex sign-in
 - [x] Discord notifications and Plex watchlist requests
 - [x] Health page with fix buttons, Radarr/Sonarr warnings, a stuck-download warning and background jobs
+- [x] Tune-up: settings check for SABnzbd, Radarr, Sonarr, Prowlarr and Plex with apply and undo, a speed test, and fixers
 - [x] Windows background service with one-click on/off and double-click updates
 - [x] Midnight or graphite themes with 8 accent colours
 - [x] Tested end to end against simulated Plex, TMDB, Radarr, Sonarr, SABnzbd and Discord, plus a real Windows 11 server

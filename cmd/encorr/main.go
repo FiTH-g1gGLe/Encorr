@@ -86,6 +86,7 @@ func main() {
 	if base := os.Getenv("ENCORR_DEV_FAKE"); base != "" {
 		plex.PlexTVURL, plex.DiscoverURL, plex.AppAuthURL = base+"/plextv", base+"/discover", base+"/plexauth"
 		tmdb.BaseURL = base + "/tmdb"
+		app.SpeedTestURL(base + "/speedtest")
 	}
 	opts := options{port: *port, host: *host, configDir: *configDir, noBrowser: *noBrowser, service: *asService}
 

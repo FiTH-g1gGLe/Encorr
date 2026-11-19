@@ -1129,12 +1129,13 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
 	writeJSON(w, 200, map[string]any{
 		"setupComplete": s.SetupComplete, "appUrl": s.AppURL, "region": s.Region, "language": s.Language,
 		"accent": s.Accent, "theme": s.Theme, "quotas": s.Quotas, "autoFix": s.AutoFixOn(),
-		"plex":    map[string]any{"serverName": s.Plex.ServerName, "machineId": s.Plex.MachineID, "url": s.Plex.URL, "libraries": s.Plex.Libraries},
-		"tmdb":    map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked(), "builtIn": tmdb.BuiltInKey != ""},
-		"radarr":  maskArr(s.Radarr),
-		"sonarr":  maskArr(s.Sonarr),
-		"discord": map[string]any{"enabled": s.Discord.Enabled, "hasWebhook": s.Discord.WebhookURL != "", "webhookHint": s.Discord.WebhookURL.Masked()},
-		"sabnzbd": map[string]any{"enabled": s.SABnzbd.Enabled, "url": s.SABnzbd.URL, "hasKey": s.SABnzbd.APIKey != "", "keyHint": s.SABnzbd.APIKey.Masked(), "detected": s.SABnzbd.Detected},
+		"plex":     map[string]any{"serverName": s.Plex.ServerName, "machineId": s.Plex.MachineID, "url": s.Plex.URL, "libraries": s.Plex.Libraries},
+		"tmdb":     map[string]any{"hasKey": s.TMDBKey != "", "keyHint": s.TMDBKey.Masked(), "builtIn": tmdb.BuiltInKey != ""},
+		"radarr":   maskArr(s.Radarr),
+		"sonarr":   maskArr(s.Sonarr),
+		"discord":  map[string]any{"enabled": s.Discord.Enabled, "hasWebhook": s.Discord.WebhookURL != "", "webhookHint": s.Discord.WebhookURL.Masked()},
+		"prowlarr": map[string]any{"enabled": s.Prowlarr.Enabled, "url": s.Prowlarr.URL, "hasKey": s.Prowlarr.APIKey != "", "keyHint": s.Prowlarr.APIKey.Masked()},
+		"sabnzbd":  map[string]any{"enabled": s.SABnzbd.Enabled, "url": s.SABnzbd.URL, "hasKey": s.SABnzbd.APIKey != "", "keyHint": s.SABnzbd.APIKey.Masked(), "detected": s.SABnzbd.Detected},
 	})
 }
 
