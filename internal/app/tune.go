@@ -64,6 +64,7 @@ type tuneEnv struct {
 	cfRegex   map[string][]string                  // app -> release title regexes in custom formats
 	relProf   []map[string]any                     // Sonarr release profiles
 	clients   map[string][]map[string]any          // app -> download clients
+	roots     map[string][]string                  // app -> library root folders
 	apps      map[string]*TuneApp
 	sabSrv    []map[string]any
 	orphans   int
@@ -92,7 +93,7 @@ type futureItem struct {
 func newEnv() *tuneEnv {
 	return &tuneEnv{vals: map[string]map[string]any{}, raw: map[string]map[string]map[string]any{},
 		enums: map[string]string{}, cfNames: map[string][]string{}, cfRegex: map[string][]string{},
-		clients: map[string][]map[string]any{}, apps: map[string]*TuneApp{}}
+		clients: map[string][]map[string]any{}, roots: map[string][]string{}, apps: map[string]*TuneApp{}}
 }
 
 func (e *tuneEnv) set(app, key string, v any) {
@@ -270,6 +271,15 @@ func (a *App) readArr(ctx context.Context, e *tuneEnv, app string, c *arr.Client
 		}
 		e.mu.Lock()
 		e.cfNames[app], e.cfRegex[app] = names, rx
+		e.mu.Unlock()
+	}
+	if rf, err := c.RootFolders(ctx); err == nil {
+		var paths []string
+		for _, r := range rf {
+			paths = append(paths, r.Path)
+		}
+		e.mu.Lock()
+		e.roots[app] = paths
 		e.mu.Unlock()
 	}
 	var clients []map[string]any
@@ -543,6 +553,34 @@ func tuneRules() []tuneRule {
 				}
 				return canon(v) + "B/s"
 			}},
+
+		{id: "sab-pause-pp", app: "sabnzbd", area: "Speed", level: "review", key: "misc.pause_on_post_processing",
+			title: "Pause downloading while unpacking",
+			why:   "Your speed test decides this one. On a slow drive, downloading and unpacking at the same time fight over the disk and both crawl, so pausing helps. On a fast SSD it's quicker to do both at once.",
+			want: func(e *tuneEnv, cur any) (any, bool) {
+				if e.speed == nil || e.speed.DownloadDir <= 0 {
+					return nil, false
+				}
+				switch {
+				case e.speed.DownloadDir < 100:
+					return 1, true
+				case e.speed.DownloadDir >= 150 && canon(cur) == "1":
+					return 0, true
+				}
+				return nil, false
+			}, show: onOff},
+		{id: "sab-propagation", app: "sabnzbd", area: "Reliability", level: "review", key: "misc.propagation_delay",
+			title: "Wait 5 minutes before grabbing brand-new uploads",
+			why:   "A new upload takes a few minutes to reach every news server. Grabbing it straight away can fail with \"missing articles\" that would have been there minutes later. The trade-off: new episodes start downloading 5 minutes later.",
+			want: func(_ *tuneEnv, cur any) (any, bool) {
+				return 5, num(cur) == 0
+			}, show: func(v any) string {
+				if num(v) == 0 {
+					return "Off"
+				}
+				return canon(v) + " min"
+			}},
+		{id: "sab-same-drive", app: "sabnzbd", check: checkSameDrive},
 
 		// ---- custom SABnzbd checks ----
 		{id: "sab-servers", app: "sabnzbd", check: checkSABServers},
@@ -1239,4 +1277,54 @@ func (a *App) addForeignSubsBlock(ctx context.Context, app string) (map[string]a
 		}
 	}
 	return undo, fmt.Sprintf("custom format added to %d profile(s)", n), nil
+}
+
+// driveOf returns the Windows drive letter ("D:") or UNC share of a path, or
+// "" when it can't tell (Linux paths, relative paths).
+func driveOf(p string) string {
+	p = strings.TrimSpace(p)
+	if len(p) >= 2 && p[1] == ':' {
+		return strings.ToUpper(p[:2])
+	}
+	if strings.HasPrefix(p, `\\`) {
+		parts := strings.SplitN(strings.TrimPrefix(p, `\\`), `\`, 3)
+		if len(parts) >= 2 {
+			return strings.ToLower(`\\` + parts[0] + `\` + parts[1])
+		}
+	}
+	return ""
+}
+
+// checkSameDrive spots finished downloads being copied to the library
+// rather than moved, which happens when they're on different drives.
+func checkSameDrive(e *tuneEnv) []TuneFinding {
+	cv, ok := e.get("sabnzbd", "misc.complete_dir")
+	if !ok {
+		return nil
+	}
+	complete := driveOf(canon(cv))
+	if complete == "" {
+		return nil
+	}
+	libDrives := map[string]bool{}
+	for _, app := range []string{"radarr", "sonarr"} {
+		for _, r := range e.roots[app] {
+			if d := driveOf(r); d != "" {
+				libDrives[d] = true
+			}
+		}
+	}
+	if len(libDrives) == 0 || libDrives[complete] {
+		return nil
+	}
+	var list []string
+	for d := range libDrives {
+		list = append(list, d)
+	}
+	sort.Strings(list)
+	return []TuneFinding{{ID: "sab-same-drive", App: "sabnzbd", Area: "Speed", Level: "info", Status: "notice",
+		Title:   "Finished downloads are copied, not moved",
+		Current: "Completed folder on " + complete + ", library on " + strings.Join(list, ", "),
+		Why:     "Moving a file within the same drive is instant. Between drives, every film is copied and then deleted, which takes minutes and wears the disks. If you can, put SABnzbd's Completed folder on the same drive as your library, and keep the temporary download folder on your fastest drive. With pooled drives (like DrivePool) this may not be possible, which is fine.",
+		Fix:     "SABnzbd → Config → Folders → Completed Download Folder."}}
 }

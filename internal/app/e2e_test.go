@@ -375,7 +375,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	friend.ok("GET", "/title/movie/101", nil, &title)
-	if p := title.Status.Progress; p == nil || p.Percent != 90 || !p.Live || p.Stage != "Downloading" || p.Speed != "186 MB/s" || p.TimeLeft != "9s" {
+	if p := title.Status.Progress; p == nil || p.Percent != 90 || !p.Live || p.Stage != "Downloading" || p.Speed != "200 MB/s" || p.TimeLeft != "9s" {
 		t.Fatalf("live progress: %+v", title.Status.Progress)
 	}
 
@@ -1177,7 +1177,60 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("future date should be reset: %+v %v", applied, fk.PlexMovies[105])
 	}
 
-	// 40. Owners only.
+	// 40. Speed-test-driven and drive checks; the connection helper.
+	owner.ok("GET", "/tune", nil, &tr)
+	byID = map[string]TuneFinding{}
+	for _, f := range tr.Findings {
+		byID[f.ID] = f
+	}
+	if f := byID["sab-pause-pp"]; f.Status != "change" || f.Recommended != "On" {
+		t.Fatalf("a slow download drive should suggest pausing while unpacking: %+v", f)
+	}
+	if f := byID["sab-propagation"]; f.Status != "change" || f.Level != "review" || f.Recommended != "5 min" {
+		t.Fatalf("propagation delay: %+v", f)
+	}
+	if f := byID["sab-same-drive"]; f.Status != "notice" || !strings.Contains(f.Current, "D:") || !strings.Contains(f.Current, "P:") {
+		t.Fatalf("completed folder on another drive should be explained: %+v", f)
+	}
+	fk.Queue["radarr"] = nil
+	if code, m := owner.call("POST", "/tune/connections/start", map[string]any{}, nil); code != 400 || !strings.Contains(m["error"].(string), "download first") {
+		t.Fatalf("the helper needs something downloading: %d %v", code, m)
+	}
+	connSettle, connSample, connTick = 5*time.Millisecond, 20*time.Millisecond, 5*time.Millisecond
+	fk.Queue["radarr"] = []map[string]any{{"id": 701, "movieId": movieExt, "title": "Big.Film", "size": 4e10, "sizeleft": 3e10, "status": "downloading", "downloadId": "nzo_big"}}
+	owner.ok("POST", "/tune/connections/start", map[string]any{}, nil)
+	var ct ConnTuner
+	waitFor(t, "the connection helper", func() bool {
+		owner.ok("GET", "/tune/connections", nil, &ct)
+		return !ct.Running
+	})
+	if ct.Error != "" || ct.Best != 22 || fk.SABServers[0]["connections"] != 22 || len(ct.Steps) != 9 {
+		t.Fatalf("speed tops out at 20 connections, so 22 (with 2 spare): %+v server=%v", ct, fk.SABServers[0]["connections"])
+	}
+	owner.ok("GET", "/tune", nil, &tr)
+	owner.ok("POST", "/tune/undo/"+itoa(changeFor("sab-connections-helper").ID), map[string]any{}, nil)
+	if fk.SABServers[0]["connections"] != 60 {
+		t.Fatalf("undo should restore the original 60: %v", fk.SABServers[0]["connections"])
+	}
+
+	// If downloads finish halfway, the helper puts the original back.
+	connSettle = 150 * time.Millisecond
+	owner.ok("POST", "/tune/connections/start", map[string]any{}, nil)
+	if code, _ := owner.call("POST", "/tune/connections/start", map[string]any{}, nil); code != 400 {
+		t.Fatal("only one run at a time")
+	}
+	fk.Lock()
+	fk.Queue["radarr"] = nil
+	fk.Unlock()
+	waitFor(t, "the helper to give up", func() bool {
+		owner.ok("GET", "/tune/connections", nil, &ct)
+		return !ct.Running
+	})
+	if !strings.Contains(ct.Error, "finished or paused") || fk.SABServers[0]["connections"] != 60 {
+		t.Fatalf("should restore the original when downloads stop: %+v %v", ct, fk.SABServers[0]["connections"])
+	}
+
+	// 41. Owners only.
 	if code, _ := friend.call("GET", "/tune", nil, nil); code != 403 {
 		t.Fatalf("friends can't see Tune-up: %d", code)
 	}

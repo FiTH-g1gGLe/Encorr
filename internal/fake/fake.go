@@ -118,8 +118,9 @@ func New() *Stack {
 			"GenerateBIFBehavior": "asap", "ScheduledLibraryUpdatesEnabled": true, "secureConnections": 1},
 		SABMisc: map[string]any{"pause_on_pwrar": 1, "action_on_unwanted_extensions": 0, "unwanted_extensions_mode": 0, "unwanted_extensions": []any{},
 			"fail_hopeless_jobs": 1, "fast_fail": 1, "safe_postproc": 1, "ignore_unrar_dates": 0, "deobfuscate_final_filenames": 1,
-			"enable_par_cleanup": 1, "cache_limit": "450M", "bandwidth_max": "", "host": "127.0.0.1", "api_key": "secret"},
-		SABServers:  []map[string]any{{"name": "news.example.com", "displayname": "Example News", "enable": 1, "connections": 60, "pipelining_requests": 1, "ssl": 1, "ssl_ciphers": "", "password": "*****"}},
+			"enable_par_cleanup": 1, "cache_limit": "450M", "bandwidth_max": "", "host": "127.0.0.1", "api_key": "secret",
+			"pause_on_post_processing": 0, "propagation_delay": 0, "complete_dir": `D:\complete`},
+		SABServers:  []map[string]any{{"name": "news.example.com", "displayname": "Example News", "enable": 1, "priority": 0, "connections": 60, "pipelining_requests": 1, "ssl": 1, "ssl_ciphers": "", "password": "*****"}},
 		ProwlarrVIP: time.Now().AddDate(0, 0, 10).Format("2006-01-02"),
 		nextID:      100,
 	}
@@ -900,7 +901,20 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 				slots = append(slots, map[string]any{"nzo_id": it["downloadId"], "status": "Downloading", "percentage": "90", "mb": "1000", "mbleft": "100", "timeleft": "0:00:09"})
 			}
 		}
-		writeJSON(w, map[string]any{"queue": map[string]any{"kbpersec": "190000", "paused": false, "slots": slots}})
+		kb := "190000"
+		if len(s.SABServers) > 0 {
+			// Faster with more connections, up to 20.
+			c := s.SABServers[0]["connections"]
+			n, _ := c.(int)
+			if f, ok := c.(float64); ok {
+				n = int(f)
+			}
+			if n > 20 {
+				n = 20
+			}
+			kb = strconv.Itoa(n * 10 * 1024)
+		}
+		writeJSON(w, map[string]any{"queue": map[string]any{"kbpersec": kb, "paused": false, "slots": slots}})
 	case "history":
 		writeJSON(w, map[string]any{"history": map[string]any{"slots": []any{}}})
 	case "pause", "resume", "restart":

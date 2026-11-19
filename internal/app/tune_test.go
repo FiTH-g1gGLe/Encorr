@@ -67,3 +67,22 @@ func TestCanonAndSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestConnHelperMaths(t *testing.T) {
+	if c := connCandidates(45); c[0] != 8 || c[len(c)-1] != 40 {
+		t.Fatalf("up to the current count: %v", c)
+	}
+	if c := connCandidates(10); c[len(c)-1] != 30 {
+		t.Fatalf("cautious setups still try up to 30: %v", c)
+	}
+	steps := []ConnStep{{8, 80}, {12, 118}, {16, 158}, {20, 199}, {25, 201}, {30, 200}}
+	if b := pickBest(steps); b != 22 {
+		t.Fatalf("smallest within 5%% of the top, plus 2: %d", b)
+	}
+	if b := pickBest([]ConnStep{{8, 50}, {12, 50}}); b != 10 {
+		t.Fatalf("already saturated at 8: %d", b)
+	}
+	if driveOf(`D:\complete`) != "D:" || driveOf(`\\nas\media\tv`) != `\\nas\media` || driveOf("/mnt/media") != "" {
+		t.Fatalf("drives: %q %q", driveOf(`D:\complete`), driveOf(`\\nas\media\tv`))
+	}
+}

@@ -454,8 +454,10 @@ async function pageSettings(main, section) {
         <button class="btn" id="pSave">Connect</button></details>` : "";
       const section = (title, list, extra = "") => list.length ? `<h3 class="tsec">${title}${extra}</h3><div class="tlist2">${list.map(row).join("")}</div>` : "";
       const changes = (r.changes || []).slice(0, 12);
+      const sabOn = r.apps.some((a) => a.app === "sabnzbd" && a.connected);
       qs(".tbody", panel).innerHTML = `
         ${speedCard(r.speed)}
+        ${sabOn ? `<div class="glass tconn" id="tconn"></div>` : ""}
         <div class="tapps">${appsHtml}</div>
         ${prowForm}
         <div class="glass tsum"><div><b>${todo.length}</b> recommended change${todo.length === 1 ? "" : "s"}${warn.length ? ` · <b class="w">${warn.length}</b> to look at` : ""} · <b class="g">${good.length}</b> already good</div>
@@ -488,6 +490,29 @@ async function pageSettings(main, section) {
           busy(b, false);
         }
       }));
+      // Connection helper: tries a few connection counts on a live download.
+      const drawConn = (c) => {
+        const box = qs("#tconn", panel);
+        if (!box) return;
+        const top = Math.max(1, ...c.steps.map((x) => x.mbs));
+        const bars = c.steps.length ? `<div class="cbars">${c.steps.map((x) => `<div class="cbar ${x.connections === c.best - 2 || x.connections === c.best ? "best" : ""}"><i style="height:${Math.max(6, (x.mbs / top) * 100)}%"></i><b>${Math.round(x.mbs)}</b><span>${x.connections}</span></div>`).join("")}${c.running && c.trying ? `<div class="cbar now"><i style="height:6%"></i><b>…</b><span>${c.trying}</span></div>` : ""}</div><div class="small dim">MB/s at each number of connections</div>` : "";
+        const head = c.running
+          ? `<div><strong>Finding the best connection count…</strong><div class="small dim">Trying ${c.trying || "…"} connections on ${esc(c.label || "your news server")}. Takes about 5 minutes; keep something downloading.</div></div><button class="btn sm" id="connStop">${I.stop} Stop</button>`
+          : `<div><strong>Connection helper</strong><div class="small dim">${c.message ? esc(c.message) : c.error ? esc(c.error) : "Tries a few connection counts while something downloads, measures the real speed of each, and keeps the smallest number that reaches top speed (plus two spare). Start a big download first."}</div></div><button class="btn sm" id="connRun">${I.refresh} ${c.steps.length ? "Run again" : "Find the best number"}</button>`;
+        box.innerHTML = `<div class="tshead">${head}</div>${bars}`;
+        const run = qs("#connRun", box), stop = qs("#connStop", box);
+        if (run) run.addEventListener("click", async () => { busy(run, true, "Starting…"); try { await api("/tune/connections/start", { method: "POST", body: {} }); pollConn(); } catch (e) { toast(e.message, "error"); busy(run, false); } });
+        if (stop) stop.addEventListener("click", async () => { busy(stop, true, "Stopping…"); try { await api("/tune/connections/stop", { method: "POST", body: {} }); } catch (e) { toast(e.message, "error"); } });
+      };
+      const pollConn = async () => {
+        try {
+          const c = await api("/tune/connections");
+          drawConn(c);
+          if (c.running) { const t = setTimeout(pollConn, 2500); state.timers.push(t); }
+          else if (c.best && c.finished && Date.now() - new Date(c.finished).getTime() < 15000) { toast("Connection helper finished", "ok"); }
+        } catch { /* ignore */ }
+      };
+      if (sabOn) pollConn();
       const sr = qs("#speedRun", panel);
       if (sr) sr.addEventListener("click", async () => {
         busy(sr, true, "Testing… about 20 seconds");

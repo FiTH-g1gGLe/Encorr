@@ -73,7 +73,7 @@ It does the same job as Overseerr, Jellyseerr and Ombi, but it's built to be:
 | 🔧 **Settings check** | Reads the live settings of SABnzbd, Radarr, Sonarr, Prowlarr and Plex and compares them with recommendations from SABnzbd's own guide, the Servarr wiki, TRaSH Guides and Plex. Each one is explained in plain English, current value → recommended value. |
 | ✅ **Safe or your call** | Standard advice for every setup is marked **Safe** and can be applied in one go; anything that depends on taste or hardware is marked **Your call**. Connection, password and remote-access settings are never touched. |
 | ↩️ **Undo everything** | Every change is read back to confirm it took, and saved with its old value. Undo puts it back, and asks first if someone changed it again since. |
-| 🚀 **Speed test** | Measures your internet line, the download folders and the CPU (using SABnzbd's own test) and how many articles your news server actually has, then names the slowest part and sizes the recommendations to your machine. |
+| 🚀 **Speed test** | Measures your internet line, the download folders and the CPU (using SABnzbd's own test) and how many articles your news server actually has, then names the slowest part and sizes the recommendations to your machine. The **connection helper** tries a few connection counts on a live download and keeps the smallest that reaches top speed. |
 | 🧹 **Fixers** | Resets items dated in the future that stick at the top of Recently Added, and (in English-speaking regions) skips releases with foreign burned-in subtitles. |
 | 🧭 **Indexer checks** | With Prowlarr connected (found automatically when it's on the same computer): VIP about to expire, indexers paused after failures, sync settings. |
 
