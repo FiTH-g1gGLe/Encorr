@@ -866,6 +866,7 @@ async function updateBox() {
   if (go) go.addEventListener("click", async () => {
     if (!confirmBox(`Update Encorr to ${u.latest}? It restarts by itself and this page comes back in about a minute. Downloads keep going in SABnzbd meanwhile.`)) return;
     busy(go, true, "Downloading…");
+    qsa("#bgBtn").forEach((b) => (b.disabled = true)); // nothing else while it updates
     try {
       await api("/update/install", { method: "POST", body: {} });
     } catch (e) { toast(e.message, "error"); busy(go, false); return; }

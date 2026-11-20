@@ -52,6 +52,13 @@ func (a *App) hBackgroundSet(w http.ResponseWriter, r *http.Request, u *store.Us
 		fail(w, userErr("Running in the background isn't available on this system yet."))
 		return
 	}
+	a.upd.mu.Lock()
+	updating := a.upd.updating
+	a.upd.mu.Unlock()
+	if updating {
+		fail(w, userErr("Encorr is updating. Wait for it to restart, then try again."))
+		return
+	}
 	var err error
 	if body.On {
 		err = a.Background.Install(a.requestQuit)
