@@ -81,6 +81,8 @@ type tuneEnv struct {
 	libraries []store.PlexLibrary
 	jfNames   map[string]string // Jellyfin library id -> name
 	plexPass  bool              // the Plex owner has Plex Pass (hardware transcoding needs it)
+	// sabRecentMBs is the average speed of SABnzbd's recent big downloads.
+	sabRecentMBs float64
 }
 
 type prowlarrInfo struct {
@@ -229,6 +231,11 @@ func (a *App) readSAB(ctx context.Context, e *tuneEnv) error {
 		}
 	}
 	e.mu.Unlock()
+	if mbs, n := sabRecentSpeed(ctx, c); n >= 3 {
+		e.mu.Lock()
+		e.sabRecentMBs = mbs
+		e.mu.Unlock()
+	}
 	if in, err := c.Info(ctx); err == nil {
 		e.mu.Lock()
 		e.orphans = len(in.Orphans)
@@ -880,6 +887,40 @@ func checkSABServers(e *tuneEnv) []TuneFinding {
 				Why: "More connections than your provider allows causes errors and slows things down. Most allow 30 to 60; check your account page, then try a few values with the speed test.",
 				Fix: "SABnzbd → Config → Servers → Connections"})
 		}
+	}
+	// Paid-by-the-gigabyte blocks should only fill gaps: if one is tried
+	// before (or alongside) an unlimited server, it gets used up fast.
+	minUnlimited := -1
+	for _, srv := range e.sabSrv {
+		if canon(srv["enable"]) != "0" && sizeBytes(srv["quota"]) == 0 {
+			if p := int(num(srv["priority"])); minUnlimited < 0 || p < minUnlimited {
+				minUnlimited = p
+			}
+		}
+	}
+	for _, srv := range e.sabSrv {
+		if minUnlimited < 0 || canon(srv["enable"]) == "0" || sizeBytes(srv["quota"]) == 0 || int(num(srv["priority"])) > minUnlimited {
+			continue
+		}
+		name, _ := srv["name"].(string)
+		label := name
+		if dn, _ := srv["displayname"].(string); dn != "" {
+			label = dn
+		}
+		out = append(out, TuneFinding{ID: "sab-block-order:" + name, App: "sabnzbd", Area: "Speed", Level: "warn", Status: "notice",
+			Title: label + " is used before your unlimited server", Current: "Priority " + canon(srv["priority"]),
+			Why: "It's a block, paid by the gigabyte, so it should only fetch what your unlimited servers can't find. At the same or a lower priority number it's used for everything and runs out fast.",
+			Fix: fmt.Sprintf("SABnzbd → Config → Servers → %s → Priority: set it higher than %d (a bigger number is tried later)", label, minUnlimited)})
+	}
+	// Downloads far slower than the line: the limit is the route to the
+	// news server.
+	if e.speed != nil && e.speed.Internet > 0 && e.sabRecentMBs > 0 && e.sabRecentMBs < e.speed.Internet*0.4 {
+		pct := int(e.sabRecentMBs / e.speed.Internet * 100)
+		out = append(out, TuneFinding{ID: "sab-slow-real", App: "sabnzbd", Area: "Speed", Level: "info", Status: "notice",
+			Title:   fmt.Sprintf("Downloads only use about %d%% of your line", pct),
+			Current: fmt.Sprintf("%.0f MB/s, line %.0f MB/s", e.sabRecentMBs, e.speed.Internet),
+			Why:     "Your internet, drive and processor can go faster, so the limit is the route to your news server. Providers often have addresses for each region that are much quicker than the automatic one.",
+			Fix:     "Try your provider's address for your region (for Newshosting in Europe: news-eu.newshosting.com) in SABnzbd → Config → Servers, then compare speeds on the Subscriptions page."})
 	}
 	if e.speed != nil {
 		for _, s := range e.speed.Servers {

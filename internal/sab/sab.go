@@ -492,3 +492,8 @@ func (c *Client) ArticleSuccess(ctx context.Context, days int) ([]ServerHealth, 
 func (c *Client) CallRaw(ctx context.Context, mode string, out any) error {
 	return c.call(ctx, mode, nil, out)
 }
+
+// CallRawQuery is CallRaw with extra parameters (e.g. limit=100).
+func (c *Client) CallRawQuery(ctx context.Context, mode string, extra url.Values, out any) error {
+	return c.call(ctx, mode, extra, out)
+}

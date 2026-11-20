@@ -773,6 +773,13 @@ func (s *Stack) arrCommon(w http.ResponseWriter, r *http.Request, app, p string)
 	case p == "/release" && r.Method == http.MethodPost:
 		s.Grabbed = append(s.Grabbed, readBody(r))
 		writeJSON(w, map[string]any{})
+	case p == "/history/since":
+		now := time.Now().UTC().Format(time.RFC3339)
+		writeJSON(w, []any{
+			map[string]any{"eventType": "grabbed", "downloadId": app + "-a", "date": now, "data": map[string]any{"indexer": "GeekFake (Prowlarr)"}},
+			map[string]any{"eventType": "downloadFolderImported", "downloadId": app + "-a", "date": now, "data": map[string]any{}},
+			map[string]any{"eventType": "grabbed", "downloadId": app + "-b", "date": now, "data": map[string]any{"indexer": "NinjaFake (Prowlarr)"}},
+			map[string]any{"eventType": "downloadFailed", "downloadId": app + "-b", "date": now, "data": map[string]any{}}})
 	case strings.HasPrefix(p, "/history/failed/") && r.Method == http.MethodPost:
 		s.Failed = append(s.Failed, app+":"+strings.TrimPrefix(p, "/history/failed/"))
 		w.WriteHeader(200)
@@ -1004,7 +1011,10 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"queue": map[string]any{"kbpersec": kb, "paused": false, "slots": slots}})
 	case "history":
-		writeJSON(w, map[string]any{"history": map[string]any{"slots": []any{}}})
+		writeJSON(w, map[string]any{"history": map[string]any{"slots": []any{
+			map[string]any{"name": "Big.Film.2160p", "status": "Completed", "bytes": 20e9, "download_time": 400},
+			map[string]any{"name": "Show.S01E01.1080p", "status": "Completed", "bytes": 3e9, "download_time": 60},
+			map[string]any{"name": "Tiny.nfo", "status": "Completed", "bytes": 1e6, "download_time": 2}}}})
 	case "pause", "resume", "restart":
 		s.SABCalls = append(s.SABCalls, q.Get("mode"))
 		writeJSON(w, map[string]any{"status": true})
@@ -1077,8 +1087,9 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 	case "server_stats":
 		day := time.Now().Format("2006-01-02")
 		writeJSON(w, map[string]any{"total": 1, "servers": map[string]any{"news.example.com": map[string]any{
-			"total": 5e12, "articles_tried": map[string]any{day: 200000}, "articles_success": map[string]any{day: 120000}},
-			"block.example.net": map[string]any{"total": 1.7e12}}})
+			"total": 5e12, "articles_tried": map[string]any{day: 200000}, "articles_success": map[string]any{day: 120000},
+			"daily": map[string]any{day: 90e9}},
+			"block.example.net": map[string]any{"total": 1.7e12, "daily": map[string]any{day: 30e9}}}})
 	case "status":
 		if q.Get("calculate_performance") == "1" {
 			writeJSON(w, map[string]any{"status": map[string]any{"pystone": 250000, "downloaddirspeed": 60.5, "completedirspeed": 300.0, "internetbandwidth": 120.0, "downloaddir": `D:\incomplete`, "completedir": `D:\complete`}})
@@ -1157,6 +1168,10 @@ func (s *Stack) prowlarr(w http.ResponseWriter, r *http.Request, p string) {
 			map[string]any{"id": 2, "name": "NinjaFake", "enable": true, "protocol": "usenet", "fields": []any{map[string]any{"name": "vipExpiration", "value": "2135-01-01"}}}})
 	case "/indexerstatus":
 		writeJSON(w, []any{map[string]any{"indexerId": 1, "disabledTill": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)}})
+	case "/indexerstats":
+		writeJSON(w, map[string]any{"indexers": []any{
+			map[string]any{"indexerName": "GeekFake", "numberOfQueries": 1000, "numberOfGrabs": 300, "numberOfFailedQueries": 400, "averageResponseTime": 250},
+			map[string]any{"indexerName": "NinjaFake", "numberOfQueries": 200, "numberOfGrabs": 20, "averageResponseTime": 90}}})
 	default:
 		http.NotFound(w, r)
 	}

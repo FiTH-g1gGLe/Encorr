@@ -168,3 +168,8 @@ func (c *Client) PostJSON(ctx context.Context, path string, body, out any) error
 func (c *Client) DeleteJSON(ctx context.Context, path string) error {
 	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
 }
+
+// GetJSONQuery is GetJSON with query parameters.
+func (c *Client) GetJSONQuery(ctx context.Context, path string, q url.Values, out any) error {
+	return c.do(ctx, http.MethodGet, path, q, nil, out)
+}

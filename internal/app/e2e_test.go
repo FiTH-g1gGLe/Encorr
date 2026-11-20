@@ -1850,6 +1850,36 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
+	// 45b. The Usenet report.
+	{
+		var rep UsenetReport
+		owner.ok("GET", "/usenet/report", nil, &rep)
+		if len(rep.Servers) != 2 || rep.Servers[0].GB30 < 89 || rep.Servers[0].Share30 != 75 || rep.Servers[1].Block == nil || rep.Servers[1].Block.DaysLeft == 0 {
+			t.Fatalf("report servers: %+v", rep.Servers)
+		}
+		if rep.Speed.Samples != 2 || rep.Speed.RecentMBs < 47 || rep.Speed.RecentMBs > 48.5 {
+			t.Fatalf("report speed: %+v", rep.Speed)
+		}
+		var geek, ninja *reportIndexer
+		for i := range rep.Indexers {
+			switch rep.Indexers[i].Name {
+			case "GeekFake":
+				geek = &rep.Indexers[i]
+			case "NinjaFake":
+				ninja = &rep.Indexers[i]
+			}
+		}
+		if geek == nil || ninja == nil || geek.Grabs90 != 2 || geek.Imported90 != 2 || ninja.Failed90 != 2 || geek.Share90 != 50 || !ninja.Lifetime || geek.AvgMs != 250 {
+			t.Fatalf("report indexers: %+v", rep.Indexers)
+		}
+		if !strings.Contains(strings.Join(rep.Tips, " "), "GeekFake fails 40% of searches") {
+			t.Fatalf("report tips: %v", rep.Tips)
+		}
+		if code, _ := friend.call("GET", "/usenet/report", nil, nil); code != 403 {
+			t.Fatalf("friends can't see the report: %d", code)
+		}
+	}
+
 	// 45. Owners only.
 	var ui UpdateInfo
 	owner.ok("GET", "/update", nil, &ui)

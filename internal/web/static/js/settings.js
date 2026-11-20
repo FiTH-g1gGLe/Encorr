@@ -800,7 +800,9 @@ async function pageSettings(main, section) {
         </div>
         ${!d.prowlarr ? `<div class="notice subhint">${I.spark} Connect Prowlarr in <a href="#/settings/tune">Tune-up</a> and your indexers' VIP dates show up here by themselves.</div>` : ""}
         ${!d.sabnzbd ? `<div class="notice subhint">${I.spark} Connect <a href="#/settings/sabnzbd">SABnzbd</a> to see your news servers and how much of each block is left.</div>` : `<div class="small dim subtipline">${I.hand} Tip: set a server's expiry date and block size (Quota) in SABnzbd → Config → Servers and they appear here automatically.</div>`}
-        ${listHTML(items)}`;
+        ${listHTML(items)}
+        <div id="ureport"></div>`;
+      usenetReport(qs("#ureport"));
       qs("#subAdd").addEventListener("click", () => editor({ source: "You", kind: "indexer", plan: "yearly", currency: "GBP" }, load));
       qsa("[data-edit]", panel).forEach((b) => b.addEventListener("click", () => editor(items[+b.dataset.edit], load)));
       qsa("[data-del]", panel).forEach((b) => b.addEventListener("click", async () => {
@@ -886,4 +888,41 @@ async function updateBox() {
     };
     setTimeout(poll, 4000);
   });
+}
+
+// ---------- Usenet report (Subscriptions page) ----------
+async function usenetReport(box) {
+  if (!box) return;
+  box.innerHTML = `<section class="ureport"><div class="uhead"><h2>How they're doing</h2></div><div class="rwait"><span class="spinner"></span> Adding up the numbers…</div></section>`;
+  let r;
+  try { r = await api("/usenet/report"); } catch (e) { box.innerHTML = ""; return; }
+  if (!r.servers.length && !r.indexers.length) { box.innerHTML = ""; return; }
+  const gb = (v) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + " TB" : v >= 10 ? Math.round(v) + " GB" : v.toFixed(1) + " GB");
+  const lasts = (d) => (d >= 730 ? `about ${Math.round(d / 365)} years` : d >= 60 ? `about ${Math.round(d / 30)} months` : `about ${d} days`);
+  const sp = r.speed || {};
+  const pct = Math.max(0, Math.min(100, sp.percent || 0));
+  const speedCard = sp.samples ? `<div class="glass uspeed ${pct && pct < 40 ? "low" : ""}">
+      <div><span class="small dim">Recent download speed</span><b>${Math.round(sp.recentMBs)} MB/s</b><span class="small dim">average of your last ${sp.samples} big download${sp.samples === 1 ? "" : "s"}</span></div>
+      ${sp.lineMBs ? `<div class="ubarwrap"><div class="ubar"><i style="width:${pct}%"></i></div><span class="small">${pct}% of your ${Math.round(sp.lineMBs)} MB/s line</span></div>` : `<div class="small dim">Run the speed test in Tune-up to compare this with your line.</div>`}
+    </div>` : "";
+  const tips = r.tips.length ? `<div class="utips">${r.tips.map((t) => `<div class="utip">${I.spark}<span>${esc(t)}</span></div>`).join("")}</div>` : `<div class="utip ok">${I.check}<span>Nothing to change: your servers and indexers look healthy.</span></div>`;
+  const servers = r.servers.length ? `<h3 class="usub">News servers <span class="small dim">last 30 days</span></h3>
+    <div class="ulist">${r.servers.map((v) => `<div class="urow ${v.enabled ? "" : "off"}">
+      <div class="uname"><strong>${esc(v.label)}</strong><span class="small dim">${v.block ? "Block" : "Unlimited"} · priority ${v.priority}${v.network ? ` · <span class="unet"${v.sameAs && v.sameAs.length ? tip("Same network as " + v.sameAs.join(", ")) : ""}>${esc(v.network)} network</span>` : ""}</span></div>
+      <div class="ushare"><div class="ubar"><i style="width:${Math.min(100, v.share30)}%"></i></div><span class="small">${gb(v.gb30)} · ${v.share30}%</span></div>
+      <div class="uextra small">${v.block ? `${gb(v.block.usedGB)} of ${gb(v.block.sizeGB)} used${v.block.daysLeft ? ` · lasts ${lasts(v.block.daysLeft)}` : " · not touched lately"}` : `${gb(v.gb7)} this week`}</div>
+    </div>`).join("")}</div>` : "";
+  const indexers = r.indexers.length ? `<h3 class="usub">Indexers <span class="small dim">last 90 days</span></h3>
+    <div class="ulist">${r.indexers.map((v) => {
+      const ok = v.grabs90 ? Math.round((v.imported90 / v.grabs90) * 100) : 0;
+      return `<div class="urow ${v.enabled ? "" : "off"}">
+        <div class="uname"><strong>${esc(v.name)}</strong><span class="small dim">${v.lifetime ? "Lifetime" : v.expires ? "Renews " + esc(new Date(v.expires).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })) : "No VIP date"} · priority ${v.priority}${v.avgMs ? ` · answers in ${v.avgMs} ms` : ""}</span></div>
+        <div class="ushare"><div class="ubar"><i style="width:${Math.min(100, v.share90)}%"></i></div><span class="small">${v.grabs90} found · ${v.share90}%</span></div>
+        <div class="uextra small">${v.grabs90 ? `${ok}% made it to your library${v.failed90 ? ` · ${v.failed90} failed` : ""}` : "Nothing grabbed lately"}</div>
+      </div>`;
+    }).join("")}</div>
+    <p class="small dim" style="margin-top:8px">"Found" is how many downloads Radarr and Sonarr took from each indexer. One with a high share is earning its keep; one near zero may not be worth renewing. Priority decides who gets asked first, so lower-priority indexers naturally find less.</p>` : "";
+  box.innerHTML = `<section class="ureport"><div class="uhead"><h2>How they're doing</h2><span class="small dim">from SABnzbd, Prowlarr, Radarr and Sonarr</span></div>
+    ${speedCard}${tips}${servers}${indexers}
+    ${r.missing && r.missing.length ? `<p class="small dim">Connect ${esc(r.missing.join(" and "))} to see more here.</p>` : ""}</section>`;
 }
