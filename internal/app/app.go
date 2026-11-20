@@ -38,6 +38,7 @@ type App struct {
 	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
 	nudged    map[string]time.Time               // "sonarr:12" -> last time Encorr asked for a fresh search
 	queueSeen map[string]bool                    // the Radarr/Sonarr queue has been read since start
+	relJobs   map[string]*releaseJob             // background release searches
 	movieInfo map[int]arr.MovieInfo              // Radarr id -> release dates etc.
 	showInfo  map[int]arr.SeriesInfo             // Sonarr id -> next episode etc.
 	recent    recentCache                        // "Just added to Plex" row

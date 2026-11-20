@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -494,46 +496,132 @@ func ageText(h float64) string {
 	return fmt.Sprintf("%.0f years", h/24/365)
 }
 
-// hReleases runs an interactive search so an admin can pick a copy.
+// hReleases runs an interactive search so an admin can pick a copy, and
+// waits for it. The screens use the background search below instead, so a
+// slow search can't be cut off by a proxy in between.
 func (a *App) hReleases(w http.ResponseWriter, r *http.Request, u *store.User) {
-	reqID := pathInt(r, "id")
-	svc, c, ext, err := a.arrFor(reqID)
+	season, _ := strconv.Atoi(r.URL.Query().Get("season"))
+	episode, _ := strconv.Atoi(r.URL.Query().Get("episode"))
+	ctx, cancel := context.WithTimeout(r.Context(), releaseSearchTime)
+	defer cancel()
+	out, err := a.searchReleases(ctx, pathInt(r, "id"), season, episode)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	kind, season, episode := "movie", 0, 0
+	writeJSON(w, 200, out)
+}
+
+// releaseSearchTime is how long a search may take: shows with many episodes
+// on many indexers can take a couple of minutes.
+const releaseSearchTime = 3 * time.Minute
+
+type releaseJob struct {
+	done    bool
+	result  map[string]any
+	err     error
+	started time.Time
+}
+
+// hStartReleaseSearch starts a search in the background and returns a job id
+// to check on.
+func (a *App) hStartReleaseSearch(w http.ResponseWriter, r *http.Request, u *store.User) {
+	var body struct {
+		Season  int `json:"season"`
+		Episode int `json:"episode"`
+	}
+	_ = readJSON(r, &body)
+	reqID := pathInt(r, "id")
+	if _, _, _, err := a.arrFor(reqID); err != nil {
+		fail(w, err)
+		return
+	}
+	id := randomID()
+	job := &releaseJob{started: time.Now()}
+	a.mu.Lock()
+	if a.relJobs == nil {
+		a.relJobs = map[string]*releaseJob{}
+	}
+	for k, j := range a.relJobs { // forget old ones
+		if time.Since(j.started) > 15*time.Minute {
+			delete(a.relJobs, k)
+		}
+	}
+	a.relJobs[id] = job
+	a.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), releaseSearchTime)
+		defer cancel()
+		out, err := a.searchReleases(ctx, reqID, body.Season, body.Episode)
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			err = userErr("The indexers took more than 3 minutes to answer. Try one episode or a single season.")
+		}
+		a.mu.Lock()
+		job.done, job.result, job.err = true, out, err
+		a.mu.Unlock()
+	}()
+	writeJSON(w, 200, map[string]string{"job": id})
+}
+
+// hReleaseSearch reports on a background search.
+func (a *App) hReleaseSearch(w http.ResponseWriter, r *http.Request, u *store.User) {
+	a.mu.Lock()
+	job := a.relJobs[r.PathValue("job")]
+	var done bool
+	var result map[string]any
+	var err error
+	var secs int
+	if job != nil {
+		done, result, err, secs = job.done, job.result, job.err, int(time.Since(job.started).Seconds())
+	}
+	a.mu.Unlock()
+	switch {
+	case job == nil:
+		writeErr(w, 404, "That search has expired. Start it again.")
+	case !done:
+		writeJSON(w, 200, map[string]any{"done": false, "seconds": secs})
+	case err != nil:
+		fail(w, err)
+	default:
+		result["done"] = true
+		writeJSON(w, 200, result)
+	}
+}
+
+// searchReleases asks Radarr/Sonarr to search every indexer for a request:
+// a film, a season, or one episode.
+func (a *App) searchReleases(ctx context.Context, reqID, season, episode int) (map[string]any, error) {
+	svc, c, ext, err := a.arrFor(reqID)
+	if err != nil {
+		return nil, err
+	}
+	kind := "movie"
 	if svc == "sonarr" {
 		kind = "tv"
-		episode, _ = strconv.Atoi(r.URL.Query().Get("episode"))
-		season, _ = strconv.Atoi(r.URL.Query().Get("season"))
 		if season == 0 {
 			if rq, _, ok := a.requestInfo(reqID); ok && len(rq.Seasons) > 0 {
 				season = rq.Seasons[0]
 			}
 		}
+	} else {
+		season, episode = 0, 0
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
 	if episode > 0 { // make sure the episode belongs to this show
 		eps, err := c.EpisodeDetails(ctx, ext)
 		if err != nil {
-			fail(w, err)
-			return
+			return nil, err
 		}
 		found := false
 		for _, e := range eps {
 			found = found || e.ID == episode
 		}
 		if !found {
-			fail(w, userErr("That episode isn't part of this show."))
-			return
+			return nil, userErr("That episode isn't part of this show.")
 		}
 	}
 	list, err := c.ReleasesFor(ctx, kind, ext, season, episode)
 	if err != nil {
-		fail(w, err)
-		return
+		return nil, err
 	}
 	out := make([]releaseOut, 0, len(list))
 	for _, x := range list {
@@ -555,7 +643,7 @@ func (a *App) hReleases(w http.ResponseWriter, r *http.Request, u *store.User) {
 	if len(out) > 100 {
 		out = out[:100]
 	}
-	writeJSON(w, 200, map[string]any{"releases": out, "season": season, "episode": episode})
+	return map[string]any{"releases": out, "season": season, "episode": episode}, nil
 }
 
 // hGrab downloads the copy an admin picked.
@@ -690,4 +778,11 @@ func (a *App) hActivity(w http.ResponseWriter, r *http.Request, u *store.User) {
 		out = []store.Activity{}
 	}
 	writeJSON(w, 200, map[string]any{"items": out})
+}
+
+// randomID is a short unguessable id for background jobs.
+func randomID() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

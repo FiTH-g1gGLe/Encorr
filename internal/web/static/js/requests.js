@@ -364,12 +364,22 @@ async function releasesModal(reqID, r, reload) {
   }
   const load = async () => {
     const box = qs(".rels", m.el);
-    box.innerHTML = `<div class="rwait"><span class="spinner"></span> Asking every indexer. This can take up to a minute…</div>`;
-    const ask = [season ? "season=" + season : "", episode ? "episode=" + episode : ""].filter(Boolean).join("&");
+    box.innerHTML = `<div class="rwait"><span class="spinner"></span> <span class="rwt">Asking every indexer. Big shows can take a minute or two…</span></div>`;
     const mine = `${season}:${episode}`;
+    const stale = () => mine !== `${season}:${episode}` || !document.body.contains(box);
     try {
-      const x = await api(`/requests/${reqID}/releases${ask ? "?" + ask : ""}`);
-      if (mine !== `${season}:${episode}`) return; // they picked something else meanwhile
+      // Start the search, then check back: a slow search can't time out on the way.
+      const { job } = await api(`/requests/${reqID}/releases/search`, { method: "POST", body: { season, episode } });
+      let x;
+      for (;;) {
+        await new Promise((res) => setTimeout(res, 2500));
+        if (stale()) return; // they picked something else, or closed it
+        x = await api(`/releases/search/${job}`);
+        if (x.done) break;
+        const t = qs(".rwt", box);
+        if (t && x.seconds >= 10) t.textContent = `Still asking every indexer (${x.seconds}s). Big shows can take a minute or two…`;
+      }
+      if (stale()) return;
       if (!x.releases.length) { box.innerHTML = `<p class="muted">No copies found right now. ${episode ? "Try the whole season: episodes often come in season packs." : "Radarr/Sonarr keep looking by themselves."}</p>`; return; }
       box.innerHTML = x.releases.map((rl, i) => `<div class="rel ${rl.approved ? "" : "rej"}">
         <div class="rl"><strong class="rname">${esc(rl.title)}</strong>

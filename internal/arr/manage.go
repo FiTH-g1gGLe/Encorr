@@ -106,7 +106,7 @@ type Release struct {
 }
 
 // releaseClient waits longer: an interactive search asks every indexer.
-var releaseClient = &http.Client{Timeout: 90 * time.Second}
+var releaseClient = &http.Client{Timeout: 3 * time.Minute}
 
 // Releases runs an interactive search for a film, or a show's season.
 func (c *Client) Releases(ctx context.Context, kind string, id, season int) ([]Release, error) {

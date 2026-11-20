@@ -970,6 +970,29 @@ func TestEndToEnd(t *testing.T) {
 	if len(rel.Releases) != 2 || !rel.Releases[0].Approved || rel.Releases[1].Approved || len(rel.Releases[1].Rejections) != 1 {
 		t.Fatalf("releases: %+v", rel.Releases)
 	}
+	// The screens search in the background and check back, so a slow search
+	// can't time out on the way through a proxy.
+	{
+		var job struct{ Job string }
+		owner.ok("POST", "/requests/"+itoa(reqID)+"/releases/search", map[string]any{}, &job)
+		var got struct {
+			Done     bool
+			Releases []releaseOut
+		}
+		for i := 0; i < 50 && !got.Done; i++ {
+			time.Sleep(50 * time.Millisecond)
+			owner.ok("GET", "/releases/search/"+job.Job, nil, &got)
+		}
+		if !got.Done || len(got.Releases) != 2 {
+			t.Fatalf("background search: %+v", got)
+		}
+		if code, _ := friend.call("POST", "/requests/"+itoa(reqID)+"/releases/search", map[string]any{}, nil); code != 403 {
+			t.Fatalf("friends can't search: %d", code)
+		}
+		if code, _ := owner.call("GET", "/releases/search/nope", nil, nil); code != 404 {
+			t.Fatalf("unknown job: %d", code)
+		}
+	}
 	owner.ok("POST", "/requests/"+itoa(reqID)+"/releases", map[string]any{"guid": "g1", "indexerId": 1, "title": "Good.Copy.1080p.WEB-DL"}, nil)
 	if len(fk.Grabbed) != 1 || fk.Grabbed[0]["guid"] != "g1" {
 		t.Fatalf("grab: %+v", fk.Grabbed)

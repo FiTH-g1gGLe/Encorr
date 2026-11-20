@@ -66,6 +66,8 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("POST /api/v1/requests/{id}/download/{action}", a.admin(a.hDownload))
 	api("GET /api/v1/requests/{id}/releases", a.admin(a.hReleases))
 	api("POST /api/v1/requests/{id}/releases", a.admin(a.hGrab))
+	api("POST /api/v1/requests/{id}/releases/search", a.admin(a.hStartReleaseSearch))
+	api("GET /api/v1/releases/search/{job}", a.admin(a.hReleaseSearch))
 	api("POST /api/v1/health/{action}", a.admin(a.hHealthAction))
 	api("GET /api/v1/activity", a.admin(a.hActivity))
 	api("DELETE /api/v1/activity", a.admin(a.hClearActivity))
