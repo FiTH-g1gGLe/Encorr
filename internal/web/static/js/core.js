@@ -50,8 +50,9 @@ function modal(html, { wide = false, sheet = false } = {}) {
   const bg = document.createElement("div");
   bg.className = "modal-bg";
   bg.innerHTML = `<div class="modal glass ${wide ? "wide" : ""} ${sheet ? "sheet" : ""}" role="dialog" aria-modal="true">${html}</div>`;
-  const close = () => { bg.remove(); document.removeEventListener("keydown", onKey); };
+  const close = () => { bg.remove(); document.removeEventListener("keydown", onKey); window.removeEventListener("hashchange", close); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
+  window.addEventListener("hashchange", close); // going back or to another page closes it
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   document.addEventListener("keydown", onKey);
   document.body.appendChild(bg);

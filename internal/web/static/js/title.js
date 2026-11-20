@@ -198,7 +198,17 @@ async function pageTitle(main, type, id) {
   if (reqBtn) reqBtn.addEventListener("click", () => requestModal(type, d, s));
   if (state.autoReq) { state.autoReq = false; if (reqBtn) requestModal(type, d, s); }
   const tr = qs("#trailer");
-  if (tr) tr.addEventListener("click", () => modal(`<iframe class="video" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(d.trailer)}?autoplay=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Trailer"></iframe>`, { wide: true }));
+  if (tr) tr.addEventListener("click", () => {
+    const m = modal(`<iframe class="video" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(d.trailer)}?autoplay=1&enablejsapi=1&playsinline=1" allow="autoplay; encrypted-media" allowfullscreen title="Trailer"></iframe>`, { wide: true });
+    const frame = qs("iframe", m.el);
+    // Minimising or switching away pauses it (press play to carry on).
+    const onHide = () => {
+      if (document.hidden && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify({ event: "command", func: "pauseVideo", args: [] }), "*");
+    };
+    const tidy = () => document.removeEventListener("visibilitychange", onHide);
+    document.addEventListener("visibilitychange", onHide);
+    new MutationObserver((_, obs) => { if (!document.body.contains(frame)) { tidy(); obs.disconnect(); } }).observe(document.body, { childList: true });
+  });
   const cb = qs("#cancelReq");
   if (cb) cb.addEventListener("click", async () => {
     if (!confirmBox("Cancel your request?")) return;
