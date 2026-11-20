@@ -68,6 +68,7 @@ func (a *App) Handler(static fs.FS) http.Handler {
 	api("POST /api/v1/requests/{id}/releases", a.admin(a.hGrab))
 	api("POST /api/v1/health/{action}", a.admin(a.hHealthAction))
 	api("GET /api/v1/activity", a.admin(a.hActivity))
+	api("DELETE /api/v1/activity", a.admin(a.hClearActivity))
 	api("GET /api/v1/tune", a.admin(a.hTune))
 	api("POST /api/v1/tune/apply", a.admin(a.hTuneApply))
 	api("POST /api/v1/tune/undo/{id}", a.admin(a.hTuneUndo))

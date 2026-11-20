@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1847,6 +1849,27 @@ func TestEndToEnd(t *testing.T) {
 		friend.ok("POST", "/issues/"+itoa(is2.ID)+"/resolve", map[string]any{"reply": "found them in the menu"}, nil)
 		if code, _ := friend.call("POST", "/issues/"+itoa(is2.ID)+"/resolve", map[string]any{}, nil); code != 400 {
 			t.Fatalf("resolving twice: %d", code)
+		}
+	}
+
+	// 45a. Clearing the logs.
+	{
+		a.activity("info", "Something happened", "")
+		if code, _ := friend.call("DELETE", "/activity", nil, nil); code != 403 {
+			t.Fatalf("friends can't clear the logs: %d", code)
+		}
+		lp := filepath.Join(t.TempDir(), "encorr.log")
+		_ = os.WriteFile(lp, []byte("old lines\n"), 0o644)
+		LogPath = lp
+		owner.ok("DELETE", "/activity", nil, nil)
+		LogPath = ""
+		var acts struct{ Items []store.Activity }
+		owner.ok("GET", "/activity", nil, &acts)
+		if len(acts.Items) != 0 {
+			t.Fatalf("activity not cleared: %v", acts.Items)
+		}
+		if b, _ := os.ReadFile(lp); len(b) != 0 {
+			t.Fatalf("log file not emptied: %q", b)
 		}
 	}
 

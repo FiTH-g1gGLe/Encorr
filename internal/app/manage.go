@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -643,6 +644,25 @@ func (a *App) hHealthAction(w http.ResponseWriter, r *http.Request, u *store.Use
 }
 
 // hActivity lists recent auto-fixes and actions, newest first.
+// LogPath is Encorr's log file, set by main so the owner can clear it.
+var LogPath string
+
+// hClearActivity empties the activity list and the log file.
+func (a *App) hClearActivity(w http.ResponseWriter, r *http.Request, u *store.User) {
+	_ = a.Store.Update(func(d *store.Data) error {
+		d.Activity = nil
+		return nil
+	})
+	if LogPath != "" {
+		if err := os.Truncate(LogPath, 0); err != nil {
+			fail(w, userErr("Cleared the activity list, but couldn't empty the log file: "+err.Error()))
+			return
+		}
+	}
+	a.logf("%s cleared the logs", u.Username)
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
 func (a *App) hActivity(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var out []store.Activity
 	a.Store.Read(func(d *store.Data) {

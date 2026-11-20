@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -83,6 +84,8 @@ type tuneEnv struct {
 	plexPass  bool              // the Plex owner has Plex Pass (hardware transcoding needs it)
 	// sabRecentMBs is the average speed of SABnzbd's recent big downloads.
 	sabRecentMBs float64
+	// leftovers are finished-download folders that are safe to delete.
+	leftovers []leftover
 }
 
 type prowlarrInfo struct {
@@ -231,6 +234,11 @@ func (a *App) readSAB(ctx context.Context, e *tuneEnv) error {
 		}
 	}
 	e.mu.Unlock()
+	if lo := a.findLeftovers(ctx, cfg); len(lo) > 0 {
+		e.mu.Lock()
+		e.leftovers = lo
+		e.mu.Unlock()
+	}
 	if mbs, n := sabRecentSpeed(ctx, c); n >= 3 {
 		e.mu.Lock()
 		e.sabRecentMBs = mbs
@@ -660,6 +668,41 @@ func tuneRules() []tuneRule {
 			},
 			action: func(ctx context.Context, a *App, e *tuneEnv) (map[string]any, string, error) {
 				return nil, fmt.Sprintf("%d folders", e.orphans), a.SAB().DeleteOrphans(ctx)
+			}},
+		{id: "sab-done-leftovers", app: "sabnzbd", area: "Housekeeping", level: "safe",
+			title: "Delete finished downloads that were never cleaned up",
+			check: func(e *tuneEnv) []TuneFinding {
+				if len(e.leftovers) == 0 {
+					return nil
+				}
+				var total int64
+				reasons := map[string]int{}
+				for _, l := range e.leftovers {
+					total += l.Bytes
+					reasons[l.Reason]++
+				}
+				var parts []string
+				for _, r := range []string{"already in your library", "half-unpacked leftover", "failed download", "no video in it"} {
+					if n := reasons[r]; n > 0 {
+						parts = append(parts, fmt.Sprintf("%d %s", n, r))
+					}
+				}
+				examples := []string{}
+				for i, l := range e.leftovers {
+					if i == 4 {
+						break
+					}
+					examples = append(examples, filepath.Base(l.Path))
+				}
+				return []TuneFinding{{Status: "change", Current: fmt.Sprintf("%d folders, %s", len(e.leftovers), humanBytes(float64(total))), Recommended: "Deleted",
+					Why: "Copies left behind in SABnzbd's finished folder after Radarr or Sonarr moved on: " + strings.Join(parts, ", ") + ". Encorr checked each one: anything not already safely in your library, or not recognised, is left alone. Biggest: " + strings.Join(examples, ", ") + "."}}
+			},
+			action: func(ctx context.Context, a *App, e *tuneEnv) (map[string]any, string, error) {
+				n, freed, err := a.deleteLeftovers(ctx, e.leftovers)
+				if n == 0 && err != nil {
+					return nil, "", err
+				}
+				return nil, fmt.Sprintf("%d folders, freed %s", n, humanBytes(float64(freed))), nil
 			}},
 	}
 

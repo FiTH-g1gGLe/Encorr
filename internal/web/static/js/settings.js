@@ -524,7 +524,14 @@ async function pageSettings(main, section) {
         <div class="glass hset"><div><strong>Auto-fix stuck downloads</strong><div class="small dim">Every 5 minutes: imports downloads stuck before Plex, swaps failed or stalled ones for another copy, and clears SABnzbd's leftovers. You'll see everything it does below.</div></div><label class="switch"><input type="checkbox" id="autofix" ${s.autoFix !== false ? "checked" : ""}><span class="slider"></span></label></div>
         <div class="hacts"><a class="btn" href="#/settings/tune"${tip("Check your apps' settings against recommended ones")}>${I.wrench} Open Tune-up</a><button class="btn" data-hact="search-missing"${tip("Ask Radarr and Sonarr to look for every missing film and episode now")}>${I.search} Search for everything missing</button></div>
         <div class="checks"><span class="spinner"></span></div>
-        <h2>What Encorr has been doing</h2><div class="alog"><span class="spinner"></span></div>`;
+        <div class="row between" style="align-items:center"><h2>What Encorr has been doing</h2><button class="btn sm" id="alogClear">${I.trash || ""} Clear</button></div><div class="alog"><span class="spinner"></span></div>`;
+      qs("#alogClear", panel).addEventListener("click", async (e) => {
+        if (!confirmBox("Clear Encorr's activity list and log file? Settings, requests and history aren't touched.")) return;
+        busy(e.currentTarget, true, "Clearing…");
+        try { await api("/activity", { method: "DELETE" }); toast("Logs cleared", "ok"); run(); }
+        catch (err) { toast(err.message, "error"); }
+        busy(e.currentTarget, false);
+      });
       qs("#recheck").addEventListener("click", run);
       qs("#autofix").addEventListener("change", async (e) => {
         try { await api("/settings/general", { method: "PUT", body: { autoFix: e.target.checked } }); s.autoFix = e.target.checked; toast(e.target.checked ? "Auto-fix is on" : "Auto-fix is off", "ok"); } catch (err) { toast(err.message, "error"); e.target.checked = !e.target.checked; }

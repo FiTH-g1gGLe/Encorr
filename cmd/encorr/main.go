@@ -186,6 +186,7 @@ func run(ctx context.Context, opts options) error {
 	}
 	if err == nil {
 		out = io.MultiWriter(out, logFile)
+		app.LogPath = logFile.Name()
 		defer logFile.Close()
 	}
 	logger := log.New(out, "", log.LstdFlags)

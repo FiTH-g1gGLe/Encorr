@@ -363,8 +363,9 @@ func (c *Client) ClearWarnings(ctx context.Context) error {
 // Config is SABnzbd's whole configuration as it reports it (passwords and
 // keys come back masked).
 type Config struct {
-	Misc    map[string]any   `json:"misc"`
-	Servers []map[string]any `json:"servers"`
+	Misc       map[string]any   `json:"misc"`
+	Servers    []map[string]any `json:"servers"`
+	Categories []map[string]any `json:"categories"`
 }
 
 func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
