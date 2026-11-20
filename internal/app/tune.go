@@ -86,6 +86,9 @@ type tuneEnv struct {
 	sabRecentMBs float64
 	// leftovers are finished-download folders that are safe to delete.
 	leftovers []leftover
+	// fullScan is a whole Tune-up check (the page), not a quick re-read for
+	// one change: slow checks only run then.
+	fullScan bool
 }
 
 type prowlarrInfo struct {
@@ -137,6 +140,7 @@ var secretKey = regexp.MustCompile(`(?i)(pass(word)?|api_?key|nzb_key|token|secr
 // given ones) in parallel.
 func (a *App) readTune(ctx context.Context, only ...string) *tuneEnv {
 	e := newEnv()
+	e.fullScan = len(only) == 0
 	s := a.settings()
 	e.region = s.Region
 	e.libraries = a.enabledLibraries()
@@ -234,10 +238,12 @@ func (a *App) readSAB(ctx context.Context, e *tuneEnv) error {
 		}
 	}
 	e.mu.Unlock()
-	if lo := a.findLeftovers(ctx, cfg); len(lo) > 0 {
-		e.mu.Lock()
-		e.leftovers = lo
-		e.mu.Unlock()
+	if e.fullScan { // slow: asks Sonarr/Radarr about each folder
+		if lo := a.findLeftovers(ctx, cfg); len(lo) > 0 {
+			e.mu.Lock()
+			e.leftovers = lo
+			e.mu.Unlock()
+		}
 	}
 	if mbs, n := sabRecentSpeed(ctx, c); n >= 3 {
 		e.mu.Lock()
@@ -698,6 +704,16 @@ func tuneRules() []tuneRule {
 					Why: "Copies left behind in SABnzbd's finished folder after Radarr or Sonarr moved on: " + strings.Join(parts, ", ") + ". Encorr checked each one: anything not already safely in your library, or not recognised, is left alone. Biggest: " + strings.Join(examples, ", ") + "."}}
 			},
 			action: func(ctx context.Context, a *App, e *tuneEnv) (map[string]any, string, error) {
+				if len(e.leftovers) == 0 { // a quick read skips the scan: do it now
+					cfg, err := a.SAB().GetConfig(ctx)
+					if err != nil {
+						return nil, "", err
+					}
+					e.leftovers = a.findLeftovers(ctx, cfg)
+				}
+				if len(e.leftovers) == 0 {
+					return nil, "", userErr("Nothing to clean up now.")
+				}
 				n, freed, err := a.deleteLeftovers(ctx, e.leftovers)
 				if n == 0 && err != nil {
 					return nil, "", err

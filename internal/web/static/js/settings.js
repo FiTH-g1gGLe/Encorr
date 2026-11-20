@@ -634,6 +634,16 @@ async function pageSettings(main, section) {
           const bad = res.results.filter((x) => !x.ok);
           if (res.changed) toast(`Changed ${res.changed} setting${res.changed === 1 ? "" : "s"}`, "ok");
           bad.forEach((b) => toast(b.error, "error"));
+          // Show it straight away; the full re-check below takes a moment.
+          res.results.filter((x) => x.ok).forEach((x) => {
+            const b = qs(`[data-apply="${CSS.escape(x.id)}"]`, panel);
+            if (!b) return;
+            const card = b.closest(".tfind");
+            if (card) card.classList.add("applied");
+            b.disabled = true;
+            b.innerHTML = `${I.check} Done`;
+          });
+          if (btn && !btn.matches("[data-apply]")) busy(btn, false);
           load();
         } catch (e) { toast(e.message, "error"); busy(btn, false); }
       };
