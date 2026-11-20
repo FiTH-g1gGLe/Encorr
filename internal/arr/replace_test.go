@@ -58,3 +58,21 @@ func TestReplaceEpisodes(t *testing.T) {
 		}
 	}
 }
+
+func TestReleasesForEpisode(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.RawQuery)
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, APIKey: "k"}
+	ctx := context.Background()
+	_, _ = c.ReleasesFor(ctx, "tv", 5, 2, 0)
+	_, _ = c.ReleasesFor(ctx, "tv", 5, 2, 77)
+	_, _ = c.ReleasesFor(ctx, "movie", 9, 0, 0)
+	if len(got) != 3 || !strings.Contains(got[0], "seasonNumber=2") || !strings.Contains(got[0], "seriesId=5") ||
+		got[1] != "episodeId=77" || got[2] != "movieId=9" {
+		t.Fatalf("queries: %v", got)
+	}
+}

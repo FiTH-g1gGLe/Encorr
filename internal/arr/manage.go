@@ -110,10 +110,19 @@ var releaseClient = &http.Client{Timeout: 90 * time.Second}
 
 // Releases runs an interactive search for a film, or a show's season.
 func (c *Client) Releases(ctx context.Context, kind string, id, season int) ([]Release, error) {
+	return c.ReleasesFor(ctx, kind, id, season, 0)
+}
+
+// ReleasesFor searches every indexer for a film, a season, or one episode
+// (episodeID > 0, Sonarr's own episode id).
+func (c *Client) ReleasesFor(ctx context.Context, kind string, id, season, episodeID int) ([]Release, error) {
 	q := url.Values{}
-	if kind == "movie" {
+	switch {
+	case kind == "movie":
 		q.Set("movieId", strconv.Itoa(id))
-	} else {
+	case episodeID > 0:
+		q.Set("episodeId", strconv.Itoa(episodeID))
+	default:
 		q.Set("seriesId", strconv.Itoa(id))
 		q.Set("seasonNumber", strconv.Itoa(season))
 	}

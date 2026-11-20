@@ -339,18 +339,42 @@ async function manageModal(reqID, title, reload) {
 async function releasesModal(reqID, r, reload) {
   const seasons = r.type === "tv" ? (r.seasons || []) : [];
   let season = seasons[0] || 0;
+  let episode = 0; // 0 = the whole season
+  let episodes = {}; // season -> [{id, number, title, status}]
   const m = modal(`<div class="mhead"><div><h2>Pick a copy</h2><div class="muted small">${esc(r.title)}</div></div><button class="btn sq ghost" data-close aria-label="Close">${I.x}</button></div>
     ${seasons.length > 1 ? `<div class="etabs">${seasons.map((s) => `<button class="chip ${s === season ? "on" : ""}" data-rs="${s}">Season ${s}</button>`).join("")}</div>` : ""}
+    ${r.type === "tv" ? `<div class="eppick" hidden></div>` : ""}
     <div class="rels"></div>`, { wide: true, sheet: true });
+  const STATE = { have: "In your library", downloading: "Downloading", missing: "Missing", unaired: "Not out yet", skipped: "Not wanted" };
+  const paintEpisodes = () => {
+    const box = qs(".eppick", m.el);
+    const list = episodes[season] || [];
+    if (!box || !list.length) { if (box) box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<span class="small dim">Episode</span>
+      <button class="chip ${episode === 0 ? "on" : ""}" data-re="0">Whole season</button>
+      ${list.map((e) => `<button class="chip ep ${e.status || ""} ${episode === e.id ? "on" : ""}" data-re="${e.id}"${tip(`E${e.number}${e.title ? ": " + e.title : ""} · ${STATE[e.status] || ""}`)}>E${e.number}</button>`).join("")}`;
+    qsa("[data-re]", box).forEach((b) => b.addEventListener("click", () => { episode = Number(b.dataset.re); paintEpisodes(); load(); }));
+  };
+  if (r.type === "tv") {
+    api(`/requests/${reqID}/episodes`).then((x) => {
+      for (const s of x.seasons || []) episodes[s.season] = (s.episodes || []).filter((e) => e.number > 0);
+      paintEpisodes();
+    }).catch(() => {});
+  }
   const load = async () => {
     const box = qs(".rels", m.el);
     box.innerHTML = `<div class="rwait"><span class="spinner"></span> Asking every indexer. This can take up to a minute…</div>`;
+    const ask = [season ? "season=" + season : "", episode ? "episode=" + episode : ""].filter(Boolean).join("&");
+    const mine = `${season}:${episode}`;
     try {
-      const x = await api(`/requests/${reqID}/releases${season ? "?season=" + season : ""}`);
-      if (!x.releases.length) { box.innerHTML = `<p class="muted">No copies found right now. Radarr/Sonarr keep looking by themselves.</p>`; return; }
+      const x = await api(`/requests/${reqID}/releases${ask ? "?" + ask : ""}`);
+      if (mine !== `${season}:${episode}`) return; // they picked something else meanwhile
+      if (!x.releases.length) { box.innerHTML = `<p class="muted">No copies found right now. ${episode ? "Try the whole season: episodes often come in season packs." : "Radarr/Sonarr keep looking by themselves."}</p>`; return; }
       box.innerHTML = x.releases.map((rl, i) => `<div class="rel ${rl.approved ? "" : "rej"}">
-        <div class="rl"><strong title="${esc(rl.title)}">${esc(rl.title)}</strong>
-          <div class="rmeta"><span class="qchip">${esc(rl.quality || "?")}</span><span>${(rl.size / 1e9).toFixed(1)} GB</span><span>${esc(rl.age)} old</span><span>${esc(rl.indexer)}</span>${rl.fullSeason ? `<span>whole season</span>` : ""}${(rl.languages || []).length ? `<span>${esc(rl.languages.join(", "))}</span>` : ""}</div>
+        <div class="rl"><strong class="rname">${esc(rl.title)}</strong>
+          <div class="rmeta"><span class="qchip">${esc(rl.quality || "?")}</span><span>${(rl.size / 1e9).toFixed(1)} GB</span><span>${esc(rl.age)} old</span><span>${esc(rl.indexer)}</span>${rl.fullSeason ? `<span>whole season</span>` : ""}</div>
+          ${(rl.languages || []).length ? `<div class="rlang small dim">Also: ${esc(rl.languages.join(", "))}</div>` : ""}
           ${rl.rejections && rl.rejections.length ? `<div class="rwhy">${esc(rl.rejections.join(" · "))}</div>` : ""}</div>
         <button class="btn sm ${rl.approved ? "primary" : ""}" data-grab="${i}">${I.download} Get</button></div>`).join("");
       qsa("[data-grab]", box).forEach((b) => b.addEventListener("click", async () => {
@@ -361,7 +385,7 @@ async function releasesModal(reqID, r, reload) {
       }));
     } catch (e) { box.innerHTML = `<div class="notice error">${esc(e.message)}</div>`; }
   };
-  qsa("[data-rs]", m.el).forEach((b) => b.addEventListener("click", () => { season = Number(b.dataset.rs); qsa("[data-rs]", m.el).forEach((c) => c.classList.toggle("on", c === b)); load(); }));
+  qsa("[data-rs]", m.el).forEach((b) => b.addEventListener("click", () => { season = Number(b.dataset.rs); episode = 0; qsa("[data-rs]", m.el).forEach((c) => c.classList.toggle("on", c === b)); paintEpisodes(); load(); }));
   load();
 }
 

@@ -502,9 +502,10 @@ func (a *App) hReleases(w http.ResponseWriter, r *http.Request, u *store.User) {
 		fail(w, err)
 		return
 	}
-	kind, season := "movie", 0
+	kind, season, episode := "movie", 0, 0
 	if svc == "sonarr" {
 		kind = "tv"
+		episode, _ = strconv.Atoi(r.URL.Query().Get("episode"))
 		season, _ = strconv.Atoi(r.URL.Query().Get("season"))
 		if season == 0 {
 			if rq, _, ok := a.requestInfo(reqID); ok && len(rq.Seasons) > 0 {
@@ -514,7 +515,22 @@ func (a *App) hReleases(w http.ResponseWriter, r *http.Request, u *store.User) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	list, err := c.Releases(ctx, kind, ext, season)
+	if episode > 0 { // make sure the episode belongs to this show
+		eps, err := c.EpisodeDetails(ctx, ext)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		found := false
+		for _, e := range eps {
+			found = found || e.ID == episode
+		}
+		if !found {
+			fail(w, userErr("That episode isn't part of this show."))
+			return
+		}
+	}
+	list, err := c.ReleasesFor(ctx, kind, ext, season, episode)
 	if err != nil {
 		fail(w, err)
 		return
@@ -523,8 +539,8 @@ func (a *App) hReleases(w http.ResponseWriter, r *http.Request, u *store.User) {
 	for _, x := range list {
 		ro := releaseOut{GUID: x.GUID, IndexerID: x.IndexerID, Indexer: x.Indexer, Title: x.Title, Size: x.Size,
 			Age: ageText(x.AgeHours), Quality: x.Quality.Quality.Name, Approved: x.Approved && !x.Rejected, FullSeason: x.FullSeason}
-		if len(x.Rejections) > 2 {
-			ro.Rejections = x.Rejections[:2]
+		if len(x.Rejections) > 3 {
+			ro.Rejections = x.Rejections[:3]
 		} else {
 			ro.Rejections = x.Rejections
 		}
@@ -539,7 +555,7 @@ func (a *App) hReleases(w http.ResponseWriter, r *http.Request, u *store.User) {
 	if len(out) > 100 {
 		out = out[:100]
 	}
-	writeJSON(w, 200, map[string]any{"releases": out, "season": season})
+	writeJSON(w, 200, map[string]any{"releases": out, "season": season, "episode": episode})
 }
 
 // hGrab downloads the copy an admin picked.
