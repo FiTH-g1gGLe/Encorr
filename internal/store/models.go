@@ -61,6 +61,9 @@ type Data struct {
 	SubReminders map[string]bool `json:"subReminders,omitempty"`
 	// Issues are problems people reported with something in the library.
 	Issues []*Issue `json:"issues,omitempty"`
+	// Nudged remembers when Encorr last asked Radarr/Sonarr to search for
+	// something ("sonarr:12"), so a restart doesn't search everything again.
+	Nudged map[string]time.Time `json:"nudged,omitempty"`
 }
 
 // Issue statuses.

@@ -448,6 +448,10 @@ func (a *App) jobDownloads(ctx context.Context) (string, error) {
 			}
 		}
 		a.downloads[svc] = out[svc]
+		if a.queueSeen == nil {
+			a.queueSeen = map[string]bool{}
+		}
+		a.queueSeen[svc] = true
 	}
 	a.sabSnap = snap
 	stuckNow := a.sabWatch.see(snap, time.Now())
@@ -988,10 +992,10 @@ func (a *App) jobNudge(ctx context.Context) (string, error) {
 	for _, it := range todo {
 		k := it.svc + ":" + strconv.Itoa(it.id)
 		a.mu.Lock()
-		busy := len(a.downloads[it.svc][it.id]) > 0
-		if a.nudged == nil {
-			a.nudged = map[string]time.Time{}
-		}
+		// Anything in the queue, even finished and waiting to import, means
+		// a search would only grab it again. Until the queue has been read
+		// since start, Encorr can't tell, so it waits.
+		busy := !a.queueSeen[it.svc] || len(a.downloads[it.svc][it.id]) > 0
 		recent := time.Since(a.nudged[k]) < nudgeEvery
 		a.mu.Unlock()
 		if busy || recent {
@@ -1011,9 +1015,7 @@ func (a *App) jobNudge(ctx context.Context) (string, error) {
 			errs = append(errs, it.title+": "+err.Error())
 			continue
 		}
-		a.mu.Lock()
-		a.nudged[k] = time.Now()
-		a.mu.Unlock()
+		a.noteNudged(k)
 		asked = append(asked, it.title)
 	}
 	msg := "nothing stalled"

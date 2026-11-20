@@ -1836,12 +1836,7 @@ func (a *App) hSearchNow(w http.ResponseWriter, r *http.Request, u *store.User) 
 		fail(w, err)
 		return
 	}
-	a.mu.Lock()
-	if a.nudged == nil {
-		a.nudged = map[string]time.Time{}
-	}
-	a.nudged[svc+":"+strconv.Itoa(id)] = time.Now()
-	a.mu.Unlock()
+	a.noteNudged(svc + ":" + strconv.Itoa(id))
 	_ = a.Store.Update(func(d *store.Data) error {
 		if rq := d.RequestByID(reqID); rq != nil {
 			rq.Log("search", "Asked for a fresh search ("+what+") by "+u.Username)

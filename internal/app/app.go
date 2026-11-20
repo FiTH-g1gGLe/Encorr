@@ -37,6 +37,7 @@ type App struct {
 	sabWatch  sabWatch                           // spots SABnzbd's unpacking getting stuck
 	landed    map[string]map[int]time.Time       // finished downloading, waiting for Plex
 	nudged    map[string]time.Time               // "sonarr:12" -> last time Encorr asked for a fresh search
+	queueSeen map[string]bool                    // the Radarr/Sonarr queue has been read since start
 	movieInfo map[int]arr.MovieInfo              // Radarr id -> release dates etc.
 	showInfo  map[int]arr.SeriesInfo             // Sonarr id -> next episode etc.
 	recent    recentCache                        // "Just added to Plex" row
@@ -78,8 +79,38 @@ func New(st *store.Store, logger *log.Logger) *App {
 		loginLimiter: newRateLimiter(10, 15*time.Minute),
 		quit:         make(chan struct{}),
 	}
+	a.Store.Read(func(d *store.Data) {
+		a.nudged = map[string]time.Time{}
+		for k, t := range d.Nudged {
+			a.nudged[k] = t
+		}
+	})
 	a.setupJobs()
 	return a
+}
+
+// noteNudged records a search request, in memory and on disk. Call with a.mu
+// not held.
+func (a *App) noteNudged(k string) {
+	now := time.Now()
+	a.mu.Lock()
+	if a.nudged == nil {
+		a.nudged = map[string]time.Time{}
+	}
+	a.nudged[k] = now
+	a.mu.Unlock()
+	_ = a.Store.Update(func(d *store.Data) error {
+		if d.Nudged == nil {
+			d.Nudged = map[string]time.Time{}
+		}
+		d.Nudged[k] = now
+		for key, t := range d.Nudged { // forget old ones
+			if time.Since(t) > 14*24*time.Hour {
+				delete(d.Nudged, key)
+			}
+		}
+		return nil
+	})
 }
 
 // Start begins background jobs.

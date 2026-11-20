@@ -776,6 +776,27 @@ func TestEndToEnd(t *testing.T) {
 	if msg, _ := a.jobNudge(ctx); strings.Contains(msg, stalled) {
 		t.Fatal("should not ask again straight away")
 	}
+	// After a restart (an update, say) Encorr must not search everything
+	// again: it remembers, and it waits until it has seen the queue, so a
+	// finished download that's waiting to import isn't grabbed a second time.
+	{
+		a2 := New(a.Store, a.Log)
+		if msg, _ := a2.jobNudge(ctx); strings.Contains(msg, stalled) {
+			t.Fatal("a restart searched again")
+		}
+		_ = a2.Store.Update(func(d *store.Data) error { d.Nudged = nil; return nil })
+		a3 := New(a.Store, a.Log)
+		if msg, _ := a3.jobNudge(ctx); strings.Contains(msg, stalled) {
+			t.Fatal("searched before reading the queue")
+		}
+		a3.mu.Lock()
+		a3.queueSeen = map[string]bool{"radarr": true, "sonarr": true}
+		a3.downloads = map[string]map[int][]arr.QueueItem{"radarr": {}, "sonarr": {}}
+		a3.mu.Unlock()
+		if msg, _ := a3.jobNudge(ctx); !strings.Contains(msg, stalled) {
+			t.Fatalf("once the queue is known to be empty it should search: %q", msg)
+		}
+	}
 
 	// 25b. Collections: see the whole series and request what's missing in one go.
 	var col struct {
