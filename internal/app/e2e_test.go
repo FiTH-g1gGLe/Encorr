@@ -1875,6 +1875,38 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
+	// 44b. Deleted from Plex: a full scan puts it back to "not in your
+	// library", so it can be requested again.
+	{
+		var gone int
+		a.Store.Read(func(d *store.Data) {
+			for _, m := range d.Media {
+				if m.Type == store.TypeMovie && m.Status == store.MediaAvailable && gone == 0 {
+					gone = m.TMDBID
+				}
+			}
+		})
+		if gone == 0 {
+			t.Fatal("no film in Plex to delete")
+		}
+		fk.RemoveFromPlex(gone)
+		if _, err := a.jobPlexFull(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var status, plexKey string
+		a.Store.Read(func(d *store.Data) {
+			if m := d.MediaByTMDB(store.TypeMovie, gone); m != nil {
+				status, plexKey = m.Status, m.PlexKey
+			}
+		})
+		if status != store.MediaUnknown || plexKey != "" {
+			t.Fatalf("film %d deleted from Plex still shows %q (key %q)", gone, status, plexKey)
+		}
+		if code, body := owner.call("POST", "/requests", map[string]any{"type": "movie", "tmdbId": gone}, nil); code >= 300 {
+			t.Fatalf("couldn't request it again: %d %s", code, body)
+		}
+	}
+
 	// 45a. Clearing the logs.
 	{
 		a.activity("info", "Something happened", "")

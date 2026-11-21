@@ -416,7 +416,49 @@ func (a *App) jobPlexFull(ctx context.Context) (string, error) {
 			a.markAvailable(srcPlex, h.typ, h.id, h.e.Key, h.e.Seasons)
 		}
 	}
+	if movies+shows > 0 { // an empty answer is more likely a hiccup than an empty library
+		a.forgetRemoved(srcPlex)
+	}
 	return fmt.Sprintf("%d films, %d shows in Plex", movies, shows), nil
+}
+
+// forgetRemoved catches up with things deleted from Plex or Jellyfin after a
+// full scan: a film that was "in Plex" but isn't any more goes back to
+// "not in your library", so it shows correctly and can be requested again.
+func (a *App) forgetRemoved(src string) {
+	var gone []string
+	_ = a.Store.Update(func(d *store.Data) error {
+		for _, m := range d.Media {
+			if m.Status != store.MediaAvailable && m.Status != store.MediaPartial {
+				continue
+			}
+			e := d.Library[store.LibKey(m.Type, m.TMDBID)]
+			if src == srcPlex && e.Key == "" {
+				m.PlexKey = ""
+			}
+			if src == srcJellyfin && e.JF == "" {
+				m.JFKey = ""
+			}
+			if e.Empty() {
+				m.Status = store.MediaUnknown
+				m.AvailableAt = nil
+				gone = append(gone, m.Title)
+			}
+		}
+		return nil
+	})
+	if len(gone) > 0 {
+		lib := a.libName()
+		a.logf("no longer in %s: %s", lib, strings.Join(gone, ", "))
+		a.activity("info", "No longer in "+lib, strings.Join(gone, ", ")+". "+plural(len(gone), "It", "They")+" can be requested again.")
+	}
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // jobDownloads polls the Radarr/Sonarr queues (and SABnzbd, when set up)

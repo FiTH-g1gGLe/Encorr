@@ -278,6 +278,9 @@ func (a *App) jobJellyfinFull(ctx context.Context) (string, error) {
 	for _, h := range hits {
 		a.markAvailable(srcJellyfin, h.typ, h.id, h.e.JF, h.e.JFSeasons)
 	}
+	if movies+shows > 0 {
+		a.forgetRemoved(srcJellyfin)
+	}
 	return fmt.Sprintf("%d films, %d shows in Jellyfin", movies, shows), nil
 }
 

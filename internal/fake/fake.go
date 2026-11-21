@@ -1109,6 +1109,13 @@ func (s *Stack) sab(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// RemoveFromPlex deletes a film from the fake Plex library.
+func (s *Stack) RemoveFromPlex(tmdbID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.PlexMovies, tmdbID)
+}
+
 // AddToPlexQuietly adds a film with an old "added" date, so Plex's
 // recently-added list won't show it (like a slow Plex scan).
 func (s *Stack) AddToPlexQuietly(tmdbID int) {
