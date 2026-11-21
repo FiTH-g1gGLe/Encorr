@@ -368,6 +368,7 @@ func (a *App) DeleteRequest(reqID int, user store.User) error {
 }
 
 func (a *App) sendToArrAsync(reqID int) {
+	a.wakeDownloads()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()

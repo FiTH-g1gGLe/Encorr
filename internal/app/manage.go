@@ -671,6 +671,7 @@ func (a *App) hGrab(w http.ResponseWriter, r *http.Request, u *store.User) {
 	}
 	a.activity("action", "Picked a copy by hand", body.Title, reqID)
 	go func() { time.Sleep(3 * time.Second); _ = a.RunJob("downloads") }()
+	a.wakeDownloads()
 	writeJSON(w, 200, map[string]any{"ok": true, "message": "Downloading that copy now"})
 }
 

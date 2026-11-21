@@ -212,14 +212,25 @@ async function pageRequests(main, filter) {
       const ob = qs("#older");
       if (ob) ob.addEventListener("click", async () => { state.showOlder = true; const all = await api("/requests?filter=ready&older=1"); box.innerHTML = all.results.map(reqCard).join(""); bindReqActions(box, load); });
       bindReqActions(box, load);
-      const fast = r.results.some((x) => x.progress && x.state === "downloading");
+      // Check every few seconds while anything is moving (or was just asked
+      // for), so cards update live.
+      const fast = r.results.some((x) => ["downloading", "finishing", "searching"].includes(x.state) || (x.created && Date.now() - new Date(x.created) < 180000 && x.group !== "ready"));
       if (fast !== state.reqFast) { state.reqFast = fast; restart(); }
     } catch (e) {
       box.innerHTML = `<div class="notice error">${esc(e.message)}</div>`;
     }
   };
   let timer;
-  const restart = () => { clearInterval(timer); timer = setInterval(load, state.reqFast ? 5000 : 30000); state.timers.push(timer); };
+  const tick = () => { if (!document.hidden && document.body.contains(box0)) load(); };
+  const restart = () => { clearInterval(timer); timer = setInterval(tick, state.reqFast ? 3000 : 15000); state.timers.push(timer); };
+  // Coming back to the app (or tab) refreshes straight away.
+  const onBack = () => {
+    if (!document.body.contains(box0)) { document.removeEventListener("visibilitychange", onBack); window.removeEventListener("focus", onBack); return; }
+    if (!document.hidden) load();
+  };
+  const box0 = qs("#rlist");
+  document.addEventListener("visibilitychange", onBack);
+  window.addEventListener("focus", onBack);
   state.reqFast = false;
   state.showOlder = false;
   restart();

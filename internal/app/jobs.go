@@ -25,7 +25,16 @@ type job struct {
 	fn      func(ctx context.Context) (string, error)
 	trigger chan struct{}
 	running bool
+	// fast, when set and true, runs the job every few seconds instead of
+	// Every (download progress while something is downloading).
+	fast      func() bool
+	lastSaved time.Time
+	lastOK    bool
 }
+
+// fastEvery is how often download progress is read while something is on
+// its way: a film can arrive in under a minute on a fast line.
+var fastEvery = 3 * time.Second
 
 type JobView struct {
 	Name     string        `json:"name"`
@@ -42,7 +51,7 @@ func (a *App) setupJobs() {
 	add(&job{Name: "plex-full", Label: "Plex full library scan", Hour: 3, fn: a.jobPlexFull})
 	add(&job{Name: "jellyfin-recent", Label: "Jellyfin recently added scan", Every: 5 * time.Minute, fn: a.jobJellyfinRecent})
 	add(&job{Name: "jellyfin-full", Label: "Jellyfin full library scan", Hour: 3, fn: a.jobJellyfinFull})
-	add(&job{Name: "downloads", Label: "Download progress", Every: 15 * time.Second, fn: a.jobDownloads})
+	add(&job{Name: "downloads", Label: "Download progress", Every: 15 * time.Second, fn: a.jobDownloads, fast: a.downloadsBusy})
 	add(&job{Name: "watchlists", Label: "Plex watchlist sync", Every: 10 * time.Minute, fn: a.jobWatchlists})
 	add(&job{Name: "cleanup", Label: "Tidy old sessions", Hour: 4, fn: a.jobCleanup})
 	add(&job{Name: "nudge", Label: "Search again for stalled requests", Every: 2 * time.Hour, fn: a.jobNudge})
@@ -104,6 +113,9 @@ func (a *App) startJobs() {
 				}
 				ok := a.runJob(j)
 				next := j.Every
+				if j.fast != nil && j.fast() {
+					next = fastEvery
+				}
 				if next == 0 {
 					next = untilHour(j.Hour)
 					if !ok && next > time.Hour {
@@ -147,7 +159,16 @@ func (a *App) runJob(j *job) bool {
 		info.Message = err.Error()
 		a.logf("job %s: %v", j.Name, err)
 	}
-	_ = a.Store.Update(func(d *store.Data) error { d.Jobs[j.Name] = info; return nil })
+	// A job running every few seconds only writes its status now and then.
+	a.mu.Lock()
+	save := j.fast == nil || time.Since(j.lastSaved) > time.Minute || j.lastOK != (err == nil)
+	if save {
+		j.lastSaved, j.lastOK = time.Now(), err == nil
+	}
+	a.mu.Unlock()
+	if save {
+		_ = a.Store.Update(func(d *store.Data) error { d.Jobs[j.Name] = info; return nil })
+	}
 	return err == nil
 }
 
@@ -1067,4 +1088,42 @@ func (a *App) jobArrInfo(ctx context.Context) (string, error) {
 		return msg, errors.New(strings.Join(errs, "; "))
 	}
 	return msg, nil
+}
+
+// downloadsBusy is true while something is downloading, or for a few
+// minutes after something was requested or a copy was picked, so its card
+// moves along live.
+func (a *App) downloadsBusy() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if time.Since(a.wokeAt) < 3*time.Minute {
+		return true
+	}
+	for _, byID := range a.downloads {
+		for _, items := range byID {
+			for _, it := range items {
+				if !it.Blocked() && it.SizeLeft > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// wakeDownloads checks download progress now and keeps checking quickly for
+// a while: call it when something was just requested or grabbed.
+func (a *App) wakeDownloads() {
+	a.mu.Lock()
+	a.wokeAt = time.Now()
+	a.mu.Unlock()
+	if j, ok := a.jobs["downloads"]; ok {
+		go func() {
+			time.Sleep(4 * time.Second) // give Radarr/Sonarr a moment to send it on
+			select {
+			case j.trigger <- struct{}{}:
+			default:
+			}
+		}()
+	}
 }
